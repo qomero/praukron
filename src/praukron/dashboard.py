@@ -70,7 +70,33 @@ body {
   margin: 0; background: var(--bg); color: var(--ink);
   font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
-main { max-width: 1160px; margin: 0 auto; padding: 28px 16px 96px; }
+main { max-width: 1560px; margin: 0 auto; padding: 28px 16px 96px; }
+/* The side panel: everything awaiting the owner, beside whichever tab is open
+   (ADR-065). Narrow windows stack it above the tabs. */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }
+.content { min-width: 0; }
+aside.needs { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 12px 0 24px;
+              scrollbar-width: thin; }
+aside.needs > .needs-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; }
+aside.needs > .needs-head h2 { margin: 0; color: var(--ink); }
+aside.needs .needcount { font-variant-numeric: tabular-nums; font-size: 12px; padding: 1px 8px;
+              border-radius: 999px; background: var(--warn); color: var(--bg); font-weight: 600; }
+aside.needs .needcount.zero { background: var(--line); color: var(--muted); }
+aside.needs h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+              margin: 16px 0 8px; font-weight: 600; }
+aside.needs .acards { padding: 0; }
+aside.needs ul.plain > li { background: var(--panel); border: 1px solid var(--line);
+              border-radius: var(--radius); padding: 10px 12px; margin: 0 0 8px; box-shadow: var(--shadow); }
+aside.needs .controls { flex-wrap: wrap; }
+aside.needs .review-by { flex: 1 1 160px; min-width: 0; }
+aside.needs details.group { background: none; border: 0; box-shadow: none; margin: 0; }
+aside.needs details.group > summary { padding: 4px 0; }
+aside.needs details.group > .note { padding: 0; margin: 0 0 8px; }
+aside.needs a, .panel a[href="#needs-you"] { color: var(--accent); }
+@media (max-width: 1099px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  aside.needs { position: static; max-height: none; order: -1; padding-top: 0; }
+}
 header.top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between;
              flex-wrap: wrap; padding-bottom: 16px; }
 h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
@@ -713,7 +739,18 @@ document.querySelector('.toptabs').addEventListener('keydown', event => {
   event.preventDefault();
   selectTab(topTabs[next].dataset.tab, { focus: true });
 });
-addEventListener('hashchange', () => selectTab(location.hash.slice(1), { record: false }));
+addEventListener('hashchange', () => {
+  // A link to a card (#assumption-A-1, #needs-you) moves to it without
+  // switching tabs; only a tab name selects a tab.
+  const name = location.hash.slice(1);
+  if (TOP.includes(name)) return selectTab(name, { record: false });
+  const target = document.getElementById(name);
+  if (!target) return;
+  if (target.tagName === 'DETAILS') target.open = true;
+  const holder = target.parentElement && target.parentElement.closest('details');
+  if (holder) holder.open = true;
+  target.scrollIntoView({ block: 'start' });
+});
 selectTab(location.hash.slice(1) || 'overview', { record: Boolean(location.hash) });
 
 // --- Theme -------------------------------------------------------------
@@ -1196,11 +1233,15 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             f'<span class="note">{esc(item["detail"])}</span><br>'
             f'<span class="note"><strong>To unblock:</strong> {esc(item.get("unblock", ""))} · '
             f'<strong>Who acts:</strong> {esc(item.get("actor", "agent"))}</span>'
-            + ("".join(review.guide(h, interactive) for h in item.get("holders", [])) if offer_guide else "")
+            + ("".join("<br>" + review.guide(h, interactive) for h in item.get("holders", [])) if offer_guide else "")
             + "</li>"
         )
 
-    execution_obstacles = [o for o in compiled["obstacles"] if o.get("domain", "execution") == "execution"]
+    # Every obstacle only the owner can clear goes to the side panel, not to a
+    # tab (ADR-065); the groups below hold the rest.
+    owner_held = [o for o in compiled["obstacles"] if o.get("actor") == "owner"]
+    execution_obstacles = [o for o in compiled["obstacles"]
+                           if o.get("domain", "execution") == "execution" and o not in owner_held]
     blocked = set(compiled["blocked"])
     groups = []
     for kind, label in _OBSTACLE_GROUPS:
@@ -1216,10 +1257,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             continue
         if items:
             groups.append((label, items, True, ""))
-    owner_held = [o for o in execution_obstacles
-                  if o["type"] == "DEPENDENCY_BLOCKER" and o.get("actor") == "owner"]
-    dependency = [o for o in execution_obstacles
-                  if o["type"] == "DEPENDENCY_BLOCKER" and o not in owner_held]
+    dependency = [o for o in execution_obstacles if o["type"] == "DEPENDENCY_BLOCKER"]
     direct = [o for o in dependency if any(b not in blocked for b in o["blockers"])]
     downstream = [o for o in dependency if o not in direct]
     if direct:
@@ -1233,15 +1271,15 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     other = [o for o in execution_obstacles if o["type"] not in known_kinds]
     if other:
         groups.append(("Other obstacles", other, True, ""))
-    if owner_held:
-        groups.insert(0, ("Waiting on the owner", owner_held, True,
-                          '<p class="note">Only a named person can finish the work these wait on.</p>'))
-    obstacles = "".join(
+    obstacles = (
+        f'<p class="note">{len(owner_held)} wait{"s" if len(owner_held) == 1 else ""} on the owner, in the '
+        '<a href="#needs-you">Needs you</a> panel.</p>' if owner_held else ""
+    ) + ("".join(
         f'<details class="group"{" open" if opened else ""}><summary>{esc(label)}'
         f'<span class="count">{len(items)}</span></summary>{note}'
-        f'<ul class="plain">{"".join(obstacle_item(o, label == "Waiting on the owner") for o in items)}</ul></details>'
+        f'<ul class="plain">{"".join(obstacle_item(o) for o in items)}</ul></details>'
         for label, items, opened, note in groups
-    ) or '<p class="note">No execution obstacles. Everything open is startable.</p>'
+    ) or '<p class="note">No other execution obstacles.</p>')
 
     critical = "".join(
         f'<li class="{"done" if tasks.get(t, {}).get("status") == "DONE" else ""}">'
@@ -1347,7 +1385,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             + "".join(operation_row(t) for t in done_ops) + "</details>"
         )
 
-    ops_obstacles = [o for o in compiled["obstacles"] if o.get("domain") == "operations"]
+    ops_obstacles = [o for o in compiled["obstacles"]
+                     if o.get("domain") == "operations" and o not in owner_held]
     failed_events = [e for e in all_events if e["type"] == "failure" or e["outcome"] == "failure"]
     warnings = event_list(failed_events, "No failed events recorded.")
     if ops_obstacles:
@@ -1531,7 +1570,6 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   <h2>Ready</h2>
   <div class="tablewrap"><table>{table_head}<tbody>{task_rows(ready_execution)}</tbody></table></div>
   <h2>Obstacles</h2>
-  {review.review_bar(interactive and bool(owner_held))}
   {obstacles}
   <h2>Owner guidance</h2>
   {review.guidance(compiled, ref)}
@@ -1606,7 +1644,29 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   </div>
   <div class="box" id="decision-list">{decision_items or '<p class="note">No decisions recorded.</p>'}</div>
 """)
-    assumptions_panel = panel("assumptions", review.panel_body(compiled, ref, interactive))
+    assumptions_body, queue, queued, awaiting_agent = review.panel_body(compiled, ref, interactive)
+    assumptions_panel = panel("assumptions", assumptions_body)
+    waiting = len(owner_held) + queued
+    needs = (
+        '<aside class="needs" id="needs-you" aria-labelledby="needs-title">'
+        '<div class="needs-head"><h2 id="needs-title">Needs you</h2>'
+        f'<span class="needcount{"" if waiting else " zero"}">{waiting}</span></div>'
+        '<p class="note">Everything waiting on a person, whichever tab is open.</p>'
+        + (review.review_bar(True) + '<p class="note">Each card starts at OK. A card you open or mark '
+           "reviewed is recorded as confirmed when you submit; a card you never open records nothing. "
+           "Feedback is recorded verbatim with your name.</p>" if interactive and waiting else "")
+        + (f"<h3>Assumptions to review</h3>{queue}" if queue else "")
+        + (
+            "<h3>Waiting on the owner</h3>"
+            '<p class="note">Only a named person can finish the work these wait on.</p>'
+            f'<ul class="plain">{"".join(obstacle_item(o, True) for o in owner_held)}</ul>'
+            if owner_held else ""
+        )
+        + ("" if waiting else '<p class="note">Nothing waits for you.</p>')
+        + (f'<p class="note">{awaiting_agent} answered, waiting for the agent: '
+           '<a href="#assumptions">Assumptions</a>.</p>' if awaiting_agent else "")
+        + "</aside>"
+    )
     registry = panel("tasks", f"""
   <h2>All tasks</h2>
   <div class="controls">
@@ -1647,6 +1707,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     </div>
   </header>
 
+  <div class="layout">
+  <div class="content">
   <nav class="toptabs" role="tablist" aria-label="Report sections">{tab_buttons}</nav>
 {overview}
 {assumptions_panel}
@@ -1656,6 +1718,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 {governance}
 {decisions}
 {registry}
+  </div>
+  {needs}
+  </div>
   <footer>
     Generated by <code>praukron dashboard</code>. This page is derived and read-only:
     it reports authority and cannot change it. Edit

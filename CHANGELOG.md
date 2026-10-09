@@ -4,6 +4,14 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 1.2.0 — 2026-10-09
+
+- Dashboard: a "Needs you" side panel on the right, visible on every tab,
+  holds everything waiting on the owner at once: open assumptions
+  (permission first) and every obstacle only the owner can clear, with
+  Guide. Under `--serve` all forms and the one submit bar live there
+  (ADR-065).
+
 ## 1.1.0 — 2026-10-04
 
 - Rename the project, repository, commands, package and owned directory to

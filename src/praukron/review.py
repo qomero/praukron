@@ -1,4 +1,4 @@
-"""The Assumptions tab: the owner's review queue (ADR-054, ADR-055).
+"""The owner's review queue (ADR-054, ADR-055) and the side panel it lives in (ADR-065).
 
 Everything here is laid out from compiled data. The static page is read-only;
 only `praukron dashboard --serve` turns the cards into a form, and that form
@@ -90,7 +90,7 @@ if (reviewBars.length) {
   names.forEach(n => { n.value = remembered; n.addEventListener('input', () => {
     names.forEach(o => { if (o !== n) o.value = n.value; });
     try { localStorage.setItem('praukron-reviewer', n.value); } catch (e) {} }); });
-  acards.forEach(card => card.addEventListener('toggle', () => { if (card.open) card.dataset.seen = '1'; }));
+  document.querySelectorAll('details.acard').forEach(card => card.addEventListener('toggle', () => { if (card.open) card.dataset.seen = '1'; }));
   document.querySelectorAll('.aform textarea').forEach(area => area.addEventListener('input', () => {
     const form = area.closest('.aform');
     const feedback = form.querySelector('input[value="FEEDBACK"]');
@@ -177,12 +177,17 @@ def guidance(compiled: dict, ref) -> str:
     ) + "</div>"
 
 
-def panel_body(compiled: dict, ref, interactive: bool = False) -> str:
+def panel_body(compiled: dict, ref, interactive: bool = False) -> tuple[str, str, int, int]:
+    """The Assumptions tab, and the queue the side panel shows instead of it.
+
+    Returns the tab body, the queue markup, how many cards the queue holds, and
+    how many answered assumptions wait for the agent. The queue's cards render
+    only in the side panel, never also in the tab (ADR-065)."""
     assumptions = compiled["assumptions"]
     report = compiled["assumptionReport"]
     if not assumptions:
         return ('<h2>Assumptions</h2><p class="note">No assumptions recorded. Agents record a '
-                "provisional choice in <code>ASSUMPTIONS.md</code> before relying on it.</p>")
+                "provisional choice in <code>ASSUMPTIONS.md</code> before relying on it.</p>", "", 0, 0)
     tasks = {t["id"]: t for t in compiled["tasks"]}
     responses: dict[str, list[dict]] = {}
     for r in compiled["responses"]:
@@ -308,7 +313,8 @@ def panel_body(compiled: dict, ref, interactive: bool = False) -> str:
                 '<p class="note">HIGH first, then those resting on finished or critical-path work, '
                 'then the current phase.</p>')
     )
-    return (
+    in_tab = len(assumptions) - len(permission) - len(review)
+    tab = (
         "<h2>Assumptions</h2>"
         f'<p class="note">{summary}. An assumption holds no authority; the records it is applied in do.</p>'
         '<div class="controls"><input type="search" id="assume-search" placeholder="Search assumptions…"'
@@ -317,16 +323,14 @@ def panel_body(compiled: dict, ref, interactive: bool = False) -> str:
         + select("assume-impact", "Impact", [(i, i) for i in impacts])
         + select("assume-status", "Status", [(s, s) for s in statuses])
         + select("assume-kind", "Kind", [("permission", "Permissions")])
-        + f'<span class="shown" id="assume-shown" aria-live="polite">{len(assumptions)} of {len(assumptions)}</span></div>'
-        + review_bar(interactive)
-        + ('<p class="note">Each card starts at OK. A card you open or mark reviewed is recorded as '
-           "confirmed when you submit; a card you never open records nothing. Feedback is recorded "
-           "verbatim with your name.</p>" if interactive else "")
+        + f'<span class="shown" id="assume-shown" aria-live="polite">{in_tab} of {in_tab}</span></div>'
         + '<h3>Needs your review</h3>'
-        + (queue or '<p class="note">Nothing waits for your review.</p>')
+        + (f'<p class="note">{len(permission) + len(review)} open, in the <a href="#needs-you">Needs you</a> '
+           "panel beside every tab.</p>" if queue else '<p class="note">Nothing waits for your review.</p>')
         + "<h3>Waiting for the agent</h3>"
         + (group("Responded, not yet reconciled", agent, False) or '<p class="note">Nothing waits for the agent.</p>')
         + f'<h3>Recently changed</h3><div class="box"><ul class="plain">{recent_list}</ul></div>'
         + "<h3>Settled</h3>"
         + (group("Confirmed, revised, rejected, or withdrawn", settled, False) or '<p class="note">Nothing settled yet.</p>')
     )
+    return tab, queue, len(permission) + len(review), len(agent)
