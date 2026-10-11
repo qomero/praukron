@@ -112,7 +112,7 @@ class ProjectionCase(unittest.TestCase):
                            ("ACCEPTANCE.md", ACCEPTANCE),
                            ("THESIS.md", "# Product thesis\n\n- Statement: It works.\n"),
                            ("INTENT.md", "# Intent\n\nNone.\n"), ("HANDOFF.md", "# Handoff\n\nNone.\n")):
-            (authority / name).write_text(text)
+            (authority / name).write_text(text, encoding="utf-8")
         self.project = compiler.load(self.dir)
         self.report = analytics.report(self.project)
         self.metrics = self.report.metrics()
@@ -183,10 +183,10 @@ class TestProjection(ProjectionCase):
         self.assertIn("3 done tasks ahead of P1's exit (T-EXIT): P2 3", self.status())
         self.assertIn('id="work-ahead"', self.html())
         self.assertIn("Work ahead of phase closure", views.state(self.project, self.report))
-        before = {p.name: p.read_text() for p in (self.dir / layout.AUTHORITY_DIR).glob("*.md")}
+        before = {p.name: p.read_text(encoding="utf-8") for p in (self.dir / layout.AUTHORITY_DIR).glob("*.md")}
         compiler.write(self.dir, self.project)
         for name, text in before.items():
-            self.assertEqual((self.dir / layout.AUTHORITY_DIR / name).read_text(), text)
+            self.assertEqual((self.dir / layout.AUTHORITY_DIR / name).read_text(encoding="utf-8"), text)
 
     def test_untested_done_work_says_whether_it_was_exercised(self) -> None:
         """AC-T-PROJECTION-01-05."""
@@ -203,14 +203,14 @@ class TestProjection(ProjectionCase):
     def test_output_is_deterministic_and_formats_are_unchanged(self) -> None:
         """AC-T-PROJECTION-01-06."""
         compiler.write(self.dir, self.project)
-        first = (self.dir / layout.COMPILED_DIR / "project.json").read_text()
-        index = (self.dir / layout.AUTHORITY_DIR / "INDEX.md").read_text()
+        first = (self.dir / layout.COMPILED_DIR / "project.json").read_text(encoding="utf-8")
+        index = (self.dir / layout.AUTHORITY_DIR / "INDEX.md").read_text(encoding="utf-8")
         self.assertEqual(self.html(), self.html())
         self.assertEqual(self.status(), self.status())
         self.project = compiler.load(self.dir)
         compiler.write(self.dir, self.project)
-        self.assertEqual((self.dir / layout.COMPILED_DIR / "project.json").read_text(), first)
-        self.assertEqual((self.dir / layout.AUTHORITY_DIR / "INDEX.md").read_text(), index)
+        self.assertEqual((self.dir / layout.COMPILED_DIR / "project.json").read_text(encoding="utf-8"), first)
+        self.assertEqual((self.dir / layout.AUTHORITY_DIR / "INDEX.md").read_text(encoding="utf-8"), index)
         from praukron import model
         self.assertEqual(model.VALIDATIONS, ("UNTESTED", "SYNTHETIC", "AI_REVIEWED", "HUMAN_VERIFIED"))
         self.assertEqual(model.CRITERION_STATES, ("PASS", "FAIL", "NOT_RUN"))

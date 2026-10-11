@@ -118,9 +118,9 @@ def refresh(root: Path) -> None:
     compiler.write(root, project)
     compiled = root / COMPILED_DIR
     for name, text in mermaid.render_all(project, report).items():
-        (compiled / name).write_text(text)
+        (compiled / name).write_text(text, encoding="utf-8")
     (compiled / "dashboard.html").write_text(
-        dashboard.render(project, report, compiler.as_json(project)))
+        dashboard.render(project, report, compiler.as_json(project)), encoding="utf-8")
 
 
 def append(root: Path, items: list[Item], by: str, via: str = "cli",

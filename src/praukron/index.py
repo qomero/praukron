@@ -54,7 +54,7 @@ def _journal_headings(project: Project, root) -> list[str]:
     path = root / layout.AUTHORITY_DIR / "JOURNAL.md"
     if not path.is_file():
         return []
-    return re.findall(r"(?m)^## (.+)$", path.read_text())
+    return re.findall(r"(?m)^## (.+)$", path.read_text(encoding="utf-8"))
 
 
 def view(project: Project, report: Report, root) -> dict[str, object]:
@@ -256,7 +256,7 @@ def findings(project: Project, report: Report, root) -> list[Finding]:
     found: list[Finding] = []
     if not path.is_file():
         found.append(Finding("warning", "index-missing", "INDEX.md has not been generated; run praukron compile", FILE))
-    elif path.read_text() != fresh:
+    elif path.read_text(encoding="utf-8") != fresh:
         found.append(Finding("warning", "index-stale",
                              "INDEX.md differs from the records; run praukron compile (edits to it are never kept)", FILE))
     size = tokens(fresh)

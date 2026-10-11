@@ -160,14 +160,14 @@ ADR = """# ADR-001: Do the simple thing
 def build_fixture(root: Path, authority: str = layout.AUTHORITY_DIR) -> Path:
     authority = root / authority
     (authority / "ADR").mkdir(parents=True)
-    (authority / "PHASES.md").write_text(PHASES)
-    (authority / "THESIS.md").write_text(THESIS)
-    (authority / "MODULES.md").write_text(MODULES)
-    (authority / "TASKS.md").write_text(TASKS)
-    (authority / "ACCEPTANCE.md").write_text(ACCEPTANCE)
-    (authority / "ADR" / "ADR-001.md").write_text(ADR)
-    (authority / "INTENT.md").write_text("# Intent\n\nNo active intent.\n")
-    (authority / "HANDOFF.md").write_text("# Handoff\n\nNothing in flight.\n")
+    (authority / "PHASES.md").write_text(PHASES, encoding="utf-8")
+    (authority / "THESIS.md").write_text(THESIS, encoding="utf-8")
+    (authority / "MODULES.md").write_text(MODULES, encoding="utf-8")
+    (authority / "TASKS.md").write_text(TASKS, encoding="utf-8")
+    (authority / "ACCEPTANCE.md").write_text(ACCEPTANCE, encoding="utf-8")
+    (authority / "ADR" / "ADR-001.md").write_text(ADR, encoding="utf-8")
+    (authority / "INTENT.md").write_text("# Intent\n\nNo active intent.\n", encoding="utf-8")
+    (authority / "HANDOFF.md").write_text("# Handoff\n\nNothing in flight.\n", encoding="utf-8")
     return root
 
 
@@ -180,9 +180,9 @@ class FixtureCase(unittest.TestCase):
 
     def rewrite(self, name: str, old: str, new: str) -> None:
         path = self.root / layout.AUTHORITY_DIR / name
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         self.assertIn(old, text)
-        path.write_text(text.replace(old, new, 1))
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
         self.project = compiler.load(self.root)
 
     def codes(self) -> set[str]:
@@ -235,7 +235,7 @@ class TestParsing(FixtureCase):
         self.assertEqual(self.project.milestones[0].task, "T-ONE")
 
     def test_malformed_task_heading_names_the_file(self) -> None:
-        (self.root / layout.AUTHORITY_DIR / "TASKS.md").write_text("# Tasks\n\n## nonsense\n")
+        (self.root / layout.AUTHORITY_DIR / "TASKS.md").write_text("# Tasks\n\n## nonsense\n", encoding="utf-8")
         with self.assertRaises(ParseError) as caught:
             compiler.load(self.root)
         self.assertEqual(caught.exception.file, "TASKS.md")
@@ -248,7 +248,7 @@ class TestParsing(FixtureCase):
 
     def rewrite_raw(self, name: str, old: str, new: str) -> None:
         path = self.root / layout.AUTHORITY_DIR / name
-        path.write_text(path.read_text().replace(old, new, 1))
+        path.write_text(path.read_text(encoding="utf-8").replace(old, new, 1), encoding="utf-8")
 
 
 class TestValidation(FixtureCase):
@@ -261,7 +261,7 @@ class TestValidation(FixtureCase):
 
     def test_duplicate_task(self) -> None:
         path = self.root / layout.AUTHORITY_DIR / "TASKS.md"
-        path.write_text(path.read_text() + TASKS.split("# Tasks\n")[1].split("## T-TWO")[0])
+        path.write_text(path.read_text(encoding="utf-8") + TASKS.split("# Tasks\n")[1].split("## T-TWO")[0], encoding="utf-8")
         self.project = compiler.load(self.root)
         self.assertIn("duplicate-task", self.codes())
 
@@ -334,12 +334,12 @@ class TestValidation(FixtureCase):
     def test_two_active_phases_are_an_error(self) -> None:
         path = self.root / layout.AUTHORITY_DIR / "PHASES.md"
         path.write_text(
-            path.read_text().replace(
+            path.read_text(encoding="utf-8").replace(
                 "---\n\n# Gates",
                 "---\n\n## P2 — Second\n\nOutcome:\nMore.\n\nEntry:\n- P1 done.\n\n"
                 "Exit:\n- Nothing.\n\nExit authority:\nT-THREE\n\nStatus:\nACTIVE\n\n---\n\n# Gates",
             )
-        )
+        , encoding="utf-8")
         self.project = compiler.load(self.root)
         self.assertIn("multiple-active-phases", self.codes())
 
@@ -363,7 +363,7 @@ class TestReconstructedDecisions(FixtureCase):
     when a person confirms it."""
 
     def add(self, text: str = RECONSTRUCTED_ADR) -> None:
-        (self.root / layout.AUTHORITY_DIR / "ADR" / "ADR-002.md").write_text(text)
+        (self.root / layout.AUTHORITY_DIR / "ADR" / "ADR-002.md").write_text(text, encoding="utf-8")
         self.project = compiler.load(self.root)
 
     def test_an_adr_without_origin_is_contemporaneous(self) -> None:
@@ -506,8 +506,8 @@ class TestAnalytics(FixtureCase):
 
     def test_a_packet_omits_narrative_about_other_work(self) -> None:
         """A cold agent cannot tell which of two contradicting statements to believe."""
-        (self.root / layout.AUTHORITY_DIR / "INTENT.md").write_text("# Intent\n\nTask: T-ONE, in flight.\n")
-        (self.root / layout.AUTHORITY_DIR / "HANDOFF.md").write_text("# Handoff\n\nT-ONE is half built.\n")
+        (self.root / layout.AUTHORITY_DIR / "INTENT.md").write_text("# Intent\n\nTask: T-ONE, in flight.\n", encoding="utf-8")
+        (self.root / layout.AUTHORITY_DIR / "HANDOFF.md").write_text("# Handoff\n\nT-ONE is half built.\n", encoding="utf-8")
         project = compiler.load(self.root)
         about_other = analytics.context(project, "T-TWO")
         self.assertIsNone(about_other["intent"])
@@ -707,7 +707,7 @@ class TestHierarchy(FixtureCase):
         (self.root / layout.AUTHORITY_DIR / "THESIS.md").unlink()
         (self.root / layout.AUTHORITY_DIR / "MODULES.md").unlink()
         path = self.root / layout.AUTHORITY_DIR / "TASKS.md"
-        path.write_text(path.read_text().replace("- Module: M-FOUNDATION", "- Phase: P1"))
+        path.write_text(path.read_text(encoding="utf-8").replace("- Module: M-FOUNDATION", "- Phase: P1"), encoding="utf-8")
         project = compiler.load(self.root)
         findings = validate.check(project)
         self.assertEqual(validate.errors(findings), [])
@@ -1113,7 +1113,7 @@ class TestDashboardTabs(FixtureCase):
         self.assertNotIn('data-filter="', decisions)
 
     def test_decision_filters_come_only_from_values_present(self) -> None:
-        (self.root / layout.AUTHORITY_DIR / "ADR" / "ADR-002.md").write_text(RECONSTRUCTED_ADR)
+        (self.root / layout.AUTHORITY_DIR / "ADR" / "ADR-002.md").write_text(RECONSTRUCTED_ADR, encoding="utf-8")
         project = compiler.load(self.root)
         html = dashboard.render(project, analytics.report(project), compiler.as_json(project))
         chips = re.findall(r'data-filter="([^"]*)"', html)
@@ -1205,25 +1205,25 @@ class DomainCase(unittest.TestCase):
         )
         if gate:
             phases += f"\n---\n\n# Gates\n\n{gate}\n"
-        (authority / "PHASES.md").write_text(phases)
-        (authority / "THESIS.md").write_text("# Product thesis\n\n- Statement: It ships.\n")
+        (authority / "PHASES.md").write_text(phases, encoding="utf-8")
+        (authority / "THESIS.md").write_text("# Product thesis\n\n- Statement: It ships.\n", encoding="utf-8")
         (authority / "MODULES.md").write_text(
             "# Modules\n\n## M-P1 — Product\n- Phase: P1\n- Outcome: It ships.\n\n"
             "## M-P-NONE — Around it\n- Phase: P-NONE\n- Outcome: It keeps shipping.\n"
-        )
-        (authority / "TASKS.md").write_text("# Tasks\n\n" + "\n".join(tasks))
+        , encoding="utf-8")
+        (authority / "TASKS.md").write_text("# Tasks\n\n" + "\n".join(tasks), encoding="utf-8")
         (authority / "ACCEPTANCE.md").write_text(
             "# Acceptance\n" + "".join(_domain_contract(t, st) for t, st in contracts.items())
-        )
-        (authority / "INTENT.md").write_text("# Intent\n\nNone.\n")
-        (authority / "HANDOFF.md").write_text("# Handoff\n\nNone.\n")
+        , encoding="utf-8")
+        (authority / "INTENT.md").write_text("# Intent\n\nNone.\n", encoding="utf-8")
+        (authority / "HANDOFF.md").write_text("# Handoff\n\nNone.\n", encoding="utf-8")
         if trace is not None:
-            (authority / "TRACE.md").write_text("# Trace\n\n" + trace)
+            (authority / "TRACE.md").write_text("# Trace\n\n" + trace, encoding="utf-8")
         if debt is not None:
-            (authority / "TECH_DEBT.md").write_text("# Technical debt\n\n" + debt)
+            (authority / "TECH_DEBT.md").write_text("# Technical debt\n\n" + debt, encoding="utf-8")
         for adr_id, title in (adrs or {}).items():
             (authority / "ADR" / f"{adr_id}.md").write_text(
-                f"# {adr_id}: {title}\n- Date: 2026-01-01\n- Status: ACCEPTED\n- Decision: {title}.\n")
+                f"# {adr_id}: {title}\n- Date: 2026-01-01\n- Status: ACCEPTED\n- Decision: {title}.\n", encoding="utf-8")
         self.project = compiler.load(self.dir)
         self.report = analytics.report(self.project)
         self.compiled = compiler.as_json(self.project)
@@ -1267,7 +1267,7 @@ class TestDomainResolution(DomainCase):
         self.assertIn(self.project.task("T-1").domain, ("execution", "operations"))
 
     def test_the_resolver_reads_no_titles_or_ids(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "src/praukron/domain.py").read_text()
+        source = (Path(__file__).resolve().parents[1] / "src/praukron/domain.py").read_text(encoding="utf-8")
         code = source.split('"""', 2)[2]
         self.assertNotIn(".title", code)
         self.assertNotIn("startswith", code)
@@ -1525,7 +1525,7 @@ class TestTechnicalDebt(FixtureCase):
     """Debt is a liability with a lineage, not work (ADR-046)."""
 
     def write(self, text: str = DEBT) -> None:
-        (self.root / layout.AUTHORITY_DIR / "TECH_DEBT.md").write_text(text)
+        (self.root / layout.AUTHORITY_DIR / "TECH_DEBT.md").write_text(text, encoding="utf-8")
         self.project = compiler.load(self.root)
 
     def test_a_record_parses_with_its_lineage(self) -> None:
@@ -1595,7 +1595,7 @@ class TestIndex(DomainCase):
 
     def compile(self) -> str:
         compiler.write(self.dir, self.project)
-        return (self.dir / layout.AUTHORITY_DIR / "INDEX.md").read_text()
+        return (self.dir / layout.AUTHORITY_DIR / "INDEX.md").read_text(encoding="utf-8")
 
     def markers(self, text: str) -> dict[str, str]:
         current = text.split("## Current", 1)[1].split("\n## ", 1)[0]
@@ -1660,13 +1660,13 @@ class TestIndex(DomainCase):
         self.standard()
         first = self.compile()
         path = self.dir / layout.AUTHORITY_DIR / "INDEX.md"
-        path.write_text(first.replace("- execution_task: T-1", "- execution_task: T-99"))
+        path.write_text(first.replace("- execution_task: T-1", "- execution_task: T-99"), encoding="utf-8")
         edited = compiler.load(self.dir)
         self.assertEqual(analytics.report(edited).in_flight, ["T-1"])
         self.assertEqual(
             [f.code for f in index.findings(edited, analytics.report(edited), self.dir)], ["index-stale"])
         tasks = self.dir / layout.AUTHORITY_DIR / "TASKS.md"
-        tasks.write_text(tasks.read_text().replace("## T-1: Work T-1\n- Status: WIP", "## T-1: Work T-1\n- Status: DONE"))
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace("## T-1: Work T-1\n- Status: WIP", "## T-1: Work T-1\n- Status: DONE"), encoding="utf-8")
         self.project = compiler.load(self.dir)
         second = self.compile()
         self.assertNotEqual(first, second)
@@ -1675,12 +1675,12 @@ class TestIndex(DomainCase):
     def test_it_is_neither_the_handoff_nor_the_readme(self) -> None:
         self.standard()
         (self.dir / layout.AUTHORITY_DIR / "HANDOFF.md").write_text(
-            "# Handoff\n\n## Position\n- long history\n\n## Next action\nFinish T-1 before starting T-2.\n")
+            "# Handoff\n\n## Position\n- long history\n\n## Next action\nFinish T-1 before starting T-2.\n", encoding="utf-8")
         self.project = compiler.load(self.dir)
         text = self.compile()
         self.assertIn("Finish T-1 before starting T-2.", text)
         self.assertNotIn("long history", text)
-        self.assertEqual((self.dir / layout.AUTHORITY_DIR / "HANDOFF.md").read_text().count("## Next action"), 1)
+        self.assertEqual((self.dir / layout.AUTHORITY_DIR / "HANDOFF.md").read_text(encoding="utf-8").count("## Next action"), 1)
         self.assertNotIn("## Read order", text)
 
     def test_a_missing_index_is_reported(self) -> None:
@@ -1711,9 +1711,9 @@ class TestRetrieval(DomainCase):
                    trace="## EV-1: Build fixtures\n- Type: command\n- Task: T-O1\n- Outcome: failure\n- Affects: T-2\n\n"
                          "## EV-2: Unrelated note\n- Type: note\n- Task: T-X5\n")
         tasks_md = self.dir / layout.AUTHORITY_DIR / "TASKS.md"
-        tasks_md.write_text(tasks_md.read_text().replace(
+        tasks_md.write_text(tasks_md.read_text(encoding="utf-8").replace(
             "## T-1: Work T-1\n- Status: WIP\n- Module: M-P1\n",
-            "## T-1: Work T-1\n- Status: WIP\n- Module: M-P1\n- Governed by: ADR-001\n"))
+            "## T-1: Work T-1\n- Status: WIP\n- Module: M-P1\n- Governed by: ADR-001\n"), encoding="utf-8")
         self.project = compiler.load(self.dir)
         self.report = analytics.report(self.project)
         compiler.write(self.dir, self.project)
@@ -1772,7 +1772,7 @@ class TestRetrieval(DomainCase):
     def test_a_stale_index_is_rebuilt_in_memory_not_trusted(self) -> None:
         self.standard()
         path = self.dir / layout.AUTHORITY_DIR / "INDEX.md"
-        path.write_text(path.read_text().replace("- execution_task: T-1", "- execution_task: T-X9"))
+        path.write_text(path.read_text(encoding="utf-8").replace("- execution_task: T-1", "- execution_task: T-X9"), encoding="utf-8")
         pack = retrieve.retrieve(self.project, self.report, self.dir, "why is this task blocked?")
         self.assertEqual(pack.routed[0][0], "T-1")
         self.assertIn("rebuilt in memory", pack.index_note)
@@ -1813,12 +1813,12 @@ class TestCodeGraphIsolation(DomainCase):
         self.bin = Path(tempfile.mkdtemp(prefix="praukron-bin-"))
         self.addCleanup(shutil.rmtree, self.bin, True)
         self.log = self.bin / "calls.log"
-        self.log.write_text("")
+        self.log.write_text("", encoding="utf-8")
 
     def path(self, with_codegraph: bool, fail: bool = False) -> dict[str, str]:
         if with_codegraph:
             fake = self.bin / "codegraph"
-            fake.write_text(FAKE_CODEGRAPH.format(python=sys.executable))
+            fake.write_text(FAKE_CODEGRAPH.format(python=sys.executable), encoding="utf-8")
             fake.chmod(0o755)
         env = {"PATH": f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin", "FAKE_CG_LOG": str(self.log)}
         if fail:
@@ -1831,8 +1831,8 @@ class TestCodeGraphIsolation(DomainCase):
         ], {"T-0": "PASS", "T-1": "NOT_RUN", "T-2": "NOT_RUN"}, exit_authority="T-2",
             debt=_debt("TD-1", "REACHED", by="T-1"))
         tasks_md = self.dir / layout.AUTHORITY_DIR / "TASKS.md"
-        tasks_md.write_text(tasks_md.read_text().replace(
-            "## T-1: Work T-1\n- Status: WIP\n", "## T-1: Work T-1\n- Status: WIP\n- Files: src/stt/provider.ts\n- Symbols: STTProvider\n"))
+        tasks_md.write_text(tasks_md.read_text(encoding="utf-8").replace(
+            "## T-1: Work T-1\n- Status: WIP\n", "## T-1: Work T-1\n- Status: WIP\n- Files: src/stt/provider.ts\n- Symbols: STTProvider\n"), encoding="utf-8")
         self.project = compiler.load(self.dir)
         self.report = analytics.report(self.project)
         compiler.write(self.dir, self.project)
@@ -1874,7 +1874,7 @@ class TestCodeGraphIsolation(DomainCase):
         self.assertTrue(out.startswith(plain), "project context must be unchanged and first")
         self.assertIn("from CodeGraph, after the project context", out[len(plain):])
         self.assertIn("FAKE EXPLORE for STTProvider src/stt/provider.ts", out)
-        self.assertIn("explore STTProvider src/stt/provider.ts -p", self.log.read_text())
+        self.assertIn("explore STTProvider src/stt/provider.ts -p", self.log.read_text(encoding="utf-8"))
         self.assertEqual(before, self.snapshot())
 
     def test_c_a_failing_codegraph_degrades_to_the_fallback(self) -> None:
@@ -1903,7 +1903,7 @@ class TestCodeGraphIsolation(DomainCase):
                                 retrieve.retrieve(project, report, self.dir, "why is P1 blocked?").render()))
         self.assertEqual(results[0], results[1])
         self.assertEqual(results[0], results[2])
-        self.assertNotIn("status", self.log.read_text())  # compile, index and retrieval never call it
+        self.assertNotIn("status", self.log.read_text(encoding="utf-8"))  # compile, index and retrieval never call it
 
     def test_setup_changes_nothing_without_consent(self) -> None:
         self.standard()
@@ -1911,19 +1911,19 @@ class TestCodeGraphIsolation(DomainCase):
                 mock.patch("sys.stdin", io.StringIO("")):
             # The fake reports an initialized index; make it look uninitialized.
             fake = self.bin / "codegraph"
-            fake.write_text(fake.read_text().replace('"initialized": True', '"initialized": False'))
+            fake.write_text(fake.read_text(encoding="utf-8").replace('"initialized": True', '"initialized": False'), encoding="utf-8")
             code, out = self.run_cli("codegraph", "setup")
             self.assertEqual(code, 1)
             self.assertIn("Nothing changed", out)
-            self.assertNotIn("init", self.log.read_text().replace("status --json", ""))
+            self.assertNotIn("init", self.log.read_text(encoding="utf-8").replace("status --json", ""))
             code, out = self.run_cli("codegraph", "setup", "--yes", "--wire-agents")
-            self.assertIn("init -y", self.log.read_text())
-            self.assertNotIn("install", self.log.read_text())
+            self.assertIn("init -y", self.log.read_text(encoding="utf-8"))
+            self.assertNotIn("install", self.log.read_text(encoding="utf-8"))
             self.assertIn("Agent configuration left unchanged", out)
 
     def test_the_index_is_the_same_on_every_machine(self) -> None:
         self.standard()
-        text = (self.dir / layout.AUTHORITY_DIR / "INDEX.md").read_text()
+        text = (self.dir / layout.AUTHORITY_DIR / "INDEX.md").read_text(encoding="utf-8")
         self.assertIn("## Implementation intelligence", text)
         self.assertIn("- suggested: `praukron retrieve T-1 --code`", text)
         self.assertNotIn("AVAILABLE", text)
@@ -2012,7 +2012,7 @@ class TestContractIntegrity(FixtureCase):
             "# Acceptance\n\n# Contracts\n\n## AC-T-ONE — One\n\n"
             "- `AC-T-ONE-01` — Given a bullet, When its class is missing, Then it is caught.\n"
             "- `AC-T-ONE-02` — Given the next bullet, Then it survives. `TEST` · `PASS`\n"
-        )
+        , encoding="utf-8")
         with self.assertRaises(ParseError):
             compiler.load(self.root)
 
@@ -2046,11 +2046,11 @@ class TestDegenerateProject(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
         authority = self.root / layout.AUTHORITY_DIR
         (authority / "ADR").mkdir(parents=True)
-        (authority / "PHASES.md").write_text("# Phases\n\nNo phases yet.\n")
-        (authority / "TASKS.md").write_text("# Tasks\n\nNo tasks yet.\n")
-        (authority / "ACCEPTANCE.md").write_text("# Acceptance\n\n# Contracts\n\nNone yet.\n")
-        (authority / "INTENT.md").write_text("# Intent\n")
-        (authority / "HANDOFF.md").write_text("# Handoff\n")
+        (authority / "PHASES.md").write_text("# Phases\n\nNo phases yet.\n", encoding="utf-8")
+        (authority / "TASKS.md").write_text("# Tasks\n\nNo tasks yet.\n", encoding="utf-8")
+        (authority / "ACCEPTANCE.md").write_text("# Acceptance\n\n# Contracts\n\nNone yet.\n", encoding="utf-8")
+        (authority / "INTENT.md").write_text("# Intent\n", encoding="utf-8")
+        (authority / "HANDOFF.md").write_text("# Handoff\n", encoding="utf-8")
         self.project = compiler.load(self.root)
         self.report = analytics.report(self.project)
 
@@ -2136,7 +2136,7 @@ class TestCli(FixtureCase):
             self.assertEqual(cli.main(["-C", empty, "status"]), 1)
 
     def test_parse_error_is_reported_not_raised(self) -> None:
-        (self.root / layout.AUTHORITY_DIR / "TASKS.md").write_text("# Tasks\n\n## broken\n")
+        (self.root / layout.AUTHORITY_DIR / "TASKS.md").write_text("# Tasks\n\n## broken\n", encoding="utf-8")
         self.assertEqual(cli.main(["-C", str(self.root), "status"]), 1)
 
     def test_status_counts_done_work_nobody_reviewed(self) -> None:
@@ -2161,8 +2161,8 @@ class TestNewerCompiledViews(FixtureCase):
     def stamp(self, version: str) -> None:
         target = self.compiled / "project.json"
         target.write_text(re.sub(
-            r'"generatorVersion": "[^"]*"', f'"generatorVersion": "{version}"', target.read_text()
-        ))
+            r'"generatorVersion": "[^"]*"', f'"generatorVersion": "{version}"', target.read_text(encoding="utf-8")
+        ), encoding="utf-8")
 
     def snapshot(self) -> dict[str, bytes]:
         return {p.name: p.read_bytes() for p in sorted(self.compiled.iterdir())}
@@ -2201,7 +2201,7 @@ class TestNewerCompiledViews(FixtureCase):
         self.stamp("0.0.1")
         self.assertIn("to refresh them", self.run_cli("status")[1])
         self.assertEqual(self.run_cli("compile")[0], 0)
-        self.assertNotIn("0.0.1", (self.compiled / "project.json").read_text())
+        self.assertNotIn("0.0.1", (self.compiled / "project.json").read_text(encoding="utf-8"))
 
 
 class TestStaleReferences(FixtureCase):
@@ -2209,7 +2209,7 @@ class TestStaleReferences(FixtureCase):
     no structural check saw (continuity pilot, ADR-041)."""
 
     def handoff(self, text: str) -> list[str]:
-        (self.root / layout.AUTHORITY_DIR / "HANDOFF.md").write_text(f"# Handoff\n\n{text}\n")
+        (self.root / layout.AUTHORITY_DIR / "HANDOFF.md").write_text(f"# Handoff\n\n{text}\n", encoding="utf-8")
         self.project = compiler.load(self.root)
         return [f.message for f in validate.check(self.project) if f.code == "stale-reference"]
 
@@ -2219,7 +2219,7 @@ class TestStaleReferences(FixtureCase):
         self.assertIn("docs/moved/PLAN.md", found[0])
 
     def test_intent_is_checked_too(self) -> None:
-        (self.root / layout.AUTHORITY_DIR / "INTENT.md").write_text("# Intent\n\nSee `src/gone.py`.\n")
+        (self.root / layout.AUTHORITY_DIR / "INTENT.md").write_text("# Intent\n\nSee `src/gone.py`.\n", encoding="utf-8")
         self.project = compiler.load(self.root)
         self.assertIn("stale-reference", self.codes())
 
@@ -2241,7 +2241,7 @@ class TestMergeGuidance(unittest.TestCase):
 
     def test_resume_and_checkpoint_say_how_to_settle_a_merge(self) -> None:
         for name in ("praukron-resume.md", "praukron-checkpoint.md"):
-            text = " ".join((self.ROOT / ".praukron/commands" / name).read_text().split())
+            text = " ".join((self.ROOT / ".praukron/commands" / name).read_text(encoding="utf-8").split())
             with self.subTest(workflow=name):
                 self.assertIn("After merging branches", text)
                 self.assertIn("`.praukron/praukron compile`", text)
@@ -2378,26 +2378,26 @@ class TestMigration(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.root, True)
         legacy = self.root / layout.V01_AUTHORITY_DIR
         legacy.mkdir()
-        (legacy / "TASKS.md").write_text(LEGACY_TASKS)
-        (legacy / "DECISIONS.md").write_text(LEGACY_DECISIONS)
-        (legacy / "STATE.md").write_text(LEGACY_STATE)
-        (legacy / "TASK_GRAPH.md").write_text("# Task Graph\n\n- T-REAL-01 [DONE]\n")
-        (legacy / "INTENT.md").write_text("# Intent\n\nNo intent.\n")
-        (legacy / "JOURNAL.md").write_text("# Journal\n\n## 2026-01-01\n- Did: things\n")
+        (legacy / "TASKS.md").write_text(LEGACY_TASKS, encoding="utf-8")
+        (legacy / "DECISIONS.md").write_text(LEGACY_DECISIONS, encoding="utf-8")
+        (legacy / "STATE.md").write_text(LEGACY_STATE, encoding="utf-8")
+        (legacy / "TASK_GRAPH.md").write_text("# Task Graph\n\n- T-REAL-01 [DONE]\n", encoding="utf-8")
+        (legacy / "INTENT.md").write_text("# Intent\n\nNo intent.\n", encoding="utf-8")
+        (legacy / "JOURNAL.md").write_text("# Journal\n\n## 2026-01-01\n- Did: things\n", encoding="utf-8")
         authority = self.root / layout.AUTHORITY_DIR
         (authority / "ADR").mkdir(parents=True)
-        (authority / "TASKS.md").write_text("# Tasks\n\nNo tasks yet.\n")
-        (authority / "PHASES.md").write_text("# Phases\n\nNo phases yet.\n")
-        (authority / "ACCEPTANCE.md").write_text("# Acceptance\n\n# Contracts\n\nNone yet.\n")
-        (authority / "INTENT.md").write_text("# Intent\n")
-        (authority / "HANDOFF.md").write_text("# Handoff\n")
-        (authority / "JOURNAL.md").write_text("# Journal\n")
+        (authority / "TASKS.md").write_text("# Tasks\n\nNo tasks yet.\n", encoding="utf-8")
+        (authority / "PHASES.md").write_text("# Phases\n\nNo phases yet.\n", encoding="utf-8")
+        (authority / "ACCEPTANCE.md").write_text("# Acceptance\n\n# Contracts\n\nNone yet.\n", encoding="utf-8")
+        (authority / "INTENT.md").write_text("# Intent\n", encoding="utf-8")
+        (authority / "HANDOFF.md").write_text("# Handoff\n", encoding="utf-8")
+        (authority / "JOURNAL.md").write_text("# Journal\n", encoding="utf-8")
 
     def test_a_legacy_chronicle_is_detected(self) -> None:
         self.assertTrue(migrate.needs_migration(self.root))
 
     def test_a_current_chronicle_is_not_touched(self) -> None:
-        (self.root / layout.AUTHORITY_DIR / "TASKS.md").write_text(LEGACY_TASKS)
+        (self.root / layout.AUTHORITY_DIR / "TASKS.md").write_text(LEGACY_TASKS, encoding="utf-8")
         self.assertFalse(migrate.needs_migration(self.root))
         with self.assertRaises(migrate.MigrationError):
             migrate.plan(self.root)
@@ -2424,12 +2424,12 @@ class TestMigration(unittest.TestCase):
         migrate.apply(self.root)
         adr = self.root / layout.AUTHORITY_DIR / "ADR"
         self.assertTrue((adr / "ADR-001.md").is_file())
-        self.assertIn("Prefer the simple thing", (adr / "ADR-001.md").read_text())
-        self.assertIn("superseded by ADR-002", (adr / "README.md").read_text())
+        self.assertIn("Prefer the simple thing", (adr / "ADR-001.md").read_text(encoding="utf-8"))
+        self.assertIn("superseded by ADR-002", (adr / "README.md").read_text(encoding="utf-8"))
 
     def test_state_prose_is_rescued_and_task_graph_is_not(self) -> None:
         migrate.apply(self.root)
-        handoff = (self.root / layout.AUTHORITY_DIR / "HANDOFF.md").read_text()
+        handoff = (self.root / layout.AUTHORITY_DIR / "HANDOFF.md").read_text(encoding="utf-8")
         self.assertIn("vendor API may change", handoff)
         self.assertIn("Call the vendor", handoff)
         self.assertFalse((self.root / layout.AUTHORITY_DIR / "TASK_GRAPH.md").exists())
@@ -2438,9 +2438,9 @@ class TestMigration(unittest.TestCase):
         plan = migrate.apply(self.root)
         self.assertTrue(plan.archive.is_dir())
         self.assertEqual(
-            (plan.archive / "TASKS.md").read_text(), LEGACY_TASKS
+            (plan.archive / "TASKS.md").read_text(encoding="utf-8"), LEGACY_TASKS
         )
-        self.assertEqual((plan.archive / "TASK_GRAPH.md").read_text().strip().splitlines()[0], "# Task Graph")
+        self.assertEqual((plan.archive / "TASK_GRAPH.md").read_text(encoding="utf-8").strip().splitlines()[0], "# Task Graph")
         self.assertFalse((self.root / layout.COMPILED_DIR / "TASKS.md").exists())
 
     def test_the_result_validates_and_compiles(self) -> None:
@@ -2454,7 +2454,7 @@ class TestMigration(unittest.TestCase):
         (self.root / layout.AUTHORITY_DIR / "PHASES.md").write_text(
             "# Phases\n\n## P1 — Delivery\n\nOutcome:\nShip.\n\nEntry:\n- none\n\n"
             "Exit:\n- none\n\nExit authority:\nT-REAL-02\n\nStatus:\nACTIVE\n"
-        )
+        , encoding="utf-8")
         migrate.apply(self.root, phase="P1")
         project = compiler.load(self.root)
         self.assertEqual({t.phase for t in project.tasks}, {"P1"})
@@ -2493,16 +2493,16 @@ class TestRelocation(unittest.TestCase):
         # Compiled output from the old layout, and a stale host pointer.
         compiled = self.root / layout.V02_COMPILED_DIR
         compiled.mkdir(parents=True, exist_ok=True)
-        (compiled / "STATE.md").write_text("stale\n")
-        (compiled / "task-graph.mmd").write_text("stale\n")
+        (compiled / "STATE.md").write_text("stale\n", encoding="utf-8")
+        (compiled / "task-graph.mmd").write_text("stale\n", encoding="utf-8")
         pointer = self.root / ".claude" / "commands"
         pointer.mkdir(parents=True)
         (pointer / "prokron-work.md").write_text(
             "Follow `commands/prokron-work.md`. Use `$ARGUMENTS` as the task.\n"
-        )
+        , encoding="utf-8")
         commands = self.root / layout.V02_COMMANDS_DIR
         commands.mkdir()
-        (commands / "prokron-work.md").write_text("# /prokron-work\n\nCUSTOM\n")
+        (commands / "prokron-work.md").write_text("# /prokron-work\n\nCUSTOM\n", encoding="utf-8")
 
     def test_it_is_detected_and_the_v01_migration_is_not(self) -> None:
         self.assertTrue(migrate.needs_relocation(self.root))
@@ -2532,11 +2532,11 @@ class TestRelocation(unittest.TestCase):
 
     def test_a_host_pointer_names_the_document_that_actually_exists(self) -> None:
         migrate.relocate(self.root)
-        pointer = (self.root / ".claude" / "commands" / "prokron-work.md").read_text()
+        pointer = (self.root / ".claude" / "commands" / "prokron-work.md").read_text(encoding="utf-8")
         named = pointer.split("`")[1]
         self.assertEqual(named, f"{layout.COMMANDS_DIR}/praukron-work.md")
         self.assertTrue((self.root / named).is_file())
-        self.assertIn("CUSTOM", (self.root / named).read_text())
+        self.assertIn("CUSTOM", (self.root / named).read_text(encoding="utf-8"))
 
     def test_the_result_validates_and_compiles(self) -> None:
         migrate.relocate(self.root)
@@ -2582,12 +2582,12 @@ class TestProjectIdentity(unittest.TestCase):
     def chronicle_in(self, root: Path, project_line: str = "Project: Fixture\n\n") -> Path:
         authority = root / layout.AUTHORITY_DIR
         (authority / "ADR").mkdir(parents=True)
-        (authority / "PHASES.md").write_text(project_line + PHASES)
-        (authority / "TASKS.md").write_text(TASKS)
-        (authority / "ACCEPTANCE.md").write_text(ACCEPTANCE)
-        (authority / "ADR" / "ADR-001.md").write_text(ADR)
-        (authority / "INTENT.md").write_text("# Intent\n\nNone.\n")
-        (authority / "HANDOFF.md").write_text("# Handoff\n\nNone.\n")
+        (authority / "PHASES.md").write_text(project_line + PHASES, encoding="utf-8")
+        (authority / "TASKS.md").write_text(TASKS, encoding="utf-8")
+        (authority / "ACCEPTANCE.md").write_text(ACCEPTANCE, encoding="utf-8")
+        (authority / "ADR" / "ADR-001.md").write_text(ADR, encoding="utf-8")
+        (authority / "INTENT.md").write_text("# Intent\n\nNone.\n", encoding="utf-8")
+        (authority / "HANDOFF.md").write_text("# Handoff\n\nNone.\n", encoding="utf-8")
         return root
 
     def test_one_chronicle_compiles_the_same_from_any_directory(self) -> None:
@@ -2612,8 +2612,8 @@ class TestProjectIdentity(unittest.TestCase):
             root = Path(workspace) / "elsewhere"
             self.chronicle_in(root, project_line="")
             phases = root / layout.AUTHORITY_DIR / "PHASES.md"
-            phases.write_text(phases.read_text().replace(
-                "# Phases", "# Phases\n\nProject: NotTheName", 1))
+            phases.write_text(phases.read_text(encoding="utf-8").replace(
+                "# Phases", "# Phases\n\nProject: NotTheName", 1), encoding="utf-8")
             self.assertEqual(compiler.load(root).name, "elsewhere")
 
 
@@ -2638,7 +2638,7 @@ class TestPublishedDocumentation(unittest.TestCase):
         for name in self.PUBLISHED:
             path = self.ROOT / name
             self.assertTrue(path.is_file(), f"{name} is missing")
-            yield path, path.read_text()
+            yield path, path.read_text(encoding="utf-8")
 
     def test_every_relative_link_resolves(self) -> None:
         for path, text in self.documents():
@@ -2667,7 +2667,7 @@ class TestPublishedDocumentation(unittest.TestCase):
         """Installing took `| sh -s -- existing` and every command afterwards
         was `.praukron/praukron status`. Both are artefacts of a private tool.
         A README that shows two forms teaches neither."""
-        readme = (self.ROOT / "README.md").read_text()
+        readme = (self.ROOT / "README.md").read_text(encoding="utf-8")
         primary = readme.split("### 1. Install in your project", 1)[1].split("<details>", 1)[0]
         self.assertIn("install.sh | sh\n", primary)
         self.assertNotIn("sh -s --", primary)
@@ -2683,15 +2683,15 @@ class TestPublishedDocumentation(unittest.TestCase):
     def test_citation_metadata_names_the_release_it_ships_with(self) -> None:
         """A deposited record is durable, so metadata that disagrees with the
         release is worse than metadata that is missing (ADR-032)."""
-        version = (self.ROOT / "VERSION").read_text().strip()
-        citation = (self.ROOT / "CITATION.cff").read_text()
+        version = (self.ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        citation = (self.ROOT / "CITATION.cff").read_text(encoding="utf-8")
         named = re.search(r"(?m)^version:\s*(\S+)\s*$", citation)
         self.assertIsNotNone(named, "CITATION.cff records no version")
         self.assertEqual(named.group(1).strip('"\''), version)
 
     def test_the_readme_names_the_release_it_ships_with(self) -> None:
-        version = (self.ROOT / "VERSION").read_text().strip()
-        readme = (self.ROOT / "README.md").read_text()
+        version = (self.ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        readme = (self.ROOT / "README.md").read_text(encoding="utf-8")
         named = set(re.findall(r"v(\d+\.\d+\.\d+)", readme))
         self.assertIn(version, named, f"README names {named or 'no release'}, not {version}")
 
@@ -2704,7 +2704,7 @@ class TestBaselineWorkflow(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[1]
 
     def test_the_workflow_states_every_limit(self) -> None:
-        text = " ".join((self.ROOT / ".praukron/commands/praukron-baseline.md").read_text().split())
+        text = " ".join((self.ROOT / ".praukron/commands/praukron-baseline.md").read_text(encoding="utf-8").split())
         for rule in (
             "only when the project owner explicitly asks",
             "never part of `/praukron-init`",
@@ -2726,14 +2726,14 @@ class TestBaselineWorkflow(unittest.TestCase):
         ):
             with self.subTest(path=path):
                 self.assertIn(
-                    ".praukron/commands/praukron-baseline.md", (self.ROOT / path).read_text()
+                    ".praukron/commands/praukron-baseline.md", (self.ROOT / path).read_text(encoding="utf-8")
                 )
-        self.assertIn("baseline", (self.ROOT / ".agents/skills/praukron/SKILL.md").read_text())
-        self.assertIn("/praukron-baseline", (self.ROOT / "AGENTS.md").read_text())
-        self.assertIn("resume baseline; do", (self.ROOT / "install.sh").read_text())
+        self.assertIn("baseline", (self.ROOT / ".agents/skills/praukron/SKILL.md").read_text(encoding="utf-8"))
+        self.assertIn("/praukron-baseline", (self.ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertIn("resume baseline; do", (self.ROOT / "install.sh").read_text(encoding="utf-8"))
 
     def test_initialization_does_not_run_it(self) -> None:
-        text = " ".join((self.ROOT / ".praukron/commands/praukron-init.md").read_text().split())
+        text = " ".join((self.ROOT / ".praukron/commands/praukron-init.md").read_text(encoding="utf-8").split())
         self.assertIn("initialization never runs it", text)
 
 
@@ -2743,7 +2743,7 @@ class TestBootProtocol(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[1]
 
     def text(self, name: str) -> str:
-        return " ".join((self.ROOT / name).read_text().split())
+        return " ".join((self.ROOT / name).read_text(encoding="utf-8").split())
 
     def test_d_agents_md_reads_the_index_first(self) -> None:
         text = self.text("AGENTS.md")
@@ -2786,7 +2786,7 @@ class TestBootProtocol(unittest.TestCase):
         self.assertLess(len(block), 800)
 
     def test_the_chronicle_read_order_starts_with_the_index(self) -> None:
-        text = (self.ROOT / "templates/chronicle/README.md").read_text()
+        text = (self.ROOT / "templates/chronicle/README.md").read_text(encoding="utf-8")
         order = text.split("## Read order", 1)[1]
         self.assertTrue(order.strip().startswith("1. `INDEX.md` first"))
         self.assertIn("`INDEX.md` is generated by `praukron compile` and is not authority", text)
@@ -2799,7 +2799,7 @@ class TestHierarchyGuidance(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[1]
 
     def text(self, name: str) -> str:
-        return " ".join((self.ROOT / name).read_text().split())
+        return " ".join((self.ROOT / name).read_text(encoding="utf-8").split())
 
     def test_initialization_authors_the_thesis_first_and_in_order(self) -> None:
         text = self.text(".praukron/commands/praukron-init.md")
@@ -2862,12 +2862,25 @@ class TestNoNetworkOrDependencies(unittest.TestCase):
         for name in ("json", "argparse", "re", "pathlib", "dataclasses"):
             self.assertIn(name, sys.modules)
         for module_path in package.glob("*.py"):
-            text = module_path.read_text()
+            text = module_path.read_text(encoding="utf-8")
             for forbidden in ("import requests", "import yaml", "import jinja2", "pip install"):
                 if forbidden in text:
                     offenders.append(f"{module_path.name}: {forbidden}")
         self.assertEqual(offenders, [])
         self.assertTrue(stdlib.is_dir())
+
+    def test_runtime_names_utf8_for_every_text_file(self) -> None:
+        # Without it Windows falls back to cp1252 and a Vietnamese response breaks compile.
+        import ast
+
+        offenders = []
+        for module_path in Path(cli.__file__).resolve().parent.glob("*.py"):
+            for node in ast.walk(ast.parse(module_path.read_text(encoding="utf-8"))):
+                if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                        and node.func.attr in ("read_text", "write_text")
+                        and not any(k.arg == "encoding" for k in node.keywords)):
+                    offenders.append(f"{module_path.name}:{node.lineno}")
+        self.assertEqual(offenders, [])
 
 
 if __name__ == "__main__":

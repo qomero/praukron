@@ -51,9 +51,9 @@ CONFIRM = """
 class ReviewCase(AssumptionCase):
     def setUp(self) -> None:
         super().setUp()
-        responses = (self.authority / "RESPONSES.md").read_text() + CONFIRM
+        responses = (self.authority / "RESPONSES.md").read_text(encoding="utf-8") + CONFIRM
         acceptance = self.authority / "ACCEPTANCE.md"
-        acceptance.write_text(acceptance.read_text().replace("Measured on site.", "Measured on site under A-1."))
+        acceptance.write_text(acceptance.read_text(encoding="utf-8").replace("Measured on site.", "Measured on site under A-1."), encoding="utf-8")
         self.write(assumptions=ASSUMPTIONS + SETTLED, responses=responses)
         self.render()
 
@@ -123,13 +123,13 @@ class TestBlockerGuidance(ReviewCase):
     def setUp(self) -> None:
         super().setUp()
         tasks = self.authority / "TASKS.md"
-        text = tasks.read_text()
+        text = tasks.read_text(encoding="utf-8")
         text = text.replace("## T-TWO: Build on it\n- Status: TODO\n- Module: M-FOUNDATION\n",
                             "## T-TWO: Build on it\n- Status: WIP\n- Module: M-FOUNDATION\n- Authority: owner\n", 1)
         text = text.replace("- Schedule: start=2026-10-01 estimate=3d", "- Schedule: start=2026-10-01")
         text = text.replace("- Status: DONE\n- Module: M-FOUNDATION\n- Validation: SYNTHETIC",
                             "- Status: DONE\n- Module: M-FOUNDATION\n- Validation: UNTESTED", 1)
-        tasks.write_text(text)
+        tasks.write_text(text, encoding="utf-8")
         self.render()
         self.execution = self.html.split('id="panel-execution"', 1)[1].split('<section class="panel"', 1)[0]
 
@@ -167,11 +167,11 @@ class TestBlockerGuidance(ReviewCase):
         self.assertIn("Use the staging backup. Do not touch production.", section)
         self.assertIn("— Thien (owner), 2026-10-02 · on", section)
         tasks = self.authority / "TASKS.md"
-        tasks.write_text(tasks.read_text().replace("- Status: WIP\n- Module: M-FOUNDATION\n- Authority: owner\n- Validation: UNTESTED",
-                                                   "- Status: DONE\n- Module: M-FOUNDATION\n- Authority: owner\n- Validation: HUMAN_VERIFIED", 1))
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace("- Status: WIP\n- Module: M-FOUNDATION\n- Authority: owner\n- Validation: UNTESTED",
+                                                   "- Status: DONE\n- Module: M-FOUNDATION\n- Authority: owner\n- Validation: HUMAN_VERIFIED", 1), encoding="utf-8")
         acceptance = self.authority / "ACCEPTANCE.md"
-        acceptance.write_text(acceptance.read_text().replace("Then they stand.\n  `TEST` · `NOT_RUN`",
-                                                             "Then they stand.\n  `TEST` · `PASS`"))
+        acceptance.write_text(acceptance.read_text(encoding="utf-8").replace("Then they stand.\n  `TEST` · `NOT_RUN`",
+                                                             "Then they stand.\n  `TEST` · `PASS`"), encoding="utf-8")
         before = [(a.id, a.status) for a in compiler.load(self.dir).assumptions]
         self.render()
         self.assertEqual(self.project.task("T-TWO").status, "DONE")
@@ -219,7 +219,7 @@ class TestNeedsPanel(TestBlockerGuidance):
         """AC-T-REVIEW-PANEL-01-03."""
         self.write(assumptions="", responses="")
         tasks = self.authority / "TASKS.md"
-        tasks.write_text(tasks.read_text().replace("- Authority: owner\n", ""))
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace("- Authority: owner\n", ""), encoding="utf-8")
         self.render()
         self.assertIn('<span class="needcount zero">0</span>', self.needs)
         self.assertIn("Nothing waits for you.", self.needs)

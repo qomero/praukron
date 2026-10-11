@@ -31,7 +31,7 @@ class TestAssumptionSpecification(unittest.TestCase):
     """T-ASSUME-SPEC-01: the protocol is written down before it is compiled."""
 
     def test_spec_and_templates_define_the_records(self) -> None:
-        spec = _flat((ROOT / "docs/SPEC.md").read_text())
+        spec = _flat((ROOT / "docs/SPEC.md").read_text(encoding="utf-8"))
         for field in ("`Status`", "`Tasks`", "`Impact`", "`Recorded`", "`Assumption`", "`Basis`",
                       "`Applied in`", "`Permissions`", "`Responses`", "`Reconciled by`",
                       "`By`", "`Date`", "`Via`", "`Authority: owner`"):
@@ -43,10 +43,10 @@ class TestAssumptionSpecification(unittest.TestCase):
         self.assertIn("researched is not confirmed", spec)
         for name in ("ASSUMPTIONS.md", "RESPONSES.md"):
             self.assertTrue((ROOT / "templates/chronicle" / name).is_file(), name)
-        self.assertIn("TECH_DEBT ASSUMPTIONS RESPONSES; do", (ROOT / "install.sh").read_text())
+        self.assertIn("TECH_DEBT ASSUMPTIONS RESPONSES; do", (ROOT / "install.sh").read_text(encoding="utf-8"))
 
     def test_spec_states_the_boundary_and_the_default_policy(self) -> None:
-        spec = _flat((ROOT / "docs/SPEC.md").read_text())
+        spec = _flat((ROOT / "docs/SPEC.md").read_text(encoding="utf-8"))
         for group in GROUPS:
             self.assertIn(f"`{group}`", spec)
         for rule in ("destructive or irreversible actions are reserved",
@@ -58,7 +58,7 @@ class TestAssumptionSpecification(unittest.TestCase):
                 self.assertIn(rule, spec)
 
     def test_spec_separates_responded_from_reconciled(self) -> None:
-        spec = _flat((ROOT / "docs/SPEC.md").read_text())
+        spec = _flat((ROOT / "docs/SPEC.md").read_text(encoding="utf-8"))
         self.assertIn("*Responded* means", spec)
         self.assertIn("*Reconciled* means", spec)
         for row in ("new → `OPEN`", "`OPEN` → `CONFIRMED`", "→ `REVISED`", "`OPEN` → `REJECTED`",
@@ -66,7 +66,7 @@ class TestAssumptionSpecification(unittest.TestCase):
             self.assertIn(row, spec)
 
     def test_init_offers_the_optional_policy_step_on_every_host(self) -> None:
-        text = _flat((ROOT / ".praukron/commands/praukron-init.md").read_text())
+        text = _flat((ROOT / ".praukron/commands/praukron-init.md").read_text(encoding="utf-8"))
         for group in GROUPS:
             self.assertIn(f"`{group}`", text)
         for rule in ("offer the owner one optional step", "`- Policy: assumptions`",
@@ -75,8 +75,8 @@ class TestAssumptionSpecification(unittest.TestCase):
             with self.subTest(rule=rule):
                 self.assertIn(rule, text)
         for host in (".claude/commands/praukron-init.md", ".opencode/commands/praukron-init.md"):
-            self.assertIn(".praukron/commands/praukron-init.md", (ROOT / host).read_text())
-        self.assertIn("`init`", (ROOT / ".agents/skills/praukron/SKILL.md").read_text())
+            self.assertIn(".praukron/commands/praukron-init.md", (ROOT / host).read_text(encoding="utf-8"))
+        self.assertIn("`init`", (ROOT / ".agents/skills/praukron/SKILL.md").read_text(encoding="utf-8"))
 
     def test_a_chronicle_without_the_new_files_compiles_as_before(self) -> None:
         """AC-T-ASSUME-SPEC-01-04: nothing is migrated; empty templates change nothing."""
@@ -86,7 +86,7 @@ class TestAssumptionSpecification(unittest.TestCase):
             self.addCleanup(shutil.rmtree, directory, True)
             build_fixture(directory)
             authority = directory / layout.AUTHORITY_DIR
-            before = {p.name: p.read_text() for p in authority.glob("*.md")}
+            before = {p.name: p.read_text(encoding="utf-8") for p in authority.glob("*.md")}
             if with_templates:
                 for name in ("ASSUMPTIONS.md", "RESPONSES.md"):
                     shutil.copy(ROOT / "templates/chronicle" / name, authority / name)
@@ -97,7 +97,7 @@ class TestAssumptionSpecification(unittest.TestCase):
             data["project"]["name"] = None
             outputs.append(json.dumps(data, sort_keys=True))
             for name, text in before.items():
-                self.assertEqual((authority / name).read_text(), text)
+                self.assertEqual((authority / name).read_text(encoding="utf-8"), text)
         self.assertEqual(outputs[0], outputs[1])
 
 
@@ -105,7 +105,7 @@ class TestAgentGuidance(unittest.TestCase):
     """T-ASSUME-AGENT-01: every agent surface teaches the same procedure."""
 
     def test_agents_md_and_work_give_the_decision_procedure(self) -> None:
-        agents = _flat((ROOT / "AGENTS.md").read_text())
+        agents = _flat((ROOT / "AGENTS.md").read_text(encoding="utf-8"))
         for rule in ("search authority first", "researched is not confirmed",
                      "authority resolves it: follow it", "`Authority: owner`",
                      "`Notify: host`", "record it in `ASSUMPTIONS.md` before relying on it",
@@ -114,7 +114,7 @@ class TestAgentGuidance(unittest.TestCase):
                      "Never present an `OPEN` assumption as decided"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, agents)
-        work = _flat((ROOT / ".praukron/commands/praukron-work.md").read_text())
+        work = _flat((ROOT / ".praukron/commands/praukron-work.md").read_text(encoding="utf-8"))
         for rule in ("read the packet's `policy`", "before relying on it",
                      "in any criterion evidence that rests on it", "`Authority: owner` task",
                      "record the time and channel on that task", "continue other work"):
@@ -122,7 +122,7 @@ class TestAgentGuidance(unittest.TestCase):
                 self.assertIn(rule, work)
 
     def test_checkpoint_reconciles_and_never_edits_owner_text(self) -> None:
-        text = _flat((ROOT / ".praukron/commands/praukron-checkpoint.md").read_text())
+        text = _flat((ROOT / ".praukron/commands/praukron-checkpoint.md").read_text(encoding="utf-8"))
         for rule in ("Reconcile every owner response", "awaiting reconciliation",
                      "through an Acceptance Change Request", "`Reconciled by`",
                      "Never edit, reorder, or clear an entry in `RESPONSES.md`",
@@ -130,7 +130,7 @@ class TestAgentGuidance(unittest.TestCase):
                      "the open assumptions and owner-held blockers"):
             with self.subTest(rule=rule):
                 self.assertIn(rule, text)
-        agents = _flat((ROOT / "AGENTS.md").read_text())
+        agents = _flat((ROOT / "AGENTS.md").read_text(encoding="utf-8"))
         self.assertIn("never edit or clear one", agents)
         self.assertIn("`Via: relayed by <you> from <channel>`", agents)
 
@@ -139,11 +139,11 @@ class TestAgentGuidance(unittest.TestCase):
             for host in (".claude", ".opencode"):
                 with self.subTest(host=host, command=command):
                     self.assertIn(f".praukron/commands/praukron-{command}.md",
-                                  (ROOT / host / "commands" / f"praukron-{command}.md").read_text())
-        skill = _flat((ROOT / ".agents/skills/praukron/SKILL.md").read_text())
+                                  (ROOT / host / "commands" / f"praukron-{command}.md").read_text(encoding="utf-8"))
+        skill = _flat((ROOT / ".agents/skills/praukron/SKILL.md").read_text(encoding="utf-8"))
         self.assertIn("assumption procedure in `AGENTS.md`", skill)
         self.assertIn("never edit `RESPONSES.md`", skill)
-        installer = (ROOT / "install.sh").read_text()
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
         for shipped in ('"$source_dir/.praukron/commands/praukron-$command.md"',
                         '"$source_dir/.claude/commands/praukron-$command.md"',
                         '"$source_dir/.opencode/commands/praukron-$command.md"',
@@ -220,11 +220,11 @@ class AssumptionCase(unittest.TestCase):
     def write(self, assumptions: str | None = None, responses: str | None = None,
               policy: str | None = None) -> None:
         if assumptions is not None:
-            (self.authority / "ASSUMPTIONS.md").write_text(assumptions)
+            (self.authority / "ASSUMPTIONS.md").write_text(assumptions, encoding="utf-8")
         if responses is not None:
-            (self.authority / "RESPONSES.md").write_text(responses)
+            (self.authority / "RESPONSES.md").write_text(responses, encoding="utf-8")
         if policy is not None:
-            (self.authority / "ADR" / "ADR-002.md").write_text(policy)
+            (self.authority / "ADR" / "ADR-002.md").write_text(policy, encoding="utf-8")
         self.load()
 
     def load(self) -> None:
@@ -308,16 +308,16 @@ class TestAssumptionModel(AssumptionCase):
 
     def test_owner_held_task_is_done_only_human_verified(self) -> None:
         tasks = self.authority / "TASKS.md"
-        text = tasks.read_text()
+        text = tasks.read_text(encoding="utf-8")
         tasks.write_text(text.replace("- Status: DONE\n- Module: M-FOUNDATION\n",
-                                      "- Status: DONE\n- Module: M-FOUNDATION\n- Authority: owner\n", 1))
+                                      "- Status: DONE\n- Module: M-FOUNDATION\n- Authority: owner\n", 1), encoding="utf-8")
         self.load()
         self.assertIn("owner-task-not-verified", self.errors())
-        tasks.write_text(tasks.read_text().replace("- Validation: SYNTHETIC", "- Validation: HUMAN_VERIFIED", 1))
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace("- Validation: SYNTHETIC", "- Validation: HUMAN_VERIFIED", 1), encoding="utf-8")
         self.load()
         self.assertNotIn("owner-task-not-verified", self.errors())
         self.assertTrue(self.project.task("T-ONE").owner_held)
-        tasks.write_text(tasks.read_text().replace("- Authority: owner", "- Authority: anyone", 1))
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace("- Authority: owner", "- Authority: anyone", 1), encoding="utf-8")
         self.load()
         self.assertIn("invalid-task-authority", self.errors())
 
@@ -330,11 +330,11 @@ class TestAssumptionModel(AssumptionCase):
         self.assertEqual(self.project.policy.decision, "ADR-002")
         self.assertNotIn("reserved-assumption", self.errors())
         newer = POLICY_ADR.replace("ADR-002", "ADR-003").replace("security, legal", "permission, security")
-        (self.authority / "ADR" / "ADR-003.md").write_text(newer)
+        (self.authority / "ADR" / "ADR-003.md").write_text(newer, encoding="utf-8")
         self.load()
         self.assertEqual(self.project.policy.decision, "ADR-003")
         self.assertIn("reserved-assumption", self.errors())
-        (self.authority / "ADR" / "ADR-003.md").write_text(newer.replace("Status: ACCEPTED", "Status: PROPOSED"))
+        (self.authority / "ADR" / "ADR-003.md").write_text(newer.replace("Status: ACCEPTED", "Status: PROPOSED"), encoding="utf-8")
         self.load()
         self.assertEqual(self.project.policy.decision, "ADR-002")
         (self.authority / "ADR" / "ADR-002.md").unlink()
@@ -359,15 +359,15 @@ class TestAssumptionProjection(AssumptionCase):
     def setUp(self) -> None:
         super().setUp()
         tasks = self.authority / "TASKS.md"
-        text = tasks.read_text()
+        text = tasks.read_text(encoding="utf-8")
         text = text.replace("- Status: DONE\n- Module: M-FOUNDATION\n- Validation: SYNTHETIC",
                             "- Status: DONE\n- Module: M-FOUNDATION\n- Validation: UNTESTED", 1)
         text = text.replace("## T-TWO: Build on it\n- Status: TODO\n- Module: M-FOUNDATION\n",
                             "## T-TWO: Build on it\n- Status: WIP\n- Module: M-FOUNDATION\n- Authority: owner\n", 1)
         text = text.replace("- Schedule: start=2026-10-01 estimate=3d", "- Schedule: start=2026-10-01")
-        tasks.write_text(text)
+        tasks.write_text(text, encoding="utf-8")
         acceptance = self.authority / "ACCEPTANCE.md"
-        acceptance.write_text(acceptance.read_text().replace("Measured on site.", "Measured on site under A-1."))
+        acceptance.write_text(acceptance.read_text(encoding="utf-8").replace("Measured on site.", "Measured on site under A-1."), encoding="utf-8")
         self.load()
         self.report = analytics.report(self.project)
         self.data = compiler.as_json(self.project)
@@ -437,16 +437,16 @@ class TestAssumptionProjection(AssumptionCase):
                     "owner-held: T-THREE (the owner finishes T-TWO)")
         self.assertIn(f"assumptions  {expected}", out.getvalue())
         compiler.write(self.dir, self.project)
-        self.assertIn(f"- assumptions: {expected}", (self.authority / "INDEX.md").read_text())
+        self.assertIn(f"- assumptions: {expected}", (self.authority / "INDEX.md").read_text(encoding="utf-8"))
 
     def test_deterministic_and_never_written_back(self) -> None:
         """AC-T-ASSUME-PROJECT-01-05."""
         before = {p: p.read_bytes() for p in self.authority.rglob("*") if p.is_file() and p.name != "INDEX.md"}
         compiler.write(self.dir, self.project)
-        first = (self.dir / layout.COMPILED_DIR / "project.json").read_text()
+        first = (self.dir / layout.COMPILED_DIR / "project.json").read_text(encoding="utf-8")
         self.load()
         compiler.write(self.dir, self.project)
-        self.assertEqual((self.dir / layout.COMPILED_DIR / "project.json").read_text(), first)
+        self.assertEqual((self.dir / layout.COMPILED_DIR / "project.json").read_text(encoding="utf-8"), first)
         after = {p: p.read_bytes() for p in self.authority.rglob("*") if p.is_file() and p.name != "INDEX.md"}
         self.assertEqual(after, before)
         self.assertEqual([a.status for a in self.project.assumptions], ["OPEN", "OPEN"])

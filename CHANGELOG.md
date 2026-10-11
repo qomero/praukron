@@ -4,6 +4,13 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 1.2.1 — 2026-10-11
+
+- Windows: every chronicle file is read and written as UTF-8. The locale
+  default (cp1252) broke `compile`, `respond` and the dashboard as soon as a
+  record held text such as Vietnamese, and failed the test suite on setup.
+  A test now refuses any runtime text read or write that names no encoding.
+
 ## 1.2.0 — 2026-10-09
 
 - Dashboard: a "Needs you" side panel on the right, visible on every tab,

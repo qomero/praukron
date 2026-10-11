@@ -61,5 +61,5 @@ def version() -> str:
     here = Path(__file__).resolve()
     for candidate in (here.parents[1] / "VERSION", here.parents[2] / "VERSION"):
         if candidate.is_file():
-            return candidate.read_text().strip() or FALLBACK_VERSION
+            return candidate.read_text(encoding="utf-8").strip() or FALLBACK_VERSION
     return FALLBACK_VERSION

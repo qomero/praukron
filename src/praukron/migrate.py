@@ -76,7 +76,7 @@ def _legacy_dir(root: Path) -> Path:
 
 
 def _holds_work(path: Path) -> bool:
-    return path.is_file() and bool(re.search(r"(?m)^## T-", path.read_text()))
+    return path.is_file() and bool(re.search(r"(?m)^## T-", path.read_text(encoding="utf-8")))
 
 
 def _unread(root: Path, legacy_authority: str) -> bool:
@@ -232,13 +232,13 @@ def plan(root: Path, phase: str = "P-NONE") -> Plan:
     if result.archive.exists():
         raise MigrationError(f"Archive already exists: {result.archive}")
 
-    tasks_text = (legacy / "TASKS.md").read_text()
+    tasks_text = (legacy / "TASKS.md").read_text(encoding="utf-8")
     _, contracts, count = _migrate_tasks(tasks_text, phase)
     result.tasks = count
     result.contracts = len(re.findall(r"(?m)^## AC-", contracts))
 
     decisions_path = legacy / "DECISIONS.md"
-    adrs = _migrate_decisions(decisions_path.read_text()) if decisions_path.is_file() else {}
+    adrs = _migrate_decisions(decisions_path.read_text(encoding="utf-8")) if decisions_path.is_file() else {}
     result.decisions = len(adrs)
 
     result.steps = [
@@ -268,25 +268,25 @@ def apply(root: Path, phase: str = "P-NONE") -> Plan:
     authority = root / AUTHORITY_DIR
     (authority / "ADR").mkdir(parents=True, exist_ok=True)
 
-    tasks, contracts, _ = _migrate_tasks((legacy / "TASKS.md").read_text(), phase)
-    (authority / "TASKS.md").write_text(tasks)
-    (authority / "ACCEPTANCE.md").write_text(contracts)
+    tasks, contracts, _ = _migrate_tasks((legacy / "TASKS.md").read_text(encoding="utf-8"), phase)
+    (authority / "TASKS.md").write_text(tasks, encoding="utf-8")
+    (authority / "ACCEPTANCE.md").write_text(contracts, encoding="utf-8")
 
     decisions_path = legacy / "DECISIONS.md"
     if decisions_path.is_file():
-        adrs = _migrate_decisions(decisions_path.read_text())
+        adrs = _migrate_decisions(decisions_path.read_text(encoding="utf-8"))
         for name, body in adrs.items():
-            (authority / "ADR" / name).write_text(body)
-        (authority / "ADR" / "README.md").write_text(_adr_index(adrs))
+            (authority / "ADR" / name).write_text(body, encoding="utf-8")
+        (authority / "ADR" / "README.md").write_text(_adr_index(adrs), encoding="utf-8")
 
     for name in ("INTENT.md", "JOURNAL.md"):
         source = legacy / name
         if source.is_file():
-            (authority / name).write_text(source.read_text())
+            (authority / name).write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
     state = legacy / "STATE.md"
     if state.is_file():
-        (authority / "HANDOFF.md").write_text(_handoff_from_state(state.read_text()))
+        (authority / "HANDOFF.md").write_text(_handoff_from_state(state.read_text(encoding="utf-8")), encoding="utf-8")
 
     assert result.archive is not None
     result.archive.mkdir()
@@ -343,7 +343,7 @@ def relocate_plan(root: Path) -> Plan:
         )
 
     documents = sorted(path.name for path in source.iterdir())
-    result.tasks = len(re.findall(r"(?m)^## T-", (source / "TASKS.md").read_text()))
+    result.tasks = len(re.findall(r"(?m)^## T-", (source / "TASKS.md").read_text(encoding="utf-8")))
     result.decisions = len(sorted((source / "ADR").glob("ADR-*.md")))
     compiled = root / layout.V02_COMPILED_DIR
     stale = [name for name in STALE_COMPILED if (compiled / name).is_file()]
@@ -351,7 +351,7 @@ def relocate_plan(root: Path) -> Plan:
     pointers = [
         path
         for path in _pointer_files(root)
-        if _repoint(path.read_text()) != path.read_text()
+        if _repoint(path.read_text(encoding="utf-8")) != path.read_text(encoding="utf-8")
     ]
 
     result.steps = [
@@ -423,10 +423,10 @@ def relocate(root: Path) -> Plan:
             commands.rmdir()
 
     for path in _pointer_files(root):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         repointed = _repoint(text)
         if repointed != text:
-            path.write_text(repointed)
+            path.write_text(repointed, encoding="utf-8")
 
     runtime = root / layout.V02_RUNTIME_DIR
     if runtime.is_dir():

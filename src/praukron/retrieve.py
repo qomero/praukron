@@ -89,7 +89,7 @@ class Chronicle:
     def section(self, name: str, anchor: str) -> str | None:
         if name not in self._cache:
             path = self.authority / name
-            self._cache[name] = _sections(path.read_text(), "##") if path.is_file() else []
+            self._cache[name] = _sections(path.read_text(encoding="utf-8"), "##") if path.is_file() else []
         for heading, body in self._cache[name]:
             head = re.split(r":| — ", heading, maxsplit=1)[0].strip()
             if head == anchor:
@@ -98,7 +98,7 @@ class Chronicle:
 
     def file(self, relative: str) -> str | None:
         path = self.authority / relative
-        return path.read_text() if path.is_file() else None
+        return path.read_text(encoding="utf-8") if path.is_file() else None
 
 
 _ID = re.compile(r"\b(T-[A-Za-z0-9.\-]*[A-Za-z0-9]|ADR-\d+|TD-[A-Za-z0-9.\-]*[A-Za-z0-9]|EV-[A-Za-z0-9.\-]*[A-Za-z0-9]|P\d+)\b")
@@ -119,7 +119,7 @@ def _markers(root: Path, project: Project, report: Report) -> tuple[dict[str, st
     """The index's current markers, from the file when it is current."""
     path = root / layout.AUTHORITY_DIR / index.FILE
     fresh = index.render(project, report, root)
-    if path.is_file() and path.read_text() == fresh:
+    if path.is_file() and path.read_text(encoding="utf-8") == fresh:
         text, note = fresh, ""
     else:
         text = fresh

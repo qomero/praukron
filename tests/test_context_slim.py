@@ -31,7 +31,7 @@ class SlimCase(unittest.TestCase):
         self.authority = self.dir / layout.AUTHORITY_DIR
         trace = "".join(_event(n, "T-TWO") for n in range(1, 8))
         trace += _event(8, "T-TWO", "failure") + _event(9, "T-TWO", "failure") + _event(10, "T-TWO", "success", "EV-009")
-        (self.authority / "TRACE.md").write_text("# Trace\n\n" + trace)
+        (self.authority / "TRACE.md").write_text("# Trace\n\n" + trace, encoding="utf-8")
         self.project = compiler.load(self.dir)
 
     def cli(self, *args: str) -> str:
@@ -54,7 +54,7 @@ class TestContextSlim(SlimCase):
 
     def test_handoff_is_a_pointer_with_its_body_only_when_it_names_the_task(self) -> None:
         """AC-T-CONTEXT-SLIM-01-02."""
-        (self.authority / "HANDOFF.md").write_text("# Handoff\n\nT-ONE is half built.\n")
+        (self.authority / "HANDOFF.md").write_text("# Handoff\n\nT-ONE is half built.\n", encoding="utf-8")
         self.project = compiler.load(self.dir)
         other = analytics.context(self.project, "T-TWO")
         self.assertIsNone(other["handoff"])
@@ -69,7 +69,7 @@ class TestContextSlim(SlimCase):
         extra = "".join(
             f"\n## T-B{n:02d}: Blocked {n}\n- Status: TODO\n- Module: M-FOUNDATION\n- Validation: UNTESTED\n"
             f"- Dependencies: T-TWO\n- AC: AC-T-TWO\n" for n in range(1, 13))
-        tasks.write_text(tasks.read_text() + extra)
+        tasks.write_text(tasks.read_text(encoding="utf-8") + extra, encoding="utf-8")
         self.project = compiler.load(self.dir)
         report = analytics.report(self.project)
         blocked = analytics.context(self.project, None)["blocked"]

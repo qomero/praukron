@@ -326,11 +326,11 @@ def write(root: Path, project: Project) -> Path:
     compiled = root / COMPILED_DIR
     compiled.mkdir(parents=True, exist_ok=True)
     target = compiled / "project.json"
-    target.write_text(json.dumps(as_json(project), indent=2, sort_keys=False) + "\n")
+    target.write_text(json.dumps(as_json(project), indent=2, sort_keys=False) + "\n", encoding="utf-8")
     report = analytics.report(project)
     for name, text in views.render_all(project, report).items():
-        (compiled / name).write_text(text)
-    (root / AUTHORITY_DIR / index.FILE).write_text(index.render(project, report, root))
+        (compiled / name).write_text(text, encoding="utf-8")
+    (root / AUTHORITY_DIR / index.FILE).write_text(index.render(project, report, root), encoding="utf-8")
     return target
 
 

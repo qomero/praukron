@@ -84,7 +84,7 @@ def _sections(text: str, level: str) -> list[tuple[str, str]]:
 
 def parse_thesis(path: Path) -> Thesis:
     """THESIS.md: one `Statement:` and an optional `Source:` (ADR-035)."""
-    fields = _fields(path.read_text()) if path.is_file() else {}
+    fields = _fields(path.read_text(encoding="utf-8")) if path.is_file() else {}
     return Thesis(
         statement=fields.get("Statement", "").strip(),
         reference=fields.get("Source") or None,
@@ -97,7 +97,7 @@ def parse_modules(path: Path) -> list[Module]:
     if not path.is_file():
         return []
     modules: list[Module] = []
-    for heading, body in _sections(path.read_text(), "##"):
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(M-[A-Za-z0-9.\-]+) — (.+)", heading)
         if not match:
             raise ParseError(path.name, heading, "module heading must read '## <ID> — <name>'")
@@ -119,7 +119,7 @@ def parse_tasks(path: Path, modules: list[Module] | None = None) -> list[Task]:
     phases = {module.id: module.phase for module in modules or []}
     name = path.name
     tasks: list[Task] = []
-    for heading, body in _sections(path.read_text(), "##"):
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(T-[A-Za-z0-9.\-]+): (.+)", heading)
         if not match:
             raise ParseError(name, heading, "task heading must read '## <ID>: <title>'")
@@ -178,7 +178,7 @@ _CRITERION = re.compile(
 
 def parse_acceptance(path: Path) -> dict[str, Contract]:
     name = path.name
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     contracts: dict[str, Contract] = {}
 
     # Task contracts are '## AC-...'; inherited invariants are '### AC-GLOBAL-...'.
@@ -268,7 +268,7 @@ def parse_project_name(path: Path) -> str | None:
     """
     if not path.is_file():
         return None
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("#"):
             break
         stripped = line.strip()
@@ -280,7 +280,7 @@ def parse_project_name(path: Path) -> str | None:
 
 def parse_phases(path: Path) -> tuple[list[Phase], list[Gate], list[Milestone]]:
     name = path.name
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     phases: list[Phase] = []
     gates: list[Gate] = []
     milestones: list[Milestone] = []
@@ -345,7 +345,7 @@ def parse_phases(path: Path) -> tuple[list[Phase], list[Gate], list[Milestone]]:
 def parse_decisions(directory: Path) -> list[Decision]:
     decisions: list[Decision] = []
     for path in sorted(directory.glob("ADR-*.md")):
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         heading = re.match(r"# (ADR-[0-9]+): (.+)", text)
         if not heading:
             raise ParseError(path.name, path.stem, "must start with '# ADR-NNN: <title>'")
@@ -383,7 +383,7 @@ def parse_trace(path: Path) -> list[TraceEvent]:
         return []
     name = path.name
     events: list[TraceEvent] = []
-    for heading, body in _sections(path.read_text(), "##"):
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(EV-[A-Za-z0-9.\-]+): (.+)", heading)
         if not match:
             raise ParseError(name, heading, "event heading must read '## EV-<id>: <summary>'")
@@ -420,7 +420,7 @@ def parse_debt(path: Path) -> list[TechDebt]:
         return []
     name = path.name
     debts: list[TechDebt] = []
-    for heading, body in _sections(path.read_text(), "##"):
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(TD-[A-Za-z0-9.\-]+): (.+)", heading)
         if not match:
             raise ParseError(name, heading, "debt heading must read '## TD-<id>: <title>'")
@@ -456,7 +456,7 @@ def parse_assumptions(path: Path) -> list[Assumption]:
         return []
     name = path.name
     found: list[Assumption] = []
-    for heading, body in _sections(path.read_text(), "##"):
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(A-[A-Za-z0-9.\-]+): (.+)", heading)
         if not match:
             raise ParseError(name, heading, "assumption heading must read '## A-<id>: <title>'")
@@ -495,7 +495,7 @@ def parse_responses(path: Path) -> list[Response]:
         return []
     name = path.name
     found: list[Response] = []
-    for heading, body in _sections(path.read_text(), "##"):
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(R-[0-9]+): (\S+) (\S+)$", heading)
         if not match:
             raise ParseError(name, heading, "response heading must read '## R-<n>: <target> <ACTION>'")
@@ -514,4 +514,4 @@ def parse_responses(path: Path) -> list[Response]:
 
 
 def read_text(path: Path) -> str:
-    return path.read_text().strip() if path.exists() else ""
+    return path.read_text(encoding="utf-8").strip() if path.exists() else ""

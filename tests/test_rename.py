@@ -18,11 +18,11 @@ class TestRename(unittest.TestCase):
         self.old = self.root / ".prokron"
         shutil.copytree(ROOT / "templates/chronicle", self.old / "chronicle")
         (self.old / "runtime").mkdir()
-        (self.old / "runtime/VERSION").write_text((ROOT / "VERSION").read_text())
+        (self.old / "runtime/VERSION").write_text((ROOT / "VERSION").read_text(encoding="utf-8"), encoding="utf-8")
         self.guidance = "# My rules\n<!-- project-prokron:start -->\nCUSTOM Prokron guidance\n<!-- project-prokron:end -->\n"
-        (self.root / "AGENTS.md").write_text(self.guidance)
+        (self.root / "AGENTS.md").write_text(self.guidance, encoding="utf-8")
         (self.old / "commands").mkdir()
-        (self.old / "commands/prokron-work.md").write_text("CUSTOM WORK\n")
+        (self.old / "commands/prokron-work.md").write_text("CUSTOM WORK\n", encoding="utf-8")
 
     def install(self):
         return subprocess.run(
@@ -42,8 +42,8 @@ class TestRename(unittest.TestCase):
         self.assertTrue(self.old.is_symlink())
         for name, data in records.items():
             self.assertEqual((self.root / ".praukron/chronicle" / name).read_bytes(), data)
-        self.assertEqual((self.root / "AGENTS.md").read_text(), self.guidance)
-        self.assertEqual((self.old / "commands/prokron-work.md").read_text(), "CUSTOM WORK\n")
+        self.assertEqual((self.root / "AGENTS.md").read_text(encoding="utf-8"), self.guidance)
+        self.assertEqual((self.old / "commands/prokron-work.md").read_text(encoding="utf-8"), "CUSTOM WORK\n")
         self.assertTrue((self.root / ".praukron/upgrade/AGENTS.md").is_file())
         self.assertTrue((self.root / ".praukron/commands/praukron-work.md").is_file())
         old_command = subprocess.run([str(self.old / "prokron"), "--version"],
@@ -52,23 +52,23 @@ class TestRename(unittest.TestCase):
         self.assertTrue(old_command.stdout.startswith("praukron "))
         second = self.install()
         self.assertEqual(second.returncode, 0, second.stderr)
-        self.assertEqual((self.root / "AGENTS.md").read_text(), self.guidance)
+        self.assertEqual((self.root / "AGENTS.md").read_text(encoding="utf-8"), self.guidance)
 
     def test_unmodified_old_agent_block_is_replaced_using_its_manifest(self):
         # A real old manifest checksums just the owned block, not surrounding rules.
         block = "<!-- project-prokron:start -->\nOld rules\n<!-- project-prokron:end -->\n"
-        (self.root / "AGENTS.md").write_text("KEEP BEFORE\n" + block + "KEEP AFTER\n")
+        (self.root / "AGENTS.md").write_text("KEEP BEFORE\n" + block + "KEEP AFTER\n", encoding="utf-8")
         checksum = subprocess.run(["cksum"], input=block, text=True,
                                   capture_output=True, check=True).stdout.split()
-        (self.old / "runtime/GUIDANCE").write_text(f"{checksum[0]}-{checksum[1]} AGENTS.md#prokron\n")
+        (self.old / "runtime/GUIDANCE").write_text(f"{checksum[0]}-{checksum[1]} AGENTS.md#prokron\n", encoding="utf-8")
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        text = (self.root / "AGENTS.md").read_text()
+        text = (self.root / "AGENTS.md").read_text(encoding="utf-8")
         self.assertIn("KEEP BEFORE", text)
         self.assertIn("KEEP AFTER", text)
         self.assertIn("project-praukron:start", text)
         self.assertNotIn("project-prokron:start", text)
-        self.assertIn("AGENTS.md#praukron", (self.root / ".praukron/runtime/GUIDANCE").read_text())
+        self.assertIn("AGENTS.md#praukron", (self.root / ".praukron/runtime/GUIDANCE").read_text(encoding="utf-8"))
 
     def test_two_installations_are_refused_without_mutation(self):
         (self.root / ".praukron").mkdir()
@@ -79,7 +79,7 @@ class TestRename(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)
 
     def test_downgrade_is_refused_before_relocation(self):
-        (self.old / "runtime/VERSION").write_text("999.0.0\n")
+        (self.old / "runtime/VERSION").write_text("999.0.0\n", encoding="utf-8")
         before = self.snapshot()
         result = self.install()
         self.assertNotEqual(result.returncode, 0)
