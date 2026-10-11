@@ -3,4 +3,5 @@
 .praukron/chronicle/ADR/README.md merge=union
 .praukron/compiled/** linguist-generated=true
 .praukron/chronicle/INDEX.md linguist-generated=true
+.praukron/praukron.cmd -text
 # praukron:end

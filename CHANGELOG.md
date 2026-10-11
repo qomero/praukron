@@ -4,6 +4,17 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 1.2.2 — 2026-10-12
+
+- Windows: `praukron` now runs from PowerShell and cmd, not only Git Bash.
+  The installer puts a `praukron.cmd` beside the project entry and, on
+  Windows, beside the `praukron` launcher; both find the nearest project as
+  the POSIX launcher does. Before, PowerShell opened the shell script as a
+  text file.
+- The project entry `.praukron/praukron` picks a working Python 3.9 or newer
+  itself instead of trusting `python3`, which on Windows is often a Microsoft
+  Store placeholder. It says so plainly when there is none.
+
 ## 1.2.1 — 2026-10-11
 
 - Windows: every chronicle file is read and written as UTF-8. The locale

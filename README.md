@@ -223,6 +223,12 @@ never replaces a `praukron` it did not write — if there is nowhere to put it,
 the installer says so and `.praukron/praukron` works exactly the same. Pass
 `--no-link` to skip it.
 
+It runs on Linux, macOS and Windows with Python 3.9 or newer. On Windows, run
+the installer from Git Bash; afterwards `praukron` works in Git Bash,
+PowerShell and cmd alike, through a `praukron.cmd` beside each launcher. The
+tool finds a real interpreter under `py`, `python3` or `python`, so the
+Microsoft Store `python3` placeholder does not get in the way.
+
 <details>
 <summary>Starting a new project, installing from a checkout, or using the GitHub CLI</summary>
 
@@ -495,7 +501,7 @@ For OpenCode setup, see its [providers](https://opencode.ai/docs/providers),
 
 ## Releases
 
-The current release is v1.2.1. `VERSION` holds it and [`CHANGELOG.md`](CHANGELOG.md) summarises
+The current release is v1.2.2. `VERSION` holds it and [`CHANGELOG.md`](CHANGELOG.md) summarises
 what changed. Every release from v0.4.6 is archived and citable:
 [`10.5281/zenodo.22897871`](https://doi.org/10.5281/zenodo.22897871) always resolves to the latest one, and
 [`CITATION.cff`](CITATION.cff) is what GitHub's *Cite this repository* reads.

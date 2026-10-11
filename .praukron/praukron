@@ -1,5 +1,21 @@
-#!/usr/bin/env python3
-"""Zero-install entry point. No packaging, no dependencies, no build step."""
+#!/bin/sh
+# Zero-install entry point. No packaging, no dependencies, no build step.
+#
+# The file is read twice. As POSIX sh it finds a Python 3.9 or newer under
+# python3 or python and runs itself again with it, so it never depends on
+# `python3` being a real interpreter: on Windows that name is often a Microsoft
+# Store placeholder. To Python the shell part is one string. PowerShell and cmd
+# cannot run this file at all; they run praukron.cmd beside it instead.
+''':'
+for py in python3 python; do
+  if command -v "$py" >/dev/null 2>&1 &&
+      "$py" -c 'import sys; sys.exit(sys.version_info < (3, 9))' >/dev/null 2>&1; then
+    exec "$py" "$0" "$@"
+  fi
+done
+echo "Praukron needs Python 3.9 or newer on PATH as python3 or python." >&2
+exit 127
+'''
 
 import sys
 from pathlib import Path
