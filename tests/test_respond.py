@@ -39,8 +39,8 @@ class TestRespond(RespondCase):
         self.assertEqual(code, 0, err)
         self.assertIn("Recorded R-3", out)
         responses = self.authority / "RESPONSES.md"
-        self.assertTrue(responses.read_text().startswith(RESPONSES))
-        self.assertTrue(responses.read_text().endswith(
+        self.assertTrue(responses.read_text(encoding="utf-8").startswith(RESPONSES))
+        self.assertTrue(responses.read_text(encoding="utf-8").endswith(
             "\n## R-3: A-2 CONFIRM\n- By: Thien (owner)\n- Date: 2026-10-03\n- Via: cli\n\n"
             "> Đồng ý, nhưng:\n>\n>   - giữ 7 ngày\n> > không phải trích dẫn\n"))
         self.load()
@@ -48,7 +48,7 @@ class TestRespond(RespondCase):
         after = self.snapshot()
         self.assertEqual({p for p in before if before[p] != after.get(p)}, {responses})
         file = self.dir / "answer.txt"
-        file.write_text("Use the staging copy.")
+        file.write_text("Use the staging copy.", encoding="utf-8")
         code, out, _ = self.run_cli("respond", "T-TWO", "guide", "--by", "Thien", "--text-file", str(file),
                                     "--date", "2026-10-03")
         self.assertEqual(code, 0)
@@ -97,7 +97,7 @@ class TestRespond(RespondCase):
         self.assertEqual(responses.read_bytes(), original)
         self.assertEqual([p.name for p in self.authority.glob(".respond-*")], [])
         self.assertFalse((self.dir / layout.COMPILED_DIR / "respond.lock").exists())
-        source = Path(respond.__file__).read_text()
+        source = Path(respond.__file__).read_text(encoding="utf-8")
         self.assertIn("os.replace(temporary, path)", source)
         self.assertIn("os.O_CREAT | os.O_EXCL", source)
         self.assertIn("COMPILED_DIR", source.split("def _lock", 1)[1].split("def _replace", 1)[0])
@@ -112,9 +112,9 @@ class TestRespond(RespondCase):
         compiled = self.dir / layout.COMPILED_DIR
         for name in ("project.json", "dashboard.html", "task-graph.mmd"):
             self.assertTrue((compiled / name).is_file(), name)
-        data = json.loads((compiled / "project.json").read_text())
+        data = json.loads((compiled / "project.json").read_text(encoding="utf-8"))
         self.assertEqual(data["responses"][-1]["text"], "Seven days.")
-        self.assertIn("Seven days.", (compiled / "dashboard.html").read_text())
+        self.assertIn("Seven days.", (compiled / "dashboard.html").read_text(encoding="utf-8"))
 
     def test_a_batch_is_all_or_nothing(self) -> None:
         """AC-T-RESPOND-01-05."""
@@ -129,7 +129,7 @@ class TestRespond(RespondCase):
             {"target": "A-1", "action": "confirm", "text": "OK"},
             {"target": "A-2", "action": "revise", "text": "Sales read all clients in their region."},
             {"target": "T-TWO", "action": "guide", "text": "Ask before touching production."},
-        ]))
+        ]), encoding="utf-8")
         code, out, err = self.run_cli("respond", "--batch", str(batch), "--by", "Thien",
                                       "--via", "dashboard", "--date", "2026-10-03")
         self.assertEqual(code, 0, err)
@@ -142,7 +142,7 @@ class TestRespond(RespondCase):
 
     def test_a_missing_file_is_created_and_removed_again_on_failure(self) -> None:
         (self.authority / "RESPONSES.md").unlink()
-        self.write(assumptions=(self.authority / "ASSUMPTIONS.md").read_text()
+        self.write(assumptions=(self.authority / "ASSUMPTIONS.md").read_text(encoding="utf-8")
                    .replace("Responses: R-1", "Responses: none"))
         ids = respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], "Thien", recompile=False)
         self.assertEqual(ids, ["R-1"])

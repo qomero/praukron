@@ -38,7 +38,7 @@ def _run(args: list[str], timeout: int = TIMEOUT) -> tuple[bool, str]:
     if exe is None:
         return False, "CodeGraph is not installed (no `codegraph` on PATH)."
     try:
-        done = subprocess.run([exe, *args], capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run([exe, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
     except (OSError, subprocess.SubprocessError) as error:
         return False, f"CodeGraph could not run: {error}"
     if done.returncode != 0:

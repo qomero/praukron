@@ -43,7 +43,7 @@ def _stale_compiled(root: Path) -> str | None:
     if not written.is_file():
         return None
     try:
-        recorded = json.loads(written.read_text())["project"].get("generatorVersion")
+        recorded = json.loads(written.read_text(encoding="utf-8"))["project"].get("generatorVersion")
     except (ValueError, KeyError, OSError):
         return None
     return None if recorded in (None, VERSION) else str(recorded)
@@ -120,7 +120,7 @@ def cmd_graph(root: Path, args: argparse.Namespace) -> int:
     compiled = root / compiler.COMPILED_DIR
     compiled.mkdir(parents=True, exist_ok=True)
     for name, text in mermaid.render_all(project, report).items():
-        (compiled / name).write_text(text)
+        (compiled / name).write_text(text, encoding="utf-8")
         print(f"Wrote {compiler.COMPILED_DIR}/{name}")
     return 0
 
@@ -138,7 +138,7 @@ def cmd_dashboard(root: Path, args: argparse.Namespace) -> int:
     compiled = compiler.as_json(project)
     compiler.write(root, project)
     target = root / compiler.COMPILED_DIR / "dashboard.html"
-    target.write_text(dashboard.render(project, report, compiled))
+    target.write_text(dashboard.render(project, report, compiled), encoding="utf-8")
     print(f"Wrote {target.relative_to(root)}")
     if args.open:
         import webbrowser
@@ -287,14 +287,14 @@ def cmd_respond(root: Path, args: argparse.Namespace) -> int:
 
     if args.batch:
         try:
-            entries = json.loads(Path(args.batch).read_text())
+            entries = json.loads(Path(args.batch).read_text(encoding="utf-8"))
             items = [respond.Item(e["target"], e["action"], e["text"]) for e in entries]
         except (OSError, ValueError, KeyError, TypeError) as error:
             return _fail(f"--batch must be a JSON list of target, action, text: {error}")
     else:
         if not args.target or not args.action:
             return _fail("give a target and an action, or --batch FILE")
-        text = Path(args.text_file).read_text() if args.text_file else sys.stdin.read()
+        text = Path(args.text_file).read_text(encoding="utf-8") if args.text_file else sys.stdin.read()
         items = [respond.Item(args.target, args.action, text)]
     try:
         ids = respond.append(root, items, args.by or "", via=args.via, date=args.date)

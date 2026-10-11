@@ -134,7 +134,7 @@ class TestServe(ServeCase):
             "try { reviewItems([{target:'A-9',choice:'FEEDBACK',text:'  ',guide:false}]); console.log('no error'); }"
             " catch (e) { console.log(e.message); }"
         )
-        out = subprocess.run([node, "-e", program], capture_output=True, text=True, check=True).stdout.splitlines()
+        out = subprocess.run([node, "-e", program], capture_output=True, text=True, encoding="utf-8", check=True).stdout.splitlines()
         self.assertEqual(json.loads(out[0]), [
             {"target": "A-1", "action": "CONFIRM", "text": "OK"},
             {"target": "A-3", "action": "CONFIRM", "text": "OK"},
