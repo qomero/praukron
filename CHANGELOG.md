@@ -9,6 +9,10 @@ people arriving from a release page.
 - Windows: the command prints as UTF-8. Piped, as agents run it, stdout
   defaulted to cp1252 and `retrieve` crashed with `UnicodeEncodeError` on
   the first record that held text such as Vietnamese.
+- `retrieve` keeps to a token budget (`--budget`, default 4000, 0 for none).
+  Records load most relevant first; those past the budget are listed as
+  pointers with the command that fetches each, instead of growing the pack
+  without bound on a long chronicle.
 
 ## 1.2.2 — 2026-10-12
 

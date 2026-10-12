@@ -236,7 +236,11 @@ into its neighbourhood (a task's contract, decisions, debt, blocking chain,
 operations blockers and failed events; a phase's gates, exit authority and
 blockers); and returns only those canonical sections, verbatim, each labelled
 with its source, with a count of how much of the chronicle it did not load. It
-writes nothing and consults no model.
+loads them most relevant first up to a token budget (`--budget`, default 4000,
+0 for none); the first record always loads, and every record after the first
+that does not fit is listed instead, by source, size and the command that
+fetches it, so the cut is a clean prefix and nothing relevant goes unmentioned.
+It writes nothing and consults no model.
 
 An agent's order is fixed: `INDEX.md`, then the records it points to, then
 code. Where CodeGraph is installed, `praukron retrieve <task> --code` adds code

@@ -29,13 +29,32 @@ class Item:
     text: str
 
 
+DEFAULT_BUDGET = 4000  # tokens, estimated as index.tokens does
+
+
+@dataclass
+class Omitted:
+    kind: str
+    id: str
+    source: str
+    reason: str
+    tokens: int
+
+    def follow_up(self) -> str:
+        if _ID.fullmatch(self.id) or self.id.startswith("Gate "):
+            return f"praukron retrieve {self.id}"
+        return f"read {self.source}"
+
+
 @dataclass
 class Pack:
     query: str
     routed: list[tuple[str, str]] = field(default_factory=list)
     items: list[Item] = field(default_factory=list)
+    omitted: list[Omitted] = field(default_factory=list)
     loaded_bytes: int = 0
     chronicle_bytes: int = 0
+    budget: int = DEFAULT_BUDGET  # 0 for no budget
     index_note: str = ""
     implementation: str = ""
 
@@ -44,8 +63,10 @@ class Pack:
             "query": self.query,
             "routed": [{"entity": e, "why": w} for e, w in self.routed],
             "items": [vars(item) for item in self.items],
+            "omitted": [{**vars(o), "followUp": o.follow_up()} for o in self.omitted],
             "loadedBytes": self.loaded_bytes,
             "chronicleBytes": self.chronicle_bytes,
+            "budgetTokens": self.budget or None,
             "index": self.index_note,
             "implementation": self.implementation or None,
         }
@@ -61,11 +82,23 @@ class Pack:
             # record text is otherwise verbatim.
             body = re.sub(r"(?m)^(#{1,4}) ", r"###\1 ", item.text.strip())
             lines += ["", f"## {item.kind} · {item.id} — {item.source}", f"_{item.reason}_", "", body]
+        if self.omitted:
+            # Pointers, not bodies: the agent still sees what else is relevant
+            # and expands only what it needs.
+            lines += ["", f"## Not loaded · over the {self.budget:,}-token budget", ""]
+            lines += [
+                f"- {o.kind} · {o.id} — {o.source} (_{o.reason}_, ~{o.tokens:,} tokens): `{o.follow_up()}`"
+                for o in self.omitted
+            ]
         share = (self.loaded_bytes / self.chronicle_bytes * 100) if self.chronicle_bytes else 0
+        rest = (
+            f" {len(self.omitted)} more relevant sections were not loaded; they are listed above."
+            if self.omitted else " Nothing else was read into this context."
+        )
         lines += [
             "", "---",
             f"Loaded {len(self.items)} sections, {self.loaded_bytes:,} of {self.chronicle_bytes:,} "
-            f"bytes of the chronicle ({share:.0f}%). Nothing else was read into this context.",
+            f"bytes of the chronicle ({share:.0f}%).{rest}",
         ]
         text = "\n".join(lines) + "\n"
         # Implementation context comes after the project context, never
@@ -133,9 +166,11 @@ def _listed(value: str | None) -> list[str]:
     return [] if not value or value == "none" else [v.strip() for v in value.split(",") if v.strip()]
 
 
-def retrieve(project: Project, report: Report, root: Path, query: str) -> Pack:
+def retrieve(project: Project, report: Report, root: Path, query: str,
+             budget: int = DEFAULT_BUDGET) -> Pack:
     chronicle = Chronicle(root)
-    pack = Pack(query=query, chronicle_bytes=chronicle.total_bytes())
+    pack = Pack(query=query, chronicle_bytes=chronicle.total_bytes(), budget=budget)
+    spent = 0
     markers, pack.index_note = _markers(root, project, report)
     lowered = query.lower()
     wants = {name for name, pattern in _WORDS.items() if re.search(pattern, lowered)}
@@ -145,9 +180,18 @@ def retrieve(project: Project, report: Report, root: Path, query: str) -> Pack:
     seen: set[str] = set()
 
     def add(kind: str, record_id: str, source: str, reason: str, text: str | None) -> None:
+        nonlocal spent
         if text is None or source in seen:
             return
         seen.add(source)
+        cost = index.tokens(text)
+        # Items arrive most relevant first. The first is always loaded; once one
+        # does not fit, everything after it is listed rather than loaded, so the
+        # cut is a clean prefix of the neighbourhood.
+        if pack.items and budget and (pack.omitted or spent + cost > budget):
+            pack.omitted.append(Omitted(kind, record_id, source, reason, cost))
+            return
+        spent += cost
         pack.items.append(Item(kind, record_id, source, reason, text))
         pack.loaded_bytes += len(text.encode())
 

@@ -126,13 +126,16 @@ cat .praukron/chronicle/INDEX.md                  # what matters now, and where 
 praukron retrieve "why is P1 blocked?"            # only the records that question needs
 praukron retrieve T-095                           # one task's neighbourhood
 praukron retrieve T-095 --code                    # then code structure, if CodeGraph is installed
+praukron retrieve T-095 --budget 0                # every record, however large the neighbourhood
 ```
 
 `INDEX.md` is written by `compile`. Never edit it: edits are overwritten and
 never read; `validate` says when it is stale. `retrieve` resolves the ids a
 question names — or, for "this task", "the phase", "blocked", "debt", the ones
 the index marks as current — and prints each record it needs with its source,
-and how little of the chronicle that was.
+and how little of the chronicle that was. It loads records up to about 4000
+tokens (`--budget`), most relevant first, and lists the rest as pointers with
+the command that fetches each.
 
 ### CodeGraph (optional)
 

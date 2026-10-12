@@ -306,7 +306,9 @@ def cmd_respond(root: Path, args: argparse.Namespace) -> int:
 
 def cmd_retrieve(root: Path, args: argparse.Namespace) -> int:
     project = _load(root)
-    pack = retrieve.retrieve(project, analytics.report(project), root, " ".join(args.query))
+    if args.budget < 0:
+        return _fail("--budget must be 0 (no budget) or a positive number of tokens")
+    pack = retrieve.retrieve(project, analytics.report(project), root, " ".join(args.query), args.budget)
     if args.code:
         pack.implementation = retrieve.implementation(project, pack, root)
     if args.json:
@@ -564,6 +566,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     fetch.add_argument("query", nargs="+", help="a question, or a task, phase, gate, ADR, or debt id")
     fetch.add_argument("--json", action="store_true")
+    fetch.add_argument(
+        "--budget", type=int, default=retrieve.DEFAULT_BUDGET, metavar="TOKENS",
+        help=f"load records up to about this many tokens and list the rest as pointers "
+             f"(default {retrieve.DEFAULT_BUDGET}; 0 for no budget)",
+    )
     fetch.add_argument(
         "--code", action="store_true",
         help="after the project context, add code structure from CodeGraph if installed",

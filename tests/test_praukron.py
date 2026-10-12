@@ -1784,6 +1784,41 @@ class TestRetrieval(DomainCase):
             self.assertEqual(cli.main(["-C", str(self.dir), "retrieve", "why", "is", "P1", "blocked?", "--json"]), 0)
         self.assertEqual(json.loads(buffer.getvalue())["routed"][0], {"entity": "P1", "why": "named"})
 
+    def test_a_budget_loads_a_prefix_and_lists_the_rest_as_pointers(self) -> None:
+        self.standard()
+        whole = retrieve.retrieve(self.project, self.report, self.dir, "why is P1 blocked?", budget=0)
+        self.assertGreater(len(whole.items), 2)
+        self.assertEqual(whole.omitted, [])
+        first = index.tokens(whole.items[0].text)
+        pack = retrieve.retrieve(self.project, self.report, self.dir, "why is P1 blocked?", budget=first)
+        # The same neighbourhood in the same order, cut after the first record.
+        self.assertEqual([i.source for i in pack.items], [whole.items[0].source])
+        self.assertEqual([o.source for o in pack.omitted], [i.source for i in whole.items[1:]])
+        rendered = pack.render()
+        self.assertIn(f"over the {first:,}-token budget", rendered)
+        for o in pack.omitted:
+            self.assertIn(f"`{o.follow_up()}`", rendered)
+        self.assertIn(f"{len(pack.omitted)} more relevant sections were not loaded", rendered)
+
+    def test_the_first_record_loads_even_over_the_budget(self) -> None:
+        self.standard()
+        pack = retrieve.retrieve(self.project, self.report, self.dir, "T-2", budget=1)
+        self.assertEqual(pack.items[0].id, "T-2")
+        self.assertEqual(pack.items[0].kind, "TASK")
+        self.assertEqual(len(pack.items), 1)
+        self.assertTrue(pack.omitted)
+
+    def test_the_cli_budget(self) -> None:
+        self.standard()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            self.assertEqual(cli.main(["-C", str(self.dir), "retrieve", "T-2", "--budget", "1", "--json"]), 0)
+        packed = json.loads(buffer.getvalue())
+        self.assertEqual(packed["budgetTokens"], 1)
+        self.assertTrue(packed["omitted"])
+        with redirect_stderr(io.StringIO()):
+            self.assertEqual(cli.main(["-C", str(self.dir), "retrieve", "T-2", "--budget", "-1"]), 1)
+
 
 FAKE_CODEGRAPH = """#!{python}
 import json, os, sys
