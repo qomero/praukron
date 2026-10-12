@@ -1855,6 +1855,11 @@ class TestCodeGraphIsolation(DomainCase):
             fake = self.bin / "codegraph"
             fake.write_text(FAKE_CODEGRAPH.format(python=sys.executable), encoding="utf-8")
             fake.chmod(0o755)
+            if os.name == "nt":
+                # Windows finds commands by PATHEXT and ignores shebangs; npm
+                # installs CodeGraph there as a .cmd, so the fake is one too.
+                (self.bin / "codegraph.cmd").write_text(
+                    f'@"{sys.executable}" "%~dp0codegraph" %*\r\n', encoding="utf-8")
         env = {"PATH": f"{self.bin}{os.pathsep}/usr/bin{os.pathsep}/bin", "FAKE_CG_LOG": str(self.log)}
         if fail:
             env["FAKE_CG_FAIL"] = "1"

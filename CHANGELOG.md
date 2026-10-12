@@ -23,6 +23,13 @@ people arriving from a release page.
   validation error and undone byte for byte unless the records read back
   identical. On Qopilot, archiving P0–P8 takes `TASKS.md` from 48 KB to 17 KB
   and `ACCEPTANCE.md` from 167 KB to 57 KB.
+- Windows installer: run as `sh E:\path\install.sh`, it now recognises the
+  checkout instead of silently downloading the latest release. Upgrading a
+  Prokron installation without the symlink privilege makes the `.prokron`
+  alias a junction; before, `ln -s` copied the directory, leaving two
+  chronicles and refusing the next install.
+- The test suite passes on Windows: symlink-only cases skip where links
+  cannot exist, and the fakes and checksums no longer assume POSIX.
 
 ## 1.2.2 — 2026-10-12
 
