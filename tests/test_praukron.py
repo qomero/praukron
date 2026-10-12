@@ -2883,5 +2883,19 @@ class TestNoNetworkOrDependencies(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
+class TestOutputEncoding(FixtureCase):
+    def test_records_print_as_utf8_through_a_cp1252_pipe(self) -> None:
+        # A piped stdout on Windows is cp1252; retrieve prints records verbatim.
+        handoff = self.root / layout.AUTHORITY_DIR / "HANDOFF.md"
+        handoff.write_text("# Handoff\n\nTiếp tục kiểm thử bản cập nhật.\n", encoding="utf-8")
+        raw = io.BytesIO()
+        pipe = io.TextIOWrapper(raw, encoding="cp1252")
+        with mock.patch.object(sys, "stdout", pipe):
+            code = cli.main(["-C", str(self.root), "retrieve", "show", "the", "handoff"])
+            pipe.flush()
+        self.assertEqual(code, 0)
+        self.assertIn("Tiếp tục kiểm thử bản cập nhật.", raw.getvalue().decode("utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

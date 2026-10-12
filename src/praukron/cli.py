@@ -606,7 +606,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _utf8_streams() -> None:
+    # Records are printed verbatim. Piped on Windows, stdout defaults to cp1252
+    # and a Vietnamese record breaks `retrieve` and `context` mid-output.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_streams()
     args = build_parser().parse_args(argv)
     try:
         root = compiler.locate(Path(args.directory) if args.directory else None)

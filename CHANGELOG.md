@@ -4,6 +4,12 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## Unreleased
+
+- Windows: the command prints as UTF-8. Piped, as agents run it, stdout
+  defaulted to cp1252 and `retrieve` crashed with `UnicodeEncodeError` on
+  the first record that held text such as Vietnamese.
+
 ## 1.2.2 — 2026-10-12
 
 - Windows: `praukron` now runs from PowerShell and cmd, not only Git Bash.
