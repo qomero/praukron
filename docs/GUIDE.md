@@ -137,6 +137,22 @@ and how little of the chronicle that was. It loads records up to about 4000
 tokens (`--budget`), most relevant first, and lists the rest as pointers with
 the command that fetches each.
 
+### Archiving a closed phase
+
+```sh
+praukron archive P3 --dry-run                     # what would move, and what stays and why
+praukron archive P3                               # owner only: move it
+```
+
+`TASKS.md` and `ACCEPTANCE.md` only grow. Once a phase is `COMPLETE`, the
+owner can move its `DONE` tasks and their contracts, verbatim, into
+`chronicle/archive/P3/`. They stay authority: every command reads them as
+before, `retrieve` labels them with their new file, and an old
+`TASKS.md#T-…` pointer still resolves. A task stays in the working file while
+an open assumption, unresolved debt or failure, or an awaiting response points
+at it; a contract stays while it holds an inherited invariant. Agents never
+run it on their own (ADR-066).
+
 ### CodeGraph (optional)
 
 ```sh

@@ -13,7 +13,10 @@ review, advice, and continuity between people as well as agents.
 ```text
 .praukron/chronicle/   authored by people and agents; the only source of truth
                       (except INDEX.md, which Praukron generates, and
-                      RESPONSES.md, which `praukron respond` appends to)
+                      RESPONSES.md, which `praukron respond` appends to;
+                      archive/<phase>/ holds closed phases' tasks and
+                      contracts, moved there by `praukron archive`, and is
+                      authority like the rest)
 .praukron/compiled/    compiled by Praukron; safe to delete and regenerate
 ```
 

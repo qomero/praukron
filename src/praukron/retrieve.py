@@ -120,6 +120,16 @@ class Chronicle:
         )
 
     def section(self, name: str, anchor: str) -> str | None:
+        found = self._find(name, anchor)
+        if found is None and name in ("TASKS.md", "ACCEPTANCE.md"):
+            # A pointer written before its phase was archived still resolves (ADR-066).
+            for archived in sorted((self.authority / layout.ARCHIVE_DIR).glob(f"*/{name}")):
+                found = self._find(archived.relative_to(self.authority).as_posix(), anchor)
+                if found is not None:
+                    break
+        return found
+
+    def _find(self, name: str, anchor: str) -> str | None:
         if name not in self._cache:
             path = self.authority / name
             self._cache[name] = _sections(path.read_text(encoding="utf-8"), "##") if path.is_file() else []
@@ -199,10 +209,13 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
         t = tasks.get(task_id)
         if t is None:
             return
-        add("TASK", t.id, f"TASKS.md#{t.id}", reason, chronicle.section("TASKS.md", t.id))
+        # Each record from where it lives, the working file or its phase's archive.
+        add("TASK", t.id, f"{t.source.file}#{t.id}", reason, chronicle.section(t.source.file, t.id))
         if t.contract:
-            add("ACCEPTANCE", t.contract, f"ACCEPTANCE.md#{t.contract}", f"contract of {t.id}",
-                chronicle.section("ACCEPTANCE.md", t.contract))
+            contract = project.contracts.get(t.contract)
+            name = contract.source.file if contract else "ACCEPTANCE.md"
+            add("ACCEPTANCE", t.contract, f"{name}#{t.contract}", f"contract of {t.id}",
+                chronicle.section(name, t.contract))
 
     def debt(debt_id: str, reason: str) -> None:
         add("TECH DEBT", debt_id, f"TECH_DEBT.md#{debt_id}", reason, chronicle.section("TECH_DEBT.md", debt_id))

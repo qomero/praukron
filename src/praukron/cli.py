@@ -281,6 +281,25 @@ def cmd_context(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_archive(root: Path, args: argparse.Namespace) -> int:
+    from . import archive, respond
+
+    try:
+        plan = archive.archive(root, args.phase, dry_run=args.dry_run)
+    except archive.ArchiveError as error:
+        return _fail(str(error))
+    applied = bool(plan.tasks) and not args.dry_run
+    if applied:
+        respond.refresh(root)
+    if args.json:
+        print(json.dumps({**plan.as_json(), "applied": applied}, indent=2))
+    else:
+        print(plan.render(applied), end="")
+        if applied:
+            print("Compiled views refreshed.")
+    return 0
+
+
 def cmd_respond(root: Path, args: argparse.Namespace) -> int:
     """Append the owner's response to RESPONSES.md, validated and atomic (ADR-055)."""
     from . import respond
@@ -601,6 +620,15 @@ def build_parser() -> argparse.ArgumentParser:
     answer.add_argument("--via", default="cli", help="how it arrived: cli, dashboard, or relayed by …")
     answer.add_argument("--date", help="YYYY-MM-DD; defaults to today")
     answer.set_defaults(handler=cmd_respond)
+
+    shelve = subparsers.add_parser(
+        "archive",
+        help="owner only: move a COMPLETE phase's DONE tasks and contracts to archive/<phase>/ (ADR-066)",
+    )
+    shelve.add_argument("phase", help="a COMPLETE phase, e.g. P3")
+    shelve.add_argument("--dry-run", action="store_true", help="show what would move; write nothing")
+    shelve.add_argument("--json", action="store_true")
+    shelve.set_defaults(handler=cmd_archive)
 
     packet = subparsers.add_parser(
         "context", help="emit an agent context packet: orientation, or one task's"

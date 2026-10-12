@@ -61,8 +61,10 @@ run `compile && graph && dashboard`; a stale dashboard shows people a state the
 chronicle no longer holds. The tool
 never edits a record in `.praukron/chronicle/`. It writes the generated
 `INDEX.md` there, and `praukron respond` appends the owner's responses to
-`RESPONSES.md`, validated and atomic; nothing else in the chronicle is
-written by the tool.
+`RESPONSES.md`, validated and atomic. `praukron archive <phase>` moves a
+COMPLETE phase's closed tasks and contracts, verbatim, into
+`chronicle/archive/<phase>/`, where they remain authority; run it only when the
+owner asks. Nothing else in the chronicle is written by the tool.
 
 Recognize these workflows:
 

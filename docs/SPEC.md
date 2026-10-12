@@ -21,7 +21,11 @@ reads `.praukron/chronicle/` and writes only `.praukron/compiled/` and the
 generated `INDEX.md`; it uses the Python standard library and needs no network
 or model provider. The one command that writes a record is `praukron respond`,
 and it only appends the owner's words to `RESPONSES.md`, validated first and
-undone if it introduces an error (ADR-055). See ADR-013, ADR-016, ADR-017,
+undone if it introduces an error (ADR-055). `praukron archive <phase>`, run
+only at the owner's request, moves a COMPLETE phase's closed tasks and
+contracts verbatim into `archive/<phase>/`; they remain authority, read with
+the working files, and the move is undone unless the records read back
+identical (ADR-066). See ADR-013, ADR-016, ADR-017,
 ADR-024, and `docs/PRODUCT-THESIS.md`.
 
 Phase specifications are internal working documents and are not published

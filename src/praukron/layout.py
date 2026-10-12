@@ -23,6 +23,9 @@ COMPILED_DIR = f"{HOME_DIR}/compiled"
 RUNTIME_DIR = f"{HOME_DIR}/runtime"
 COMMANDS_DIR = f"{HOME_DIR}/commands"
 ENTRY_POINT = f"{HOME_DIR}/praukron"
+# Closed phases' tasks and contracts, inside the chronicle and still authority
+# (ADR-066): `<AUTHORITY_DIR>/archive/<phase>/TASKS.md` and `ACCEPTANCE.md`.
+ARCHIVE_DIR = "archive"
 
 # Earlier layouts, kept so records written under them can still be found.
 # v0.1 held authority in the directory that now holds the installation; v0.2

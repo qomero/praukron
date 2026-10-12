@@ -350,7 +350,8 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron context` | Orientation for a fresh agent: phase, work in flight, ready, blocked, the critical path, and where authority lives. |
 | `praukron context <task>` | The minimal packet an agent needs to start that task, with the exact records to read and any references that do not resolve. |
 | `praukron domains` | How each task's execution/operations domain was decided, and which need one. |
-| `praukron retrieve "<question or id>"` | Only the chronicle records a question needs, routed by `INDEX.md`, each with its source. |
+| `praukron retrieve "<question or id>"` | Only the chronicle records a question needs, routed by `INDEX.md`, each with its source, within a token budget (`--budget`). |
+| `praukron archive <phase> [--dry-run]` | Owner only: move a COMPLETE phase's closed tasks and contracts to `archive/<phase>/`. They stay authority; open work stays put. |
 | `praukron codegraph status` | Optional: whether CodeGraph is available to add code structure after the records. |
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |

@@ -13,6 +13,16 @@ people arriving from a release page.
   Records load most relevant first; those past the budget are listed as
   pointers with the command that fetches each, instead of growing the pack
   without bound on a long chronicle.
+- `praukron archive <phase>` (ADR-066), run only when the owner asks, moves a
+  COMPLETE phase's DONE tasks and their contracts, verbatim, from `TASKS.md`
+  and `ACCEPTANCE.md` into `chronicle/archive/<phase>/`. Archived records stay
+  authority and every command reads them as before; only `source` changes,
+  and old `TASKS.md#…` pointers still resolve. A task stays while an open
+  assumption, unresolved debt or failure, or awaiting response points at it;
+  a contract stays while it holds an invariant. The move is refused on any
+  validation error and undone byte for byte unless the records read back
+  identical. On Qopilot, archiving P0–P8 takes `TASKS.md` from 48 KB to 17 KB
+  and `ACCEPTANCE.md` from 167 KB to 57 KB.
 
 ## 1.2.2 — 2026-10-12
 

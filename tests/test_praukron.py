@@ -2918,6 +2918,129 @@ class TestNoNetworkOrDependencies(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
+class TestArchive(FixtureCase):
+    """A COMPLETE phase's closed work moves to archive/<phase>/ and stays authority (ADR-066)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.rewrite("PHASES.md", "Status:\nACTIVE", "Status:\nCOMPLETE")
+        self.authority = self.root / layout.AUTHORITY_DIR
+
+    def close_all(self) -> None:
+        for _ in range(2):
+            self.rewrite("TASKS.md", "- Status: TODO", "- Status: DONE")
+            self.rewrite("ACCEPTANCE.md", "`NOT_RUN`", "`PASS`")
+
+    def snapshot(self) -> dict[Path, bytes]:
+        return {p: p.read_bytes() for p in self.authority.rglob("*") if p.is_file()}
+
+    def test_closed_work_moves_verbatim_and_the_project_reads_the_same(self) -> None:
+        from praukron import archive
+
+        self.close_all()
+        tasks_before = (self.authority / "TASKS.md").read_text(encoding="utf-8")
+        before = archive._records(compiler.load(self.root))
+        plan = archive.archive(self.root, "P1")
+        self.assertEqual(plan.tasks, ["T-ONE", "T-TWO", "T-THREE"])
+        self.assertEqual(plan.contracts, ["AC-T-ONE", "AC-T-TWO", "AC-T-THREE"])
+        project = compiler.load(self.root)
+        self.assertEqual(archive._records(project), before)
+        self.assertEqual(project.task("T-ONE").source.file, "archive/P1/TASKS.md")
+        self.assertEqual(project.contracts["AC-T-ONE"].source.file, "archive/P1/ACCEPTANCE.md")
+        self.assertEqual(validate.errors(validate.check(project)), [])
+        moved = (self.authority / "archive/P1/TASKS.md").read_text(encoding="utf-8")
+        section = tasks_before[tasks_before.index("## T-TWO"):tasks_before.index("## T-THREE")].rstrip("\n")
+        self.assertIn(section, moved)
+        self.assertNotIn("## T-", (self.authority / "TASKS.md").read_text(encoding="utf-8"))
+        # Inherited invariants never leave the working file.
+        self.assertIn("### AC-GLOBAL-CARE", (self.authority / "ACCEPTANCE.md").read_text(encoding="utf-8"))
+
+    def test_retrieve_and_old_pointers_reach_the_archive(self) -> None:
+        from praukron import archive
+
+        self.close_all()
+        archive.archive(self.root, "P1")
+        project = compiler.load(self.root)
+        pack = retrieve.retrieve(project, analytics.report(project), self.root, "T-TWO")
+        self.assertEqual(pack.items[0].source, "archive/P1/TASKS.md#T-TWO")
+        self.assertIn("archive/P1/ACCEPTANCE.md#AC-T-TWO", [i.source for i in pack.items])
+        self.assertIn("## T-ONE: Lay the foundation", retrieve.Chronicle(self.root).section("TASKS.md", "T-ONE"))
+
+    def test_open_work_stays_and_only_a_complete_phase_moves(self) -> None:
+        from praukron import archive
+
+        plan = archive.plan(compiler.load(self.root), "P1", self.root)
+        self.assertEqual(plan.tasks, ["T-ONE"])
+        self.assertEqual(dict(plan.kept), {"T-TWO": "it is not DONE", "T-THREE": "it is not DONE"})
+        self.rewrite("PHASES.md", "Status:\nCOMPLETE", "Status:\nACTIVE")
+        with self.assertRaisesRegex(archive.ArchiveError, "only a COMPLETE phase"):
+            archive.plan(compiler.load(self.root), "P1")
+        with self.assertRaisesRegex(archive.ArchiveError, "not a phase"):
+            archive.plan(compiler.load(self.root), "P9")
+
+    def test_a_contract_holding_an_invariant_stays(self) -> None:
+        from praukron import archive
+
+        self.close_all()
+        text = (self.authority / "ACCEPTANCE.md").read_text(encoding="utf-8")
+        block = text[text.index("### AC-GLOBAL-CARE"):text.index("---")]
+        # The invariant now sits at the end of AC-T-TWO's section.
+        text = text.replace(block, "").replace("## AC-T-THREE", block + "## AC-T-THREE")
+        (self.authority / "ACCEPTANCE.md").write_text(text, encoding="utf-8")
+        plan = archive.plan(compiler.load(self.root), "P1", self.root)
+        self.assertNotIn("AC-T-TWO", plan.contracts)
+        self.assertIn("AC-T-THREE", plan.contracts)
+
+    def test_dry_run_and_a_failed_check_leave_every_byte(self) -> None:
+        from praukron import archive
+
+        self.close_all()
+        before = self.snapshot()
+        plan = archive.archive(self.root, "P1", dry_run=True)
+        self.assertGreater(plan.moved_bytes, 0)
+        self.assertEqual(self.snapshot(), before)
+        real = archive._records
+        calls = []
+
+        def drifting(project):
+            calls.append(1)
+            return real(project) if len(calls) == 1 else {"changed": True}
+
+        with mock.patch.object(archive, "_records", drifting):
+            with self.assertRaisesRegex(archive.ArchiveError, "nothing was moved"):
+                archive.archive(self.root, "P1")
+        self.assertEqual(self.snapshot(), before)
+        self.assertFalse((self.authority / "archive").exists())
+
+    def test_validation_errors_refuse_the_archive(self) -> None:
+        from praukron import archive
+
+        self.close_all()
+        self.rewrite("TASKS.md", "- Dependencies: T-ONE", "- Dependencies: T-GHOST")
+        before = self.snapshot()
+        with self.assertRaisesRegex(archive.ArchiveError, "fix them before archiving"):
+            archive.archive(self.root, "P1")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_a_contract_in_both_places_does_not_parse(self) -> None:
+        target = self.authority / "archive/P1/ACCEPTANCE.md"
+        target.parent.mkdir(parents=True)
+        target.write_text("# Archived\n\n## AC-T-ONE — Again\n\n- `AC-T-ONE-09` — Again. `TEST`\n", encoding="utf-8")
+        with self.assertRaisesRegex(ParseError, "duplicate contract"):
+            compiler.load(self.root)
+
+    def test_the_cli(self) -> None:
+        self.close_all()
+        buffer = io.StringIO()
+        with redirect_stdout(buffer):
+            self.assertEqual(cli.main(["-C", str(self.root), "archive", "P1", "--json"]), 0)
+        self.assertTrue(json.loads(buffer.getvalue())["applied"])
+        self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
+        with redirect_stderr(io.StringIO()):
+            self.rewrite("PHASES.md", "Status:\nCOMPLETE", "Status:\nACTIVE")
+            self.assertEqual(cli.main(["-C", str(self.root), "archive", "P1"]), 1)
+
+
 class TestOutputEncoding(FixtureCase):
     def test_records_print_as_utf8_through_a_cp1252_pipe(self) -> None:
         # A piped stdout on Windows is cp1252; retrieve prints records verbatim.
