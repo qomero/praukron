@@ -330,6 +330,10 @@ done
 cp "$source_dir/VERSION" "$target/$runtime/VERSION"
 cp "$source_dir/.praukron/praukron" "$target/$home/praukron"
 chmod +x "$target/$home/praukron"
+# Windows cannot run the POSIX entry above; PowerShell and cmd find this one
+# beside it. It ships on every platform, so a repository shared between
+# systems works on each.
+cp "$source_dir/.praukron/praukron.cmd" "$target/$home/praukron.cmd"
 if [ -L "$target/.prokron" ]; then
   # Compatibility entry: old launchers run the current runtime on the same
   # records, rather than continuing to run an obsolete copy.
@@ -346,13 +350,21 @@ fi
 # releases each keep their own (ADR-027).
 #
 # It creates no directory, edits no shell configuration, and never replaces a
-# `praukron` it did not write.
+# `praukron` it did not write. On Windows (Git Bash, MSYS, Cygwin) a
+# `praukron.cmd` goes beside it, because PowerShell and cmd cannot run a POSIX
+# script and pick the .cmd file instead.
+windows=0
+case $(uname -s 2>/dev/null || true) in MINGW*|MSYS*|CYGWIN*) windows=1 ;; esac
 linked=
 if [ "$link" -eq 1 ]; then
   for dir in "${HOME:-}/.local/bin" "${HOME:-}/bin" /usr/local/bin; do
     [ -n "$dir" ] && [ -d "$dir" ] && [ -w "$dir" ] || continue
     case ":${PATH:-}:" in *":$dir:"*) ;; *) continue ;; esac
     if [ -e "$dir/praukron" ] && ! grep -q 'praukron-launcher' "$dir/praukron" 2>/dev/null; then
+      continue
+    fi
+    if [ "$windows" -eq 1 ] && [ -e "$dir/praukron.cmd" ] \
+        && ! grep -q 'praukron-launcher' "$dir/praukron.cmd" 2>/dev/null; then
       continue
     fi
     cat > "$dir/praukron" <<'LAUNCHER'
@@ -373,6 +385,43 @@ echo "  curl -fsSL https://raw.githubusercontent.com/qomero/praukron/main/instal
 exit 2
 LAUNCHER
     chmod +x "$dir/praukron"
+    if [ "$windows" -eq 1 ]; then
+      # Batch files want CRLF line endings.
+      awk '{ printf "%s\r\n", $0 }' > "$dir/praukron.cmd" <<'LAUNCHER'
+@echo off
+rem praukron-launcher: run the nearest project's own copy of Praukron.
+setlocal
+set "dir=%CD%"
+:up
+if exist "%dir%\.praukron\praukron.cmd" goto project
+if exist "%dir%\.praukron\praukron" goto python
+for %%D in ("%dir%\..") do set "parent=%%~fD"
+if /i "%parent%"=="%dir%" goto none
+set "dir=%parent%"
+goto up
+:project
+call "%dir%\.praukron\praukron.cmd" %*
+exit /b %errorlevel%
+:python
+rem Installations before 1.2.2 have no Windows entry of their own.
+for %%P in ("py -3" python3 python) do (
+  %%~P -c "import sys; sys.exit(sys.version_info < (3, 9))" >nul 2>&1 && (
+    set "python=%%~P"
+    goto run
+  )
+)
+>&2 echo Praukron needs Python 3.9 or newer on PATH as py, python3 or python.
+exit /b 127
+:run
+%python% "%dir%\.praukron\praukron" %*
+exit /b %errorlevel%
+:none
+>&2 echo No .praukron\ in %CD% or any parent directory.
+>&2 echo Install Praukron in this project from Git Bash with:
+>&2 echo   curl -fsSL https://raw.githubusercontent.com/qomero/praukron/main/install.sh ^| sh
+exit /b 2
+LAUNCHER
+    fi
     linked=$dir
     break
   done
@@ -486,6 +535,7 @@ if [ -e "$target/.git" ]; then
 .praukron/chronicle/ADR/README.md merge=union
 .praukron/compiled/** linguist-generated=true
 .praukron/chronicle/INDEX.md linguist-generated=true
+.praukron/praukron.cmd -text
 # praukron:end
 ATTRIBUTES
   if [ ! -f "$attributes" ]; then
@@ -508,7 +558,13 @@ fi
 
 printf 'Praukron installed in %s\n' "$target"
 if [ -n "$linked" ]; then
-  printf 'The command is `praukron`, linked in %s\n\n' "$linked"
+  printf 'The command is `praukron`, linked in %s\n' "$linked"
+  if [ "$windows" -eq 1 ]; then
+    printf 'PowerShell and cmd run %s\praukron.cmd; if they cannot find it,\n' \
+      "$(cygpath -w "$linked" 2>/dev/null || printf '%s' "$linked")"
+    printf 'add that folder to your Windows user PATH.\n'
+  fi
+  printf '\n'
 elif [ "$link" -eq 1 ]; then
   printf 'Run it as `%s/praukron`, or put it on your PATH:\n' "$home"
   printf '  alias praukron="%s/praukron"\n\n' "$home"

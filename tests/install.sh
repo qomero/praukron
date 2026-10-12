@@ -45,6 +45,26 @@ for module in "$root"/src/praukron/*.py; do
   test -f "$fixture/.praukron/runtime/praukron/$(basename "$module")"
 done
 "$fixture/.praukron/praukron" --version | grep -Fq "praukron $(cat "$root/VERSION")"
+# The entry chooses a working interpreter instead of trusting `python3`: on
+# Windows that name is often a Microsoft Store placeholder that only fails.
+real_python=$(for py in python3 python; do "$py" -c 'import sys; print(sys.executable)' 2>/dev/null && break; done)
+mkdir -p "$fixture/pybin" "$fixture/nopy"
+printf '#!/bin/sh\nexit 49\n' > "$fixture/pybin/python3"
+cp "$fixture/pybin/python3" "$fixture/nopy/python3"
+printf '#!/bin/sh\nexec "%s" "$@"\n' "$real_python" > "$fixture/pybin/python"
+chmod +x "$fixture/pybin/python3" "$fixture/nopy/python3" "$fixture/pybin/python"
+PATH="$fixture/pybin:/usr/bin:/bin" "$fixture/.praukron/praukron" --version \
+  | grep -Fq "praukron $(cat "$root/VERSION")"
+# With no usable Python it says so, rather than failing obscurely.
+status=0
+PATH="$fixture/nopy" "$fixture/.praukron/praukron" --version 2> "$fixture/nopy/err" || status=$?
+test "$status" -eq 127
+grep -Fq 'Python 3.9 or newer' "$fixture/nopy/err"
+# PowerShell and cmd cannot run the POSIX entry; a batch file beside it, with
+# the CRLF endings batch files need, kept so by the attribute block below.
+test -f "$fixture/.praukron/praukron.cmd"
+test "$(tr -d '\r' < "$fixture/.praukron/praukron.cmd" | wc -c)" -lt "$(wc -c < "$fixture/.praukron/praukron.cmd")"
+grep -Fq '%~dp0praukron' "$fixture/.praukron/praukron.cmd"
 # The runtime reports its own version, never the tracked project's.
 printf '9.9.9\n' > "$fixture/VERSION"
 "$fixture/.praukron/praukron" --version | grep -Fvq '9.9.9'
@@ -252,6 +272,7 @@ grep -Fxq '*.png binary' "$repo/.gitattributes"
 grep -Fxq '.praukron/chronicle/JOURNAL.md merge=union' "$repo/.gitattributes"
 grep -Fxq '.praukron/chronicle/ADR/README.md merge=union' "$repo/.gitattributes"
 grep -Fxq '.praukron/compiled/** linguist-generated=true' "$repo/.gitattributes"
+grep -Fxq '.praukron/praukron.cmd -text' "$repo/.gitattributes"
 g() { git -C "$repo" -c user.name=test -c user.email=test@example.com "$@"; }
 g add -A && g commit -qm base
 g checkout -qb one
@@ -436,6 +457,8 @@ grep -Fq 'praukron-launcher' "$machine/.local/bin/praukron"
 cmp "$machine/.zshrc" - <<'RC'
 KEEP
 RC
+# Off Windows there is no batch launcher to leave behind.
+test ! -e "$machine/.local/bin/praukron.cmd"
 # It runs from anywhere inside the project, not only its root.
 (
   export PATH="$machine/.local/bin:$PATH"
@@ -466,6 +489,31 @@ chmod +x "$other/.local/bin/praukron"
 )
 grep -Fq 'NOT OURS' "$other/.local/bin/praukron"
 grep -Fq 'alias praukron=' "$other/output"
+# On Windows (Git Bash, MSYS, Cygwin) PowerShell and cmd need a batch launcher
+# beside the POSIX one, and one somebody else wrote is never replaced.
+win="$fixture/win"
+mkdir -p "$win/.local/bin" "$win/fake" "$win/project" "$win/taken/.local/bin"
+printf '#!/bin/sh\necho MINGW64_NT-10.0-26200\n' > "$win/fake/uname"
+chmod +x "$win/fake/uname"
+(
+  export HOME="$win"
+  export PATH="$win/fake:$win/.local/bin:/usr/bin:/bin"
+  "$root/install.sh" "$win/project" > "$win/output"
+)
+grep -Fq 'praukron-launcher' "$win/.local/bin/praukron"
+grep -Fq 'praukron-launcher' "$win/.local/bin/praukron.cmd"
+grep -Fq 'praukron.cmd' "$win/.local/bin/praukron.cmd"
+test "$(tr -d '\r' < "$win/.local/bin/praukron.cmd" | wc -c)" -lt "$(wc -c < "$win/.local/bin/praukron.cmd")"
+grep -Fq 'Windows user PATH' "$win/output"
+printf '@echo NOT OURS\r\n' > "$win/taken/.local/bin/praukron.cmd"
+(
+  export HOME="$win/taken"
+  export PATH="$win/fake:$win/taken/.local/bin:/usr/bin:/bin"
+  "$root/install.sh" "$win/project" > "$win/taken/output"
+)
+grep -Fq 'NOT OURS' "$win/taken/.local/bin/praukron.cmd"
+test ! -e "$win/taken/.local/bin/praukron"
+grep -Fq 'alias praukron=' "$win/taken/output"
 # --no-link leaves the machine alone entirely.
 optout="$fixture/optout"
 mkdir -p "$optout/.local/bin" "$optout/project"
