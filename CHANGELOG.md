@@ -4,7 +4,7 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
-## Unreleased
+## 1.3.0 — 2026-10-13
 
 - Windows: the command prints as UTF-8. Piped, as agents run it, stdout
   defaulted to cp1252 and `retrieve` crashed with `UnicodeEncodeError` on
