@@ -56,7 +56,7 @@ def archived(authority: Path, phases: list) -> list[str]:
 
 def _tasks_and_contracts(authority: Path, phases: list, modules: list) -> tuple[list, dict]:
     """The working files and every archived phase's, read as one authority
-    (ADR-066). Archived records come first, in phase order."""
+    (ADR-067). Archived records come first, in phase order."""
     tasks: list = []
     contracts: dict = {}
     files = [f"{layout.ARCHIVE_DIR}/{d}/" for d in archived(authority, phases)] + [""]

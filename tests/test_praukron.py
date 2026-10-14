@@ -2924,7 +2924,7 @@ class TestNoNetworkOrDependencies(unittest.TestCase):
 
 
 class TestArchive(FixtureCase):
-    """A COMPLETE phase's closed work moves to archive/<phase>/ and stays authority (ADR-066)."""
+    """A COMPLETE phase's closed work moves to archive/<phase>/ and stays authority (ADR-067)."""
 
     def setUp(self) -> None:
         super().setUp()
