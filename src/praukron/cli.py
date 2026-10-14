@@ -281,6 +281,25 @@ def cmd_context(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_archive(root: Path, args: argparse.Namespace) -> int:
+    from . import archive, respond
+
+    try:
+        plan = archive.archive(root, args.phase, dry_run=args.dry_run)
+    except archive.ArchiveError as error:
+        return _fail(str(error))
+    applied = bool(plan.tasks) and not args.dry_run
+    if applied:
+        respond.refresh(root)
+    if args.json:
+        print(json.dumps({**plan.as_json(), "applied": applied}, indent=2))
+    else:
+        print(plan.render(applied), end="")
+        if applied:
+            print("Compiled views refreshed.")
+    return 0
+
+
 def cmd_respond(root: Path, args: argparse.Namespace) -> int:
     """Append the owner's response to RESPONSES.md, validated and atomic (ADR-055)."""
     from . import respond
@@ -306,7 +325,9 @@ def cmd_respond(root: Path, args: argparse.Namespace) -> int:
 
 def cmd_retrieve(root: Path, args: argparse.Namespace) -> int:
     project = _load(root)
-    pack = retrieve.retrieve(project, analytics.report(project), root, " ".join(args.query))
+    if args.budget < 0:
+        return _fail("--budget must be 0 (no budget) or a positive number of tokens")
+    pack = retrieve.retrieve(project, analytics.report(project), root, " ".join(args.query), args.budget)
     if args.code:
         pack.implementation = retrieve.implementation(project, pack, root)
     if args.json:
@@ -565,6 +586,11 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("query", nargs="+", help="a question, or a task, phase, gate, ADR, or debt id")
     fetch.add_argument("--json", action="store_true")
     fetch.add_argument(
+        "--budget", type=int, default=retrieve.DEFAULT_BUDGET, metavar="TOKENS",
+        help=f"load records up to about this many tokens and list the rest as pointers "
+             f"(default {retrieve.DEFAULT_BUDGET}; 0 for no budget)",
+    )
+    fetch.add_argument(
         "--code", action="store_true",
         help="after the project context, add code structure from CodeGraph if installed",
     )
@@ -595,6 +621,15 @@ def build_parser() -> argparse.ArgumentParser:
     answer.add_argument("--date", help="YYYY-MM-DD; defaults to today")
     answer.set_defaults(handler=cmd_respond)
 
+    shelve = subparsers.add_parser(
+        "archive",
+        help="owner only: move a COMPLETE phase's DONE tasks and contracts to archive/<phase>/ (ADR-066)",
+    )
+    shelve.add_argument("phase", help="a COMPLETE phase, e.g. P3")
+    shelve.add_argument("--dry-run", action="store_true", help="show what would move; write nothing")
+    shelve.add_argument("--json", action="store_true")
+    shelve.set_defaults(handler=cmd_archive)
+
     packet = subparsers.add_parser(
         "context", help="emit an agent context packet: orientation, or one task's"
     )
@@ -606,7 +641,16 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _utf8_streams() -> None:
+    # Records are printed verbatim. Piped on Windows, stdout defaults to cp1252
+    # and a Vietnamese record breaks `retrieve` and `context` mid-output.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and (stream.encoding or "").lower().replace("-", "") != "utf8":
+            stream.reconfigure(encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_streams()
     args = build_parser().parse_args(argv)
     try:
         root = compiler.locate(Path(args.directory) if args.directory else None)

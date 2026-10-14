@@ -71,9 +71,12 @@ for file in AGENTS.md CLAUDE.md; do
   fi
 done
 
-case $0 in
+# Run as `sh E:\path\install.sh` from Windows, $0 holds backslashes only; read
+# them as slashes so a checkout is still recognised instead of downloading.
+script=$(printf '%s' "$0" | tr '\\' '/')
+case $script in
   */*)
-    candidate=$(CDPATH= cd "$(dirname "$0")" && pwd)
+    candidate=$(CDPATH= cd "$(dirname "$script")" && pwd)
     if [ -f "$candidate/templates/chronicle/README.md" ]; then
       source_dir=$candidate
     fi
@@ -153,7 +156,10 @@ incoming=$(cat "$source_dir/VERSION" 2>/dev/null || echo 0)
 # after preflight, and retain an alias so edited guidance and old launchers work.
 rename_install=0
 if [ -L "$target/.prokron" ]; then
-  if [ "$(readlink "$target/.prokron")" != .praukron ] || [ ! -d "$target/.praukron" ] || [ -L "$target/.praukron" ]; then
+  # The alias is ours when it resolves to this installation: a relative symlink,
+  # or on Windows a junction, whose link text is absolute.
+  if [ ! -d "$target/.praukron" ] || [ -L "$target/.praukron" ] ||
+    [ "$(CDPATH= cd "$target/.prokron" 2>/dev/null && pwd -P)" != "$(CDPATH= cd "$target/.praukron" && pwd -P)" ]; then
     echo "Cannot upgrade linked Prokron installation: $target/.prokron" >&2
     exit 1
   fi
@@ -297,7 +303,15 @@ if [ "$rename_install" -eq 1 ]; then
     exit 1
   fi
   mv "$target/.prokron" "$target/.praukron"
-  ln -s .praukron "$target/.prokron"
+  # Without the symlink privilege, Git Bash's `ln -s` copies the directory,
+  # which would leave two chronicles. Make it fail instead, and fall back to a
+  # junction, which Windows allows without privilege.
+  if ! MSYS=winsymlinks:nativestrict ln -s .praukron "$target/.prokron" 2>/dev/null; then
+    if ! { command -v cmd >/dev/null 2>&1 &&
+      (CDPATH= cd "$target" && cmd //c "mklink /J .prokron .praukron" >/dev/null 2>&1); }; then
+      echo "Could not create the .prokron alias; paths under .prokron/ no longer resolve." >&2
+    fi
+  fi
   printf 'Moved the Prokron installation to .praukron; historical paths remain available through an alias.\n'
 fi
 had_chronicle=0
@@ -324,7 +338,7 @@ install_guidance "$source_dir/.agents/skills/praukron/SKILL.md" \
 # never runs a stale compiler against a current chronicle.
 mkdir -p "$target/$runtime/praukron"
 for module in __init__ layout model parse domain validate analytics views index compile migrate \
-  mermaid review dashboard retrieve codegraph respond serve cli; do
+  mermaid review dashboard retrieve codegraph respond archive serve cli; do
   cp "$source_dir/src/praukron/$module.py" "$target/$runtime/praukron/$module.py"
 done
 cp "$source_dir/VERSION" "$target/$runtime/VERSION"

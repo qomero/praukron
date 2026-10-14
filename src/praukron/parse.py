@@ -113,11 +113,12 @@ def parse_modules(path: Path) -> list[Module]:
     return modules
 
 
-def parse_tasks(path: Path, modules: list[Module] | None = None) -> list[Task]:
+def parse_tasks(path: Path, modules: list[Module] | None = None, name: str | None = None) -> list[Task]:
     """A current task names its module and takes its phase from it; a legacy
-    task names its phase directly (ADR-036). Neither form invents the other."""
+    task names its phase directly (ADR-036). Neither form invents the other.
+    `name` is the file as provenance gives it, for an archived phase's file."""
     phases = {module.id: module.phase for module in modules or []}
-    name = path.name
+    name = name or path.name
     tasks: list[Task] = []
     for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(T-[A-Za-z0-9.\-]+): (.+)", heading)
@@ -176,8 +177,8 @@ _CRITERION = re.compile(
 )
 
 
-def parse_acceptance(path: Path) -> dict[str, Contract]:
-    name = path.name
+def parse_acceptance(path: Path, name: str | None = None) -> dict[str, Contract]:
+    name = name or path.name
     text = path.read_text(encoding="utf-8")
     contracts: dict[str, Contract] = {}
 

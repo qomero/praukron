@@ -106,12 +106,20 @@ def render(project: Project, report: Report, root) -> str:
     v = view(project, report, root)
     tasks = {t.id: t for t in project.tasks}
     current, gate, blocker = v["current"], v["gate"], v["blocker"]
+
+    def at(task_id: str) -> str:
+        # A task's pointer is where it lives: the working file or its archive.
+        return f"{tasks[task_id].source.file}#{task_id}" if task_id in tasks else f"TASKS.md#{task_id}"
+
+    def contract_at(contract_id: str) -> str:
+        contract = project.contracts.get(contract_id)
+        return f"{contract.source.file if contract else 'ACCEPTANCE.md'}#{contract_id}"
     progress = report.phase_progress.get(current.id) if current else None
 
     def task_line(task_id: str, note: str = "") -> str:
         task = tasks[task_id]
         extra = f" · {note}" if note else ""
-        return f"- {task.id} · {task.status}{extra} — {task.title} → TASKS.md#{task.id}"
+        return f"- {task.id} · {task.status}{extra} — {task.title} → {at(task.id)}"
 
     lines = [
         "# Praukron project index",
@@ -164,11 +172,11 @@ def render(project: Project, report: Report, root) -> str:
         authority = gate["exitAuthority"]
         if authority in tasks:
             lines.append(f"- next gate: {authority} · {tasks[authority].status} — exit authority for "
-                         f"{gate['phase']} → TASKS.md#{authority}, ACCEPTANCE.md#{tasks[authority].contract}")
+                         f"{gate['phase']} → {at(authority)}, {contract_at(tasks[authority].contract)}")
         for g in gate["gates"]:
             lines.append(f"- gate: {g['id']} · {g['status']}{'' if g['ready'] else ' · not ready'} → PHASES.md#{g['id']}")
     if blocker:
-        where = f"TASKS.md#{blocker['id']}" if blocker["kind"] == "TASK" else f"PHASES.md#{blocker['id']}"
+        where = at(blocker["id"]) if blocker["kind"] == "TASK" else f"PHASES.md#{blocker['id']}"
         label = " · project operations" if blocker["domain"] == "operations" else ""
         lines.append(f"- main blocker: {blocker['id']}{label} blocks {blocker['blocking']} "
                      f"({blocker['reason']}) → {where}")
@@ -186,7 +194,7 @@ def render(project: Project, report: Report, root) -> str:
         lines.append("  " + task_line(task_id))
     for task_id, blockers in sorted(report.external_blockers.items())[:_LIST]:
         lines.append(f"- {task_id} waits on operations {', '.join(blockers)} → "
-                     + ", ".join(f"TASKS.md#{b}" for b in blockers))
+                     + ", ".join(at(b) for b in blockers))
     if v["unresolved"]:
         lines.append(f"- unresolved failures: {', '.join(_more(v['unresolved'], 3))} → "
                      + ", ".join(f"TRACE.md#{e}" for e in v["unresolved"][:3]))
@@ -219,9 +227,9 @@ def render(project: Project, report: Report, root) -> str:
 
     reading: list[str] = []
     for task_id in v["focus"][:3]:
-        reading.append(f"TASKS.md#{task_id}")
+        reading.append(at(task_id))
         if tasks[task_id].contract:
-            reading.append(f"ACCEPTANCE.md#{tasks[task_id].contract}")
+            reading.append(contract_at(tasks[task_id].contract))
     reading += [f"TECH_DEBT.md#{d.id}" for d in v["attention"][:2]]
     reading += [f"ADR/{d.id}.md" for d in v["decisions"][:2]]
     reading.append("HANDOFF.md")

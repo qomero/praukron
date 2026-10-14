@@ -4,6 +4,33 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 1.3.0 — 2026-10-13
+
+- Windows: the command prints as UTF-8. Piped, as agents run it, stdout
+  defaulted to cp1252 and `retrieve` crashed with `UnicodeEncodeError` on
+  the first record that held text such as Vietnamese.
+- `retrieve` keeps to a token budget (`--budget`, default 4000, 0 for none).
+  Records load most relevant first; those past the budget are listed as
+  pointers with the command that fetches each, instead of growing the pack
+  without bound on a long chronicle.
+- `praukron archive <phase>` (ADR-066), run only when the owner asks, moves a
+  COMPLETE phase's DONE tasks and their contracts, verbatim, from `TASKS.md`
+  and `ACCEPTANCE.md` into `chronicle/archive/<phase>/`. Archived records stay
+  authority and every command reads them as before; only `source` changes,
+  and old `TASKS.md#…` pointers still resolve. A task stays while an open
+  assumption, unresolved debt or failure, or awaiting response points at it;
+  a contract stays while it holds an invariant. The move is refused on any
+  validation error and undone byte for byte unless the records read back
+  identical. On Qopilot, archiving P0–P8 takes `TASKS.md` from 48 KB to 17 KB
+  and `ACCEPTANCE.md` from 167 KB to 57 KB.
+- Windows installer: run as `sh E:\path\install.sh`, it now recognises the
+  checkout instead of silently downloading the latest release. Upgrading a
+  Prokron installation without the symlink privilege makes the `.prokron`
+  alias a junction; before, `ln -s` copied the directory, leaving two
+  chronicles and refusing the next install.
+- The test suite passes on Windows: symlink-only cases skip where links
+  cannot exist, and the fakes and checksums no longer assume POSIX.
+
 ## 1.2.2 — 2026-10-12
 
 - Windows: `praukron` now runs from PowerShell and cmd, not only Git Bash.

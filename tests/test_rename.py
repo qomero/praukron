@@ -1,5 +1,6 @@
 """Installation rename preserves authority and refuses ambiguous destinations."""
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -8,6 +9,25 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _can_symlink() -> bool:
+    """Windows creates symlinks only with Developer Mode or elevation."""
+    with tempfile.TemporaryDirectory() as directory:
+        try:
+            (Path(directory) / "link").symlink_to(directory, target_is_directory=True)
+        except OSError:
+            return False
+    return True
+
+
+def _is_alias(path: Path) -> bool:
+    """A symlink, or on Windows without the symlink privilege, a junction."""
+    return path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())
+
+
+needs_symlinks = unittest.skipUnless(
+    _can_symlink(), "this system cannot create symlinks, so a linked install cannot occur")
 
 
 class TestRename(unittest.TestCase):
@@ -39,14 +59,16 @@ class TestRename(unittest.TestCase):
                    for p in (self.old / "chronicle").rglob("*") if p.is_file()}
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(self.old.is_symlink())
+        self.assertTrue(_is_alias(self.old))
         for name, data in records.items():
             self.assertEqual((self.root / ".praukron/chronicle" / name).read_bytes(), data)
         self.assertEqual((self.root / "AGENTS.md").read_text(encoding="utf-8"), self.guidance)
         self.assertEqual((self.old / "commands/prokron-work.md").read_text(encoding="utf-8"), "CUSTOM WORK\n")
         self.assertTrue((self.root / ".praukron/upgrade/AGENTS.md").is_file())
         self.assertTrue((self.root / ".praukron/commands/praukron-work.md").is_file())
-        old_command = subprocess.run([str(self.old / "prokron"), "--version"],
+        # Windows runs the POSIX launcher through Git Bash's sh, as its users do.
+        shell = ["sh"] if os.name == "nt" else []
+        old_command = subprocess.run([*shell, str(self.old / "prokron"), "--version"],
                                      capture_output=True, text=True, cwd=self.root)
         self.assertEqual(old_command.returncode, 0, old_command.stderr)
         self.assertTrue(old_command.stdout.startswith("praukron "))
@@ -58,8 +80,9 @@ class TestRename(unittest.TestCase):
         # A real old manifest checksums just the owned block, not surrounding rules.
         block = "<!-- project-prokron:start -->\nOld rules\n<!-- project-prokron:end -->\n"
         (self.root / "AGENTS.md").write_text("KEEP BEFORE\n" + block + "KEEP AFTER\n", encoding="utf-8")
-        checksum = subprocess.run(["cksum"], input=block, text=True,
-                                  capture_output=True, check=True).stdout.split()
+        # Bytes, so Windows does not turn the block's newlines into CRLF first.
+        checksum = subprocess.run(["cksum"], input=block.encode(),
+                                  capture_output=True, check=True).stdout.decode().split()
         (self.old / "runtime/GUIDANCE").write_text(f"{checksum[0]}-{checksum[1]} AGENTS.md#prokron\n", encoding="utf-8")
         result = self.install()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -87,6 +110,7 @@ class TestRename(unittest.TestCase):
         self.assertFalse(self.old.is_symlink())
         self.assertFalse((self.root / ".praukron").exists())
 
+    @needs_symlinks
     def test_external_legacy_link_is_refused(self):
         moved = self.root / "external"
         self.old.rename(moved)
@@ -97,6 +121,7 @@ class TestRename(unittest.TestCase):
         self.assertEqual(self.snapshot(), before)
         self.assertFalse((self.root / ".praukron").exists())
 
+    @needs_symlinks
     def test_linked_record_is_refused_before_relocation(self):
         record = self.old / "chronicle/TASKS.md"
         saved = self.root / "saved.md"
