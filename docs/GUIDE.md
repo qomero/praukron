@@ -151,7 +151,7 @@ before, `retrieve` labels them with their new file, and an old
 `TASKS.md#T-…` pointer still resolves. A task stays in the working file while
 an open assumption, unresolved debt or failure, or an awaiting response points
 at it; a contract stays while it holds an inherited invariant. Agents never
-run it on their own (ADR-066).
+run it on their own (ADR-067).
 
 ### CodeGraph (optional)
 

@@ -1,4 +1,4 @@
-"""Archiving a closed phase: the owner's command, never an agent's (ADR-066).
+"""Archiving a closed phase: the owner's command, never an agent's (ADR-067).
 
 A COMPLETE phase's DONE tasks and their contracts move, verbatim, from
 `TASKS.md` and `ACCEPTANCE.md` into `archive/<phase>/`. Archived records stay
@@ -178,9 +178,9 @@ def archive(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
         directory = authority / ARCHIVE_DIR / phase_id
         files = {
             "TASKS.md": (result.tasks, _TASK, f"# Tasks · {phase_id} (archived)\n\n"
-                         "Moved verbatim from TASKS.md by `praukron archive` (ADR-066). Still authority.\n"),
+                         "Moved verbatim from TASKS.md by `praukron archive` (ADR-067). Still authority.\n"),
             "ACCEPTANCE.md": (result.contracts, _CONTRACT, f"# Acceptance · {phase_id} (archived)\n\n"
-                              "Moved verbatim from ACCEPTANCE.md by `praukron archive` (ADR-066). Still authority.\n"),
+                              "Moved verbatim from ACCEPTANCE.md by `praukron archive` (ADR-067). Still authority.\n"),
         }
         originals: dict[Path, bytes | None] = {}
         writes: dict[Path, str] = {}

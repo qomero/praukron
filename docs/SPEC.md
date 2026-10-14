@@ -25,7 +25,7 @@ undone if it introduces an error (ADR-055). `praukron archive <phase>`, run
 only at the owner's request, moves a COMPLETE phase's closed tasks and
 contracts verbatim into `archive/<phase>/`; they remain authority, read with
 the working files, and the move is undone unless the records read back
-identical (ADR-066). See ADR-013, ADR-016, ADR-017,
+identical (ADR-067). See ADR-013, ADR-016, ADR-017,
 ADR-024, and `docs/PRODUCT-THESIS.md`.
 
 Phase specifications are internal working documents and are not published

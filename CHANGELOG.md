@@ -13,7 +13,7 @@ people arriving from a release page.
   Records load most relevant first; those past the budget are listed as
   pointers with the command that fetches each, instead of growing the pack
   without bound on a long chronicle.
-- `praukron archive <phase>` (ADR-066), run only when the owner asks, moves a
+- `praukron archive <phase>` (ADR-067), run only when the owner asks, moves a
   COMPLETE phase's DONE tasks and their contracts, verbatim, from `TASKS.md`
   and `ACCEPTANCE.md` into `chronicle/archive/<phase>/`. Archived records stay
   authority and every command reads them as before; only `source` changes,

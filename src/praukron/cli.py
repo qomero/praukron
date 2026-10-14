@@ -623,7 +623,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     shelve = subparsers.add_parser(
         "archive",
-        help="owner only: move a COMPLETE phase's DONE tasks and contracts to archive/<phase>/ (ADR-066)",
+        help="owner only: move a COMPLETE phase's DONE tasks and contracts to archive/<phase>/ (ADR-067)",
     )
     shelve.add_argument("phase", help="a COMPLETE phase, e.g. P3")
     shelve.add_argument("--dry-run", action="store_true", help="show what would move; write nothing")
