@@ -2810,7 +2810,7 @@ class TestBootProtocol(unittest.TestCase):
         self.assertIn("locate its `## <id>` heading", block)
         self.assertIn("read that section with a ranged read", block)
         self.assertIn("When appending a new record, read only the end of the file.", block)
-        self.assertIn("`.praukron/praukron retrieve <id>` returns one record", block)
+        self.assertIn("`.praukron/praukron retrieve <id>` returns that record, and for a task its contract and governing decisions, each with its source", block)
 
     def test_f_agents_md_scopes_context_before_code(self) -> None:
         """ADR-050: the task packet comes after the index and before code."""
