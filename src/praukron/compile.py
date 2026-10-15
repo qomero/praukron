@@ -8,6 +8,7 @@ compiled directory and running again reproduces it exactly.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from . import analytics, domain, index, views
@@ -99,7 +100,22 @@ def _archived_records(authority: Path | SnapshotPath, phases: list) -> tuple[lis
                 raise ParseError(record.source.file, record.id,
                                  f"duplicate {label}; also in {seen[record.id].source.file}")
             seen.setdefault(record.id, record)
-    return assumptions, debts, events
+    return assumptions, debts, _chronological(events)
+
+
+def _chronological(events: list) -> list:
+    """Order events by their own time, then the number in their id, then the id.
+
+    Where an event lives (a working file or an archive) must not decide which events
+    are "the last N" in any view, so the order cannot follow load order. Ids are
+    unique, so the order is total and file order never decides. An event without a
+    time sorts before every timed one.
+    """
+    def key(event):
+        number = re.search(r"(\d+)$", event.id)
+        return (event.time or "", int(number.group(1)) if number else -1, event.id)
+
+    return sorted(events, key=key)
 
 
 def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project:

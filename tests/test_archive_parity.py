@@ -45,9 +45,7 @@ def facts(project):
 def unlocated(value):
     """Drop where a record lives: `archive/<phase>/` prefixes in any string."""
     if isinstance(value, dict):
-        # `events.recent` is the last events in load order (working files, then each
-        # archive), so only the set of ids is stable across an archive.
-        return {key: sorted(item) if key == "recent" else unlocated(item) for key, item in value.items()}
+        return {key: unlocated(item) for key, item in value.items()}
     if isinstance(value, list):
         return [unlocated(item) for item in value]
     return SOURCE.sub("", value) if isinstance(value, str) else value
@@ -198,34 +196,53 @@ class ArchiveParity(unittest.TestCase):
 
 
 class ContextRecentEvents(unittest.TestCase):
-    """KNOWN DEFECT (reported, not worked around): `context` changes after archiving.
+    """`context` must not change when events move between files (found in review of PR #30).
 
-    `analytics._event_summary` takes the last five related events in load order, and
-    the loader reads archives before the working file. When a task's related events
-    are split between a movable task and a retained one, archiving changes which five
-    are listed. Authored records and validation are unaffected.
+    The last five related events used to follow load order (archives, then the working
+    file), so archiving changed the list. Events are now ordered by their own time, then
+    the number in their id, so where they live cannot matter.
     """
 
-    @unittest.expectedFailure
-    def test_recent_events_survive_archive_when_the_window_spans_files(self):
+    def build(self, scratch):
+        root = synth_chronicle.build(Path(scratch).resolve(), phases_count=PHASES)
+        trace = root / layout.AUTHORITY_DIR / "TRACE.md"
+        extra = "".join(
+            chr(10).join(["", f"## EV-X{i}: Extra {i}", "- Type: command",
+                          f"- Task: {'T-P1-01' if i % 2 == 0 else 'T-P6-01'}",
+                          "- Outcome: success", "- Affects: T-P1-01", ""])
+            for i in range(12))
+        trace.write_text(trace.read_text(encoding="utf-8") + extra, encoding="utf-8")
+        return root
+
+    @staticmethod
+    def recent(root):
+        project = compiler.load(root)
+        return (analytics.context(project, "T-P1-01")["events"]["recent"],
+                [e.id for e in project.events])
+
+    def test_recent_events_are_the_same_before_archive_and_after_restore(self):
         with tempfile.TemporaryDirectory(prefix="praukron-recent-") as scratch:
-            root = synth_chronicle.build(Path(scratch).resolve(), phases_count=PHASES)
-            trace = root / layout.AUTHORITY_DIR / "TRACE.md"
-            extra = "".join(
-                chr(10).join(["", f"## EV-X{i}: Extra {i}", "- Type: command",
-                           f"- Task: {'T-P1-01' if i % 2 == 0 else 'T-P6-01'}",
-                           "- Outcome: success", "- Affects: T-P1-01", ""])
-                for i in range(12))
-            trace.write_text(trace.read_text(encoding="utf-8") + extra, encoding="utf-8")
-
-            def recent():
-                return analytics.context(compiler.load(root), "T-P1-01")["events"]["recent"]
-
-            before = recent()
+            root = self.build(scratch)
+            before = self.recent(root)
+            self.assertEqual(before[0], ["EV-X7", "EV-X8", "EV-X9", "EV-X10", "EV-X11"])
             plan = archive.preview(root, "P1")
             archive.archive(root, "P1", digest=plan.digest)
             self.assertEqual(validate.errors(validate.check(compiler.load(root))), [])
-            self.assertEqual(recent(), before)
+            self.assertEqual(self.recent(root), before)
+            archive.restore(root, "P1")
+            self.assertEqual(self.recent(root), before)
+
+    def test_a_time_decides_before_the_id_number_and_the_id_breaks_ties(self):
+        with tempfile.TemporaryDirectory(prefix="praukron-recent-") as scratch:
+            root = synth_chronicle.build(Path(scratch).resolve(), phases_count=PHASES)
+            trace = root / layout.AUTHORITY_DIR / "TRACE.md"
+            blocks = [("EV-B2", "2026-10-01T00:00:00Z"), ("EV-A9", "2026-10-02T00:00:00Z"),
+                      ("EV-C1", "2026-10-02T00:00:00Z")]
+            trace.write_text(trace.read_text(encoding="utf-8") + "".join(
+                chr(10).join(["", f"## {i}: x", "- Type: command", "- Task: T-P6-01",
+                              f"- Time: {t}", "- Outcome: success", ""]) for i, t in blocks), encoding="utf-8")
+            ids = [e.id for e in compiler.load(root).events if e.id in dict(blocks)]
+            self.assertEqual(ids, ["EV-B2", "EV-C1", "EV-A9"])  # same time: id number 1 < 9
 
 
 class ArchiveParityCrlf(ArchiveParity):

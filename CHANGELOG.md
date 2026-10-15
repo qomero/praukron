@@ -10,6 +10,9 @@ people arriving from a release page.
   and journal-named references now validate across working and archived files; archive apply and restore both
   report a committed authoritative move when any projection refresh step fails.
 
+- Fixed: `context`'s `events.recent` (and every view that takes the last N events) depended on which file held
+  an event, so archiving or restoring a phase could change it. Events are now ordered at load by their own
+  time, then the number in their id, then the id; an event without a time sorts first.
 - Document the archive lifecycle in the owner guide, specification (§2.7), README, `AGENTS.md`, the product
   thesis and the chronicle README template: `archive plan`, `apply --plan` and `restore`; eligibility per record
   type on the phase axis; destinations; what is never archived and why; and the exact Git (unstaged, staged,

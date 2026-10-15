@@ -415,10 +415,9 @@ recovery record, then read back: authored records must equal their originals
 except `source`, journal sections must equal byte for byte, and `validate` must
 introduce no error; otherwise everything is restored and the command reports
 `nothing was moved`. A process that dies mid-move is rolled back by the next
-write command. Derived facts equal the originals as sets. `context` is not fully
-preserved: `events.recent` is the last five related events in load order
-(archives first, then the working file), and archiving regroups events across
-files, so both its order and its membership can change (§ benchmarks).
+write command. Derived facts equal the originals as sets, and `context` is unchanged:
+events are ordered when loaded by their own time, then the number in their id, then
+the id, so the last five related events do not depend on which file holds them.
 
 **Recovery.** `mode` is `git` when the chronicle is in a Git work tree, none of
 its paths is ignored and no checkout conversion (`core.autocrlf`, `filter`,

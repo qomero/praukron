@@ -155,8 +155,7 @@ because Git mode requires a clean chronicle. It measures:
   blocked, work in progress, gates, phase progress, unresolved failures, owner
   responses awaiting reconciliation, open debt and assumptions) equal as sets;
   and `context <task>` and `retrieve` results for a sample of 25 records equal
-  record by record, apart from the `source` paths and the order of `events.recent`
-  (see below). The script exits 1 and lists
+  record by record, apart from the `source` paths. The script exits 1 and lists
   the failure before any figure if any of them differs, or if an archive step
   fails.
 
@@ -176,7 +175,7 @@ Failures, reported before any aggregate: none
 
 ### Git mode
 
-Archived 13 runs (248 records moved; recovery mode `git`); apply took a median 0.59 s per run including the refresh. Archive files: 268,437 bytes. The six measured working files total 309,954 bytes before and 49,042 after.
+Archived 13 runs (248 records moved; recovery mode `git`); apply took a median 0.53 s per run including the refresh. Archive files: 268,437 bytes. The six measured working files total 309,954 bytes before and 49,042 after.
 
 | Working file | Bytes before | Bytes after | Change | Whole-file read: bytes (~tokens) | Targeted append read: bytes (~tokens) | Targeted edit read: bytes (~tokens) |
 |---|---:|---:|---:|---:|---:|---:|
@@ -189,12 +188,12 @@ Archived 13 runs (248 records moved; recovery mode `git`); apply took a median 0
 
 | Command | Before (range) | After (range) | Change in median |
 |---|---:|---:|---:|
-| `compile` (median of 9) | 0.24 s (0.22–0.56) | 0.24 s (0.23–0.24) | +0% |
-| `validate` (median of 9) | 0.21 s (0.20–0.21) | 0.20 s (0.20–0.23) | -2% |
+| `compile` (median of 9) | 0.21 s (0.21–0.28) | 0.22 s (0.22–0.23) | +4% |
+| `validate` (median of 9) | 0.18 s (0.18–0.20) | 0.19 s (0.19–0.19) | +3% |
 
 ### No-Git mode
 
-Archived 13 runs (248 records moved; recovery mode `nogit`); apply took a median 0.48 s per run including the refresh. Archive files: 268,437 bytes. The six measured working files total 309,954 bytes before and 49,042 after.
+Archived 13 runs (248 records moved; recovery mode `nogit`); apply took a median 0.43 s per run including the refresh. Archive files: 268,437 bytes. The six measured working files total 309,954 bytes before and 49,042 after.
 
 | Working file | Bytes before | Bytes after | Change | Whole-file read: bytes (~tokens) | Targeted append read: bytes (~tokens) | Targeted edit read: bytes (~tokens) |
 |---|---:|---:|---:|---:|---:|---:|
@@ -207,8 +206,8 @@ Archived 13 runs (248 records moved; recovery mode `nogit`); apply took a median
 
 | Command | Before (range) | After (range) | Change in median |
 |---|---:|---:|---:|
-| `compile` (median of 9) | 0.23 s (0.22–0.30) | 0.24 s (0.23–0.26) | +4% |
-| `validate` (median of 9) | 0.19 s (0.19–0.20) | 0.20 s (0.20–0.21) | +4% |
+| `compile` (median of 9) | 0.23 s (0.22–0.26) | 0.22 s (0.22–0.23) | -2% |
+| `validate` (median of 9) | 0.19 s (0.18–0.21) | 0.20 s (0.19–0.23) | +4% |
 
 Reads are UTF-8 bytes of what an agent must read to edit the file: the whole file; the last section when appending; the median section when changing one record in place. Searches to locate a section are not counted. Times include Python start-up, the whole-chronicle load and, for `compile`, writing every compiled view. Parity compared authored records (except `source`), derived facts as sets, and `context` and `retrieve` results on a sample of records, before and after archiving.
 
@@ -229,19 +228,17 @@ Reads are UTF-8 bytes of what an agent must read to edit the file: the whole fil
   archives included, so they do the same work before and after. The differences in
   the table are within the run-to-run range of the nine measurements and are noise
   at this size (a quarter of a second, most of it interpreter start-up). The
-  expectation was no change, and none was found. A saving in compile time is not
+  expectation was no change, and none was found. (An earlier run of this script showed `compile` 9% slower for one pass; the event ordering added in this change sorts a few dozen events in about 0.01 ms, and a rerun showed -2% to +4%, so that was machine noise, not a cost.) A saving in compile time is not
   claimed.
-- **`context` is not fully preserved.** `context <task>` reports `events.recent`,
-  the last five related events in load order, and the loader reads each archive
-  first and the working file last. Archiving regroups events across those files, so
-  when a task has more than five related events split between records that move and
-  records that stay, both the order and the membership of that list can change
-  (a synthetic case in `tests/test_archive_parity.py` shows it: the list goes from
-  `EV-X7…EV-X11` to `EV-X3, X5, X7, X9, X11`, with validation clean). The parity
-  check on the real copy compared that list as a set over a sample of 25 records
-  and found no difference there; that is a statement about the sample, not a
-  guarantee. The case is recorded as an expected failure and reported as a defect in
-  the code, not worked around.
+- **`context` is unchanged, which needed a fix.** `events.recent` is the last five
+  related events. It used to follow load order (each archive first, the working file
+  last), so archiving a phase whose events were mixed with retained ones changed which
+  five were listed; a synthetic case showed it (`EV-X7…X11` became `EV-X3, X5, X7, X9,
+  X11`) and this review found it. Events are now ordered when the project is loaded
+  by their own time, then the number in their id, then the id, so where an event lives
+  cannot decide and every view that takes the last N agrees. `tests/test_archive_parity.py`
+  checks the list before archiving, after it and after restore, and the parity check on
+  the real copy compares `context` exactly.
 - Not measured: real agent sessions; a chronicle much larger than this one; how
   the cost grows with many more phases; the Git mode on a repository with
   conversion attributes, which uses backups instead. Figures are one project on
