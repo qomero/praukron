@@ -6,7 +6,8 @@ people arriving from a release page.
 
 ## Unreleased
 
-- Contract creation refuses IDs already named by tasks; contract attachment requires the task revision.
+- Contract creation refuses IDs named by other tasks; contract attachment requires the task revision.
+  An unfrozen target may resolve its own already-named missing contract without rewriting the task.
   Accept criteria without prescribed wording and empty AC sentinels; align task field order and payload schemas.
 - Add `praukron task add` and `contract add` with strict payloads, frozen-contract checks,
   and recoverable transactions for task and contract creation.

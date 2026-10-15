@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import mutate
 from .layout import AUTHORITY_DIR
-from .model import EVIDENCE_CLASSES, Project
+from .model import EVIDENCE_CLASSES, Project, Task
 
 CRITERION_SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -82,13 +82,13 @@ def validate_definition(payload: dict) -> None:
             raise mutate.WriteError("invalid-value", "criterion text must round-trip as one paragraph without evidence-class tokens", "text")
 
 
-def check_new(project: Project, payload: dict) -> None:
+def check_new(project: Project, payload: dict, *, target: Task | None = None) -> None:
     ids = [payload["id"], *(f"{payload['id']}-{i:02d}" for i in range(1, len(payload["criteria"]) + 1))]
     for record_id in ids:
         if mutate.id_exists(project, record_id):
             raise mutate.WriteError("duplicate-id", f"id already exists: {record_id}", "id")
     for task in project.tasks:
-        if task.contract == payload["id"]:
+        if task is not target and task.contract == payload["id"]:
             raise mutate.WriteError("referenced-contract",
                                     f"contract id already named by {task.source.file}#{task.id}: {payload['id']}", "id")
     for inherited in payload.get("inherits", []):
@@ -134,7 +134,7 @@ def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 raise mutate.WriteError("frozen-contract", "a WIP or DONE task's contract is frozen", "task")
             if task.contract and task.contract.lower() not in ("none", "—", "-") and task.contract != payload["id"]:
                 raise mutate.WriteError("different-contract", f"task already names {task.contract}", "task")
-            check_new(project, definition)
+            check_new(project, definition, target=task)
             authority = root / AUTHORITY_DIR
             path = authority / task.source.file
             original = path.read_bytes()
@@ -146,6 +146,8 @@ def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                                         f"task has changed; current revision: {found.revision}", "expectTaskRevision")
             acceptance = authority / "ACCEPTANCE.md"
             changes = {acceptance: append_section(acceptance, "Acceptance", render(definition))}
+            if task.contract == payload["id"]:
+                return mutate.Plan(changes, payload["id"], f"ACCEPTANCE.md#{payload['id']}")
             newline = b"\r\n" if b"\r\n" in original else b"\n"
             line = f"- AC: {payload['id']}".encode("utf-8")
             empty = re.search("(?m)^- AC:[ \\t]*(?:none|—|-)?[ \\t]*(?=\\r?$)".encode("utf-8"), found.data, re.I)

@@ -272,13 +272,47 @@ class TestContractAdd(CreationCase):
                         self.assertIn("T-REF", result["error"]["message"])
                         self.assertEqual(self.snapshot(), before)
 
-    def test_task_already_naming_missing_contract_cannot_define_it(self):
-        payload = self.uncontracted_task(ac="AC-T-NEW")
-        before = self.snapshot()
-        code, result = self.run_cli("contract", "--input", "-", payload=payload)
-        self.assertEqual(code, 1, result)
-        self.assertEqual(result["error"]["code"], "referenced-contract")
-        self.assertEqual(self.snapshot(), before)
+    def test_todo_target_already_naming_missing_contract_preserves_task_bytes(self):
+        original = self.tasks.read_bytes()
+        acceptance = self.acceptance.read_bytes()
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                self.tasks.write_bytes(original)
+                self.acceptance.write_bytes(acceptance)
+                payload = self.uncontracted_task(ac="AC-T-NEW")
+                for path in (self.tasks, self.acceptance):
+                    path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", newline))
+                payload["expectTaskRevision"] = mutate.section(self.tasks.read_bytes(), "T-BARE").revision
+                self.assertIn("unknown-contract", {f.code for f in validate.errors(validate.check(compiler.load(self.root)))})
+                before = self.snapshot()
+                code, result = self.run_cli("contract", "--input", "-", "--dry-run", payload=payload)
+                self.assertEqual(code, 0, result)
+                self.assertEqual([item["file"] for item in result["wouldWrite"]], ["ACCEPTANCE.md"])
+                self.assertEqual(self.snapshot(), before)
+                with mock.patch.object(mutate, "_replace", wraps=mutate._replace) as replace:
+                    code, result = self.run_cli("contract", "--input", "-", payload=payload)
+                self.assertEqual(code, 0, result)
+                self.assertTrue(result["written"])
+                self.assertNotIn(self.tasks, [call.args[0] for call in replace.call_args_list])
+                self.assertEqual(self.tasks.read_bytes(), before[Path("TASKS.md")])
+                self.assertTrue(self.acceptance.read_bytes().startswith(before[Path("ACCEPTANCE.md")]))
+                self.assertEqual(compiler.load(self.root).task("T-BARE").contract, "AC-T-NEW")
+                self.assertIn("AC-T-NEW", compiler.load(self.root).contracts)
+                self.assert_valid()
+
+    def test_frozen_target_naming_missing_contract_is_refused_from_both_commands(self):
+        original = self.tasks.read_bytes()
+        for status in ("WIP", "DONE"):
+            with self.subTest(status=status):
+                self.tasks.write_bytes(original)
+                payload = self.uncontracted_task(status=status, ac="AC-T-NEW")
+                before = self.snapshot()
+                for group, request, error in (("task", self.payload, "referenced-contract"),
+                                               ("contract", payload, "frozen-contract")):
+                    code, result = self.run_cli(group, "--input", "-", payload=request)
+                    self.assertEqual(code, 1, result)
+                    self.assertEqual(result["error"]["code"], error)
+                    self.assertEqual(self.snapshot(), before)
 
     def test_attachment_requires_current_task_revision_and_returns_current(self):
         original = self.tasks.read_bytes()
