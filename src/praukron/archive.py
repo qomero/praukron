@@ -591,8 +591,10 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
                                    f"missing archived headings: {', '.join(lost)}. {_ORDER_REPAIR}")
             continue
         # The owner distinguishes new working entries from lost archive history.
-        # On a split date, new working headings follow every recorded tie.
-        appended = missing if split else []
+        # New working headings keep their neighbours. Only a working sequence
+        # with no saved heading on this date defaults to after all known ties.
+        appended = missing if split and not any(h in positions and owners[h] == working
+                                                for h in headings) else []
         priority = {h: i for i, h in enumerate(dict.fromkeys([*(h for h in saved if h in headings), *headings]))}
         following: dict[str, set[str]] = {h: set() for h in headings}
         incoming = dict.fromkeys(headings, 0)
@@ -603,7 +605,7 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
                 incoming[after] += 1
 
         for sequence in sequences:
-            local = [h for h in sequence if _entry_date(h) == date and h not in appended]
+            local = [h for h in sequence if _entry_date(h) == date]
             for before, after in zip(local, local[1:]):
                 edge(before, after)
             known = [h for h in local if h in positions]

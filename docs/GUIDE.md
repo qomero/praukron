@@ -183,8 +183,10 @@ can move. Restore refuses a heading duplicated in any journal file.
 After renaming or deleting a heading, its old sidecar identity is obsolete.
 If the affected date is wholly in one journal, its observed order can rebuild
 the metadata. On a split date, a heading absent from the sidecar in the
-working journal is new and follows all known ties, including entries naming
-nothing. An absent heading in an archive is lost history: that date stays
+working journal is new and keeps its position relative to its same-date
+working neighbours, including entries naming nothing. Only when no known
+same-date working heading constrains it does it follow all known ties.
+An absent heading in an archive is lost history: that date stays
 pending. Recover matching metadata/headings from Git history or
 `.praukron/backup/<timestamp>/`; never fill arrays by guessing. Renaming a
 working heading creates a new identity under this rule; a renamed archived

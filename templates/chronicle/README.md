@@ -67,9 +67,10 @@ question that an authored document answers.
   archive/restore update the metadata in their transaction. `validate` warns
   about drift and duplicates. Missing or incomplete cross-file ties keep only
   affected journal entries, with repair instructions; other records can move.
-  An absent working heading is new and follows known ties; an absent archived
-  heading is lost history and holds its date. Saved names on held dates survive
-  unrelated metadata rewrites, including renamed/removed names.
+  An absent working heading is new and keeps its same-date working neighbours;
+  it follows known ties only without a known same-date working constraint.
+  An absent archived heading is lost history and holds its date. Saved names on
+  held dates survive unrelated metadata rewrites, including renamed/removed names.
   After a heading rename or lost sidecar, recover matching headings/order from
   Git history or `.praukron/backup/<timestamp>/`, preserving later edits. If
   every date is wholly in one journal, remove the broken sidecar and

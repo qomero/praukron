@@ -627,6 +627,52 @@ class TestJournalDiagnostics(JournalCase):
                     (self.authority / "JOURNAL.md").read_bytes().decode())]
                 self.assertEqual(headings, [first, second, third])
 
+    def test_new_working_headings_keep_neighbours_on_split_dates(self):
+        for newline, operation, edit in itertools.product((b"\n", b"\r\n"),
+                                                          ("archive", "restore", "archive-unrelated"),
+                                                          ("rename", "insert")):
+            with self.subTest(newline=newline, operation=operation, edit=edit):
+                self.setUp()
+                first, second, third, added = (f"2026-01-01 — {title}"
+                                               for title in ("First", "Second", "Third", "New"))
+                self.write_journal(f"# Journal\n\n## {first}\nT-TWO — café.\n"
+                                   f"## {second}\nT-ONE.\n## {third}\nT-TWO.\n", newline)
+                archive.archive(self.root, "P1")
+                path = self.authority / "JOURNAL.md"
+                working = path.read_bytes()
+                if edit == "rename":
+                    working = working.replace(first.encode(), added.encode())
+                    expected = [second, added, third]
+                else:
+                    section = f"## {added}\nA new thought.\n".encode().replace(b"\n", newline)
+                    working = working.replace(f"## {first}".encode(), section + f"## {first}".encode())
+                    expected = [added, first, second, third]
+                retained = working
+                moving = ("2026-01-02 — Later" if operation == "archive-unrelated"
+                          else "2026-01-01 — Fourth")
+                if operation != "restore":
+                    working += f"## {moving}\nT-ONE.\n".encode().replace(b"\n", newline)
+                    expected.append(moving)
+                path.write_bytes(working)
+                before = archive._journal_entries(archive.Snapshot.capture(self.authority))
+                state = archive._journal_order_state(archive.Snapshot.capture(self.authority))
+                self.assertEqual(state.blocked, {})
+                self.assertEqual(list(state.order), expected)
+                result = getattr(archive, "restore" if operation == "restore" else "archive")(self.root, "P1")
+                self.assertEqual(self.moved(result), [second] if operation == "restore" else [moving])
+                if operation != "restore":
+                    self.assertEqual(path.read_bytes(), retained)
+                    archive.restore(self.root, "P1")
+                self.assertEqual(archive._journal_entries(archive.Snapshot.capture(self.authority)), before)
+                self.assertEqual([h for h, _, _ in archive._journal_sections(path.read_bytes().decode())], expected)
+                saved = json.loads((self.authority / "archive/JOURNAL.order.json").read_bytes())["headings"]
+                self.assertEqual(saved, expected)
+                self.assertEqual(validate.journal_findings(compiler.load(self.root)), [])
+                archive.archive(self.root, "P1")
+                archive.restore(self.root, "P1")
+                self.assertEqual(archive._journal_entries(archive.Snapshot.capture(self.authority)), before)
+                self.assertEqual([h for h, _, _ in archive._journal_sections(path.read_bytes().decode())], expected)
+
     def test_missing_working_heading_is_new_but_missing_archived_heading_is_history_loss(self):
         for missing_archive in (False, True):
             with self.subTest(missing_archive=missing_archive):

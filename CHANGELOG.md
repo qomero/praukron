@@ -36,9 +36,12 @@ people arriving from a release page.
 - Validate journal ordering metadata and duplicate headings (ADR-072); hold only journal entries
   with unknowable cross-file ties when metadata is missing or incomplete, preserve record moves,
   and reconcile owner reorders from the journals. Document metadata recovery and date-first placement.
-- Keep unrelated journal and record moves working with undecodable ordering metadata; append new
-  working headings after known ties while holding missing archive history, retain stale names on held
-  dates, and validate only journal inputs, reusing loaded project diagnostics.
+- Keep unrelated journal and record moves working with undecodable ordering metadata; hold missing
+  archive history, retain stale names on held dates, and validate only journal inputs, reusing loaded
+  project diagnostics.
+- Preserve new or renamed working journal headings' same-date neighbour order on split dates;
+  follow saved ties only when no known working neighbour constrains placement, so archive and restore
+  agree with read-back even for retained entries and unrelated-date moves.
 - Redesign the dashboard to put attention first: a "Needs attention" band (blocked tasks, failing
   work, owner input, review gaps, debt at its trigger, unresolved operational failures) above progress;
   cross-filtering Status, Domain, Validation, Phase and Module charts that narrow every chart, table,
