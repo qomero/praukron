@@ -16,8 +16,9 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from dataclasses import asdict, dataclass, field
-from pathlib import Path
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path, PurePosixPath
 from typing import Iterable, Protocol
 
 from . import analytics, compile as compiler, layout, validate
@@ -25,6 +26,7 @@ from .layout import ARCHIVE_DIR, AUTHORITY_DIR
 from .model import DEBT_CLOSED, Project
 from .mutate import RespondError, _lock, _replace, _spans, _write_recovery, recover_archive
 from .parse import ParseError
+from .snapshot import Snapshot
 
 _TASK = re.compile(r"(T-[A-Za-z0-9.\-]+): ")
 _CONTRACT = re.compile(r"(AC-[A-Za-z0-9.\-]+)(?: — |$)")
@@ -83,6 +85,10 @@ class Plan:
     digest: str | None = None
     mode: str | None = None
     version: str | None = None
+    snapshot: Snapshot | None = field(default=None, repr=False, compare=False)
+    writes: dict[Path, str] = field(default_factory=dict, repr=False, compare=False)
+    changed_files: list[str] = field(default_factory=list)
+    created_files: list[str] = field(default_factory=list)
 
     def as_json(self) -> dict[str, object]:
         return {
@@ -90,6 +96,7 @@ class Plan:
             "kept": [{"task": t, "why": w} for t, w in self.kept], "movedBytes": self.moved_bytes,
             "candidates": [c.as_json() for c in self.candidates],
             "digest": self.digest, "mode": self.mode, "version": self.version,
+            "changedFiles": self.changed_files, "createdFiles": self.created_files,
         }
 
     def render(self, applied: bool) -> str:
@@ -106,6 +113,12 @@ class Plan:
         for candidate in self.candidates:
             if candidate.kind != "task" and not candidate.moves:
                 lines.append(f"  kept {candidate.id}: {candidate.reason}")
+            elif candidate.kind not in ("task", "contract") and candidate.moves:
+                lines.append(f"  {candidate.kind} {candidate.id}: {candidate.source} -> {candidate.destination}")
+        if self.changed_files:
+            lines.append("  files: " + ", ".join(self.changed_files))
+        if self.created_files:
+            lines.append("  created: " + ", ".join(self.created_files))
         if self.digest:
             lines.append(f"Plan: {self.digest} (mode: {self.mode}, version: {self.version})")
         return "\n".join(lines) + "\n"
@@ -117,6 +130,37 @@ class EligibilityContext:
     selection: Selection
     root: Path | None
     result: Plan
+    snapshot: Snapshot | None = None
+
+    def text(self, name: str) -> str:
+        """Exact captured text for a rule's section and eligibility checks."""
+        if self.snapshot is None:
+            raise ArchiveError("section eligibility needs a chronicle snapshot")
+        return self.snapshot.text(name)
+
+
+def section_locations(text: str, pattern: re.Pattern[str] | None = None) -> dict[str, list[tuple[int, int]]]:
+    """All locations per ID, or per full heading when pattern is None; duplicates survive."""
+    found: dict[str, list[tuple[int, int]]] = {}
+    for heading in re.finditer(r"(?m)^## (.+)$", text):
+        title = heading.group(1).strip()
+        match = pattern.match(title) if pattern is not None else None
+        if pattern is not None and match is None:
+            continue
+        key = match.group(1) if match is not None else title
+        following = re.search(r"(?m)^#{1,2} ", text[heading.end():])
+        end = heading.end() + following.start() if following else len(text)
+        found.setdefault(key, []).append((heading.start(), end))
+    return found
+
+
+class IdRule:
+    """Default locator for ID-keyed rule implementations."""
+
+    pattern: re.Pattern[str]
+
+    def sections(self, text: str) -> dict[str, list[tuple[int, int]]]:
+        return section_locations(text, self.pattern)
 
 
 class RecordRule(Protocol):
@@ -124,13 +168,16 @@ class RecordRule(Protocol):
 
     kind: str
     filename: str
-    pattern: re.Pattern[str]
     title: str
+
+    def sections(self, text: str) -> dict[str, list[tuple[int, int]]]:
+        """Exact-text offsets by ID/full heading; repeated locators must retain every span."""
+        ...
 
     def candidates(self, context: EligibilityContext) -> Iterable[Candidate]: ...
 
 
-class TaskRule:
+class TaskRule(IdRule):
     kind, filename, pattern, title = "task", "TASKS.md", _TASK, "Tasks"
 
     def candidates(self, context: EligibilityContext) -> Iterable[Candidate]:
@@ -144,7 +191,7 @@ class TaskRule:
             yield Candidate(task.id, self.kind, self.filename, selection.destination(self.filename), why)
 
 
-class ContractRule:
+class ContractRule(IdRule):
     kind, filename, pattern, title = "contract", "ACCEPTANCE.md", _CONTRACT, "Acceptance"
 
     def candidates(self, context: EligibilityContext) -> Iterable[Candidate]:
@@ -154,8 +201,8 @@ class ContractRule:
         relevant = {t.contract for t in project.tasks if t.phase == selection.phase}
         nested: set[str] = set()
         if context.root is not None:
-            text = (context.root / AUTHORITY_DIR / self.filename).read_bytes().decode("utf-8")
-            nested = {i for i, (s, e) in _spans(text, self.pattern).items()
+            text = context.text(self.filename)
+            nested = {i for i, spans in self.sections(text).items() for s, e in spans
                       if re.search(r"(?m)^### AC-", text[s:e])}
         # Follow moving-task order for compatibility with the original planner.
         order = list(dict.fromkeys(project.task(i).contract for i in context.result.tasks))
@@ -174,8 +221,6 @@ class ContractRule:
                 why = "inherited by contract(s): " + ", ".join(inheritors)
             elif contract.id in nested:
                 why = "holds an inherited invariant"
-            elif not any(project.task(i).contract == contract.id for i in moving):
-                why = "no task using it is moving"
             yield Candidate(contract.id, self.kind, self.filename, selection.destination(self.filename), why)
 
 
@@ -203,17 +248,11 @@ def archive_mode(root: Path) -> str:
     return "nogit"
 
 
-def _inventory(authority: Path, destinations: Iterable[str]) -> list[dict[str, str]]:
-    entries = {}
-    for path in authority.rglob("*"):
-        name = path.relative_to(authority).as_posix()
-        if path.is_file():
-            entries[name] = {"path": name, "type": "file",
-                             "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-        elif path.is_dir():
-            entries[name] = {"path": name, "type": "directory"}
-        else:
-            raise ArchiveError(f"cannot inventory chronicle path: {name}", "inventory-failed")
+def _inventory(snapshot: Snapshot, destinations: Iterable[str]) -> list[dict[str, str]]:
+    entries = {name: {"path": name, "type": "directory"}
+               for name in snapshot.directories if name}
+    for name, data in snapshot.files.items():
+        entries[name] = {"path": name, "type": "file", "sha256": hashlib.sha256(data).hexdigest()}
     for name in destinations:
         entries.setdefault(name, {"path": name, "type": "absent"})
     return [entries[name] for name in sorted(entries)]
@@ -221,7 +260,7 @@ def _inventory(authority: Path, destinations: Iterable[str]) -> list[dict[str, s
 
 def _plan_digest(root: Path, result: Plan) -> str:
     payload = {
-        "inventory": _inventory(root / AUTHORITY_DIR,
+        "inventory": _inventory(result.snapshot,
                                 (c.destination for c in result.candidates if c.moves)),
         "selection": asdict(Selection(result.phase)), "mode": result.mode, "version": result.version,
     }
@@ -229,13 +268,23 @@ def _plan_digest(root: Path, result: Plan) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def plan(project: Project, phase_id: str, root: Path | None = None) -> Plan:
+def plan(project: Project, phase_id: str, root: Path | None = None, *, snapshot: Snapshot | None = None) -> Plan:
+    if root is not None and snapshot is None:
+        with _locked(root):
+            return _captured_plan(root, phase_id)[1]
     selection = Selection(phase_id)
     selection.check(project)
-    result = Plan(phase_id)
-    context = EligibilityContext(project, selection, root, result)
+    result = Plan(phase_id, snapshot=snapshot)
+    context = EligibilityContext(project, selection, root, result, snapshot)
     for rule in RECORD_RULES:
+        locations = {}
         for candidate in rule.candidates(context):
+            if snapshot is not None:
+                if candidate.source not in locations:
+                    locations[candidate.source] = rule.sections(context.text(candidate.source))
+                count = len(locations[candidate.source].get(candidate.id, []))
+                if count > 1:
+                    candidate = replace(candidate, reason=f"duplicate section heading ({count} occurrences)")
             result.candidates.append(candidate)
             if candidate.moves:
                 if candidate.kind == "task":
@@ -245,7 +294,9 @@ def plan(project: Project, phase_id: str, root: Path | None = None) -> Plan:
             elif candidate.kind == "task":
                 result.kept.append((candidate.id, candidate.reason))
     if root is not None:
-        _prepare_writes(root, result)
+        result.writes = _prepare_writes(root, result)
+        result.changed_files = sorted(p.relative_to(root / AUTHORITY_DIR).as_posix() for p in result.writes)
+        result.created_files = [name for name in result.changed_files if name not in snapshot.files]
         result.mode, result.version = archive_mode(root), layout.version()
         result.digest = _plan_digest(root, result)
     return result
@@ -253,6 +304,8 @@ def plan(project: Project, phase_id: str, root: Path | None = None) -> Plan:
 
 def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
     writes: dict[Path, str] = {}
+    cuts: dict[str, list[tuple[int, int]]] = {}
+    snapshot = result.snapshot
     result.moved_bytes = 0
     for rule in RECORD_RULES:
         groups: dict[tuple[str, str], list[str]] = {}
@@ -260,24 +313,59 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
             if candidate.kind == rule.kind and candidate.moves:
                 groups.setdefault((candidate.source, candidate.destination), []).append(candidate.id)
         for (source, destination), ids in groups.items():
-            working, target = root / AUTHORITY_DIR / source, root / AUTHORITY_DIR / destination
-            archived_text = target.read_bytes().decode("utf-8") if target.is_file() else None
-            header = (f"# {rule.title} · {result.phase} (archived)\n\n"
+            target = root / AUTHORITY_DIR / destination
+            text = snapshot.text(source)
+            locations = rule.sections(text)
+            archived_text = writes.get(target)
+            if archived_text is None and destination in snapshot.files:
+                archived_text = snapshot.text(destination)
+            phase = PurePosixPath(destination).parent.name
+            header = (f"# {rule.title} · {phase} (archived)\n\n"
                       f"Moved verbatim from {source} by `praukron archive` (ADR-067). Still authority.\n")
-            new_working, new_archive, size = _move(
-                working.read_bytes().decode("utf-8"), archived_text, ids, rule.pattern, header)
+            _, new_archive, size = _move(text, archived_text, ids, None, header, locations=locations)
+            cuts.setdefault(source, []).extend(locations[i][0] for i in ids)
             result.moved_bytes += size
-            writes[working], writes[target] = new_working, new_archive
+            writes[target] = new_archive
+    for source, spans in cuts.items():
+        working = root / AUTHORITY_DIR / source
+        if working in writes:
+            raise ArchiveError(f"a destination is also a working source: {source}", "invalid-target")
+        writes[working] = _cut(snapshot.text(source), spans)[0]
     return writes
 
 
-def preview(root: Path, phase_id: str) -> Plan:
-    """Read a plan without creating a lock, recovery record, manifest or projections."""
+@contextmanager
+def _locked(root: Path):
+    compiled = root / layout.COMPILED_DIR
+    existed = compiled.exists()
     try:
-        project = compiler.load(root)
-        result = plan(project, phase_id, root)
-        _check_valid(project)
-        return result
+        lock = _lock(root)
+    except RespondError as busy:
+        raise ArchiveError(str(busy), "lock-busy") from busy
+    try:
+        yield
+    finally:
+        lock.release()
+        if not existed:
+            try:
+                compiled.rmdir()
+            except OSError:
+                pass
+
+
+def _captured_plan(root: Path, phase_id: str) -> tuple[Project, Plan]:
+    snapshot = Snapshot.capture(root / AUTHORITY_DIR)
+    project = compiler.load(root, authority=snapshot.path())
+    return project, plan(project, phase_id, root, snapshot=snapshot)
+
+
+def preview(root: Path, phase_id: str) -> Plan:
+    """Capture under the lock; leave no recovery record, manifest or projections."""
+    try:
+        with _locked(root):
+            project, result = _captured_plan(root, phase_id)
+            _check_valid(project)
+            return result
     except (ParseError, OSError, UnicodeError) as error:
         raise ArchiveError(f"cannot plan archive: {error}", "plan-failed") from error
 
@@ -289,24 +377,31 @@ def _check_valid(project: Project) -> None:
                            "validation-failed")
 
 
-def _move(working: str, archived: str | None, ids: list[str], pattern, header: str) -> tuple[str, str, int]:
-    """Cut the sections out of the working text and append them to the archive."""
-    spans = _spans(working, pattern)
-    cut = sorted(spans[i] for i in ids if i in spans)
-    missing = [i for i in ids if i not in spans]
-    if missing:
-        raise ArchiveError(f"no '## ' section found for {', '.join(missing)}")
+def _cut(working: str, spans: list[tuple[int, int]]) -> tuple[str, list[str]]:
     kept, moved, last = [], [], 0
-    for start, end in cut:
+    for start, end in sorted(spans):
+        if start < last:
+            raise ArchiveError("moving sections overlap", "overlapping-sections")
         kept.append(working[last:start])
         moved.append(working[start:end].rstrip("\r\n"))
         last = end
     kept.append(working[last:])
+    return "".join(kept), moved
+
+
+def _move(working: str, archived: str | None, ids: list[str], pattern, header: str, *,
+          locations: dict[str, list[tuple[int, int]]] | None = None) -> tuple[str, str, int]:
+    """Cut uniquely located sections and append them to one destination."""
+    locations = section_locations(working, pattern) if locations is None else locations
+    for record_id in ids:
+        if len(locations.get(record_id, [])) != 1:
+            raise ArchiveError(f"no unique '## ' section found for {record_id}")
+    kept, moved = _cut(working, [locations[i][0] for i in ids])
     newline = "\r\n" if "\r\n" in working else "\n"
     base = archived if archived is not None else header.replace("\n", newline)
     sections = (newline * 2).join(moved)
     archive_text = base.rstrip("\r\n") + newline * 2 + sections + newline
-    return "".join(kept), archive_text, sum(len(m.encode()) for m in moved)
+    return kept, archive_text, sum(len(m.encode()) for m in moved)
 
 
 def _records(project: Project) -> dict[str, object]:
@@ -325,16 +420,11 @@ def _records(project: Project) -> dict[str, object]:
 
 def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | None = None) -> Plan:
     authority = root / AUTHORITY_DIR
-    try:
-        lock = _lock(root)
-    except RespondError as busy:
-        raise ArchiveError(str(busy), "lock-busy") from busy
-    try:
+    with _locked(root):
         if recover_archive(root):
             raise ArchiveError("an interrupted archive was rolled back; try again", "recovered-write")
         try:
-            project = compiler.load(root)
-            result = plan(project, phase_id, root)
+            project, result = _captured_plan(root, phase_id)
         except (ArchiveError, ParseError, OSError, UnicodeError) as error:
             if digest is not None:
                 raise ArchiveError("plan no longer matches the chronicle; run archive plan again",
@@ -343,18 +433,27 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
         if digest is not None and digest != result.digest:
             raise ArchiveError("plan no longer matches the chronicle; run archive plan again", "stale-plan")
         _check_valid(project)
-        writes = _prepare_writes(root, result)
+        writes = result.writes
         if not writes:
             return result
-        directory = authority / ARCHIVE_DIR / phase_id
         if dry_run:
             return result
         before = _records(project)
-        originals = {path: path.read_bytes() if path.is_file() else None for path in writes}
-        created = [d for d in (directory.parent, directory) if not d.exists()]
-        recovery = _write_recovery(root, originals)
-        directory.mkdir(parents=True, exist_ok=True)
+        originals = {path: result.snapshot.files.get(path.relative_to(authority).as_posix()) for path in writes}
+        created = set()
+        for path in writes:
+            directory = path.parent
+            while directory != authority:
+                name = directory.relative_to(authority).as_posix()
+                if name in result.snapshot.directories:
+                    break
+                created.add(directory)
+                directory = directory.parent
+        created = sorted(created, key=lambda p: (len(p.parts), p.as_posix()))
+        recovery = _write_recovery(root, originals, directories=created)
         try:
+            for directory in created:
+                directory.mkdir(exist_ok=True)
             for path, text in writes.items():
                 _replace(path, text.encode("utf-8"))
             after = compiler.load(root)
@@ -367,17 +466,13 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
                                    + "; ".join(f"{f.code}: {f.message}" for f in introduced))
         except Exception as failure:
             recover_archive(root)
-            for made in reversed(created):
-                if made.is_dir() and not any(made.iterdir()):
-                    made.rmdir()
             if isinstance(failure, ArchiveError):
                 raise ArchiveError(f"nothing was moved: {failure}") from failure
             raise
         recovery.unlink()
         return result
-    finally:
-        lock.release()
 
 
 __all__ = ["ArchiveError", "Candidate", "EligibilityContext", "Plan", "RecordRule",
-           "RECORD_RULES", "Selection", "archive", "archive_mode", "plan", "preview"]
+           "RECORD_RULES", "IdRule", "Selection", "Snapshot", "section_locations",
+           "archive", "archive_mode", "plan", "preview"]

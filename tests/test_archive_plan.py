@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -18,6 +20,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from praukron import archive, cli, compile as compiler, layout, respond, validate  # noqa: E402
 from test_praukron import FixtureCase  # noqa: E402
+
+
+class SplitNoteRule(archive.IdRule):
+    kind, filename, title = "note", "NOTES.md", "Notes"
+    pattern = re.compile(r"(N-[A-Z]+)(?: — |$)")
+
+    def candidates(self, context):
+        for record_id, phase in (("N-ONE", "P1"), ("N-TWO", "P2")):
+            yield archive.Candidate(record_id, self.kind, self.filename, f"archive/{phase}/{self.filename}")
 
 
 class ArchivePlanCase(FixtureCase):
@@ -115,7 +126,7 @@ class TestArchivePlan(ArchivePlanCase):
         self.assertIn("T-TWO", candidates["AC-T-ONE"].reason)
 
     def test_a_record_rule_extends_planning_and_section_moves(self):
-        class NoteRule:
+        class NoteRule(archive.IdRule):
             kind, filename, title = "note", "NOTES.md", "Notes"
             pattern = re.compile(r"(N-[A-Z]+)(?: — |$)")
 
@@ -145,6 +156,7 @@ class TestArchiveApply(ArchivePlanCase):
         before = self.snapshot(self.root)
         for options, expected in [(("plan",), "invalid-selection"),
                                   (("P1", "extra"), "invalid-selection"),
+                                  (("P1", "--plan", "0" * 64), "invalid-option"),
                                   (("plan", "P1", "--plan", "0" * 64), "invalid-option")]:
             with self.subTest(options=options):
                 code, result = self.run_cli(*options)
@@ -288,6 +300,10 @@ class TestArchiveApply(ArchivePlanCase):
         self.assertEqual(result["error"]["code"], "refresh-failed")
         self.assertTrue(result["written"])
         self.assertFalse(result["refreshed"])
+        self.assertEqual(result["digest"], digest)
+        self.assertEqual(result["tasks"], ["T-ONE"])
+        self.assertIn("archive/P1/TASKS.md", result["changedFiles"])
+        self.assertIn("archive/P1/ACCEPTANCE.md", result["createdFiles"])
         self.assertEqual(compiler.load(self.root).task("T-ONE").source.file, "archive/P1/TASKS.md")
         respond.refresh(self.root)
         self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
@@ -332,6 +348,243 @@ class TestArchiveApply(ArchivePlanCase):
                         else:
                             self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
                 self.assertIn("Tiếng Việt", (self.authority / "TASKS.md").read_text(encoding="utf-8"))
+
+
+class TestArchiveReview(ArchivePlanCase):
+    def split_fixture(self, newline=b"\n"):
+        self.add_phase("P2")
+        data = "# Notes\n\n## N-ONE\nMột.\n\n## N-TWO\nHai.\n\n## N-STAY\nKept.\n".encode("utf-8")
+        (self.authority / "NOTES.md").write_bytes(data.replace(b"\n", newline))
+
+    def test_preview_mutation_between_candidates_and_digest_cannot_authorize_new_moves(self):
+        original_digest = archive.preview(self.root, "P1").digest
+        real_digest = archive._plan_digest
+
+        def changed_after_candidates(root, result):
+            self.assertTrue((root / layout.COMPILED_DIR / "respond.lock").is_file())
+            self.rewrite("TASKS.md", "- Status: TODO", "- Status: DONE")
+            self.rewrite("ACCEPTANCE.md", "`NOT_RUN`", "`PASS`")
+            return real_digest(root, result)
+
+        with mock.patch.object(archive, "_plan_digest", changed_after_candidates):
+            result = archive.preview(self.root, "P1")
+        self.assertEqual(result.tasks, ["T-ONE"])
+        self.assertEqual(result.digest, original_digest)
+        fresh = archive.preview(self.root, "P1")
+        self.assertEqual(fresh.tasks, ["T-ONE", "T-TWO"])
+        self.assertNotEqual(result.digest, fresh.digest)
+        with self.assertRaises(archive.ArchiveError) as error:
+            archive.archive(self.root, "P1", digest=result.digest)
+        self.assertEqual(error.exception.code, "stale-plan")
+
+    def test_each_file_is_read_once_under_lock_for_preview_and_apply_preparation(self):
+        original_read, original_text = Path.read_bytes, Path.read_text
+        files = self.snapshot()
+        expected = {name: 1 for name in files}
+        for action in ("preview", "dry-run", "apply"):
+            reads = {}
+
+            def counted(path, method, *args, **kwargs):
+                if self.authority in path.parents:
+                    name = path.relative_to(self.authority).as_posix()
+                    reads[name] = reads.get(name, 0) + 1
+                    self.assertTrue((self.root / layout.COMPILED_DIR / "respond.lock").is_file())
+                return method(path, *args, **kwargs)
+
+            real_replace = archive._replace
+
+            def checked_replace(path, data):
+                self.assertEqual(reads, expected)
+                return real_replace(path, data)
+
+            with mock.patch.object(Path, "read_bytes", lambda p: counted(p, original_read)), \
+                    mock.patch.object(Path, "read_text", lambda p, *a, **k: counted(p, original_text, *a, **k)), \
+                    mock.patch.object(archive, "_replace", side_effect=checked_replace) as replaced:
+                if action == "apply":
+                    archive.archive(self.root, "P1")
+                    self.assertTrue(replaced.called)
+                elif action == "dry-run":
+                    archive.archive(self.root, "P1", dry_run=True)
+                else:
+                    archive.preview(self.root, "P1")
+            if action != "apply":
+                self.assertEqual(reads, expected)
+
+    def test_apply_writes_and_recovery_originals_use_the_hashed_snapshot(self):
+        digest = archive.preview(self.root, "P1").digest
+        tasks = self.authority / "TASKS.md"
+        original = tasks.read_bytes()
+        real_digest, real_recovery = archive._plan_digest, archive._write_recovery
+
+        def edited_after_hash(root, result):
+            value = real_digest(root, result)
+            tasks.write_bytes(original + b"\n<!-- editor arrived after snapshot -->\n")
+            return value
+
+        def captured_originals(root, originals, **kwargs):
+            self.assertEqual(originals[tasks], original)
+            record = real_recovery(root, originals, **kwargs)
+            payload = json.loads(record.read_text(encoding="utf-8"))
+            entry = next(e for e in payload["files"] if e["path"] == f"{layout.AUTHORITY_DIR}/TASKS.md")
+            self.assertEqual(base64.b64decode(entry["bytes"]), original)
+            return record
+
+        with mock.patch.object(archive, "_plan_digest", edited_after_hash), \
+                mock.patch.object(archive, "_write_recovery", captured_originals):
+            result = archive.archive(self.root, "P1", digest=digest)
+        self.assertEqual(tasks.read_bytes(), result.writes[tasks].encode("utf-8"))
+        self.assertNotIn(b"editor arrived", tasks.read_bytes())
+
+    def test_one_source_moves_once_to_several_initially_absent_phase_directories(self):
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                self.setUp()
+                self.split_fixture(newline)
+                with mock.patch.object(archive, "RECORD_RULES", (SplitNoteRule(),)):
+                    preview = archive.preview(self.root, "P1")
+                    with mock.patch.object(archive, "_replace", wraps=archive._replace) as replace:
+                        result = archive.archive(self.root, "P1", digest=preview.digest)
+                source = self.authority / "NOTES.md"
+                self.assertEqual(sum(c.args[0] == source for c in replace.call_args_list), 1)
+                self.assertNotIn(b"## N-ONE", source.read_bytes())
+                self.assertNotIn(b"## N-TWO", source.read_bytes())
+                self.assertIn(b"## N-STAY", source.read_bytes())
+                for record_id, phase, content in (("N-ONE", "P1", "Một."), ("N-TWO", "P2", "Hai.")):
+                    path = self.authority / f"archive/{phase}/NOTES.md"
+                    data = path.read_bytes()
+                    self.assertIn(f"# Notes · {phase} (archived)".encode("utf-8"), data)
+                    self.assertIn(f"## {record_id}\n{content}".encode("utf-8").replace(b"\n", newline), data)
+                    self.assertEqual(sum(p.read_bytes().count(f"## {record_id}".encode())
+                                         for p in self.authority.rglob("NOTES.md")), 1)
+                self.assertEqual(len(result.changed_files), 3)
+                self.assertEqual(result.created_files, ["archive/P1/NOTES.md", "archive/P2/NOTES.md"])
+
+    def test_multi_destination_exception_restores_files_and_directory_inventory(self):
+        self.split_fixture()
+        before = self.snapshot()
+        paths = sorted(p.relative_to(self.authority).as_posix() for p in self.authority.rglob("*"))
+        real_replace = archive._replace
+        calls = 0
+
+        def failed(path, data):
+            nonlocal calls
+            real_replace(path, data)
+            calls += 1
+            if calls == 2:
+                raise OSError("failed outside the selected phase")
+
+        with mock.patch.object(archive, "RECORD_RULES", (SplitNoteRule(),)):
+            digest = archive.preview(self.root, "P1").digest
+            with mock.patch.object(archive, "_replace", failed), self.assertRaises(OSError):
+                archive.archive(self.root, "P1", digest=digest)
+            self.assertEqual(archive.preview(self.root, "P1").digest, digest)
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(sorted(p.relative_to(self.authority).as_posix() for p in self.authority.rglob("*")), paths)
+
+    def test_killed_apply_removes_created_directories_and_accepts_original_digest(self):
+        repository = Path(__file__).resolve().parents[1]
+        script = '''
+import sys
+from pathlib import Path
+sys.path[:0] = [sys.argv[1], sys.argv[2]]
+from praukron import archive
+from test_archive_plan import SplitNoteRule
+archive.RECORD_RULES = (SplitNoteRule(),)
+real_replace, calls = archive._replace, 0
+def replaced(path, data):
+    global calls
+    real_replace(path, data)
+    calls += 1
+    if calls == int(sys.argv[5]):
+        print("written", flush=True)
+        sys.stdin.buffer.read(1)
+archive._replace = replaced
+archive.archive(Path(sys.argv[3]), "P1", digest=sys.argv[4])
+'''
+        for existing_archive in (False, True):
+            for stop_after in (1, 2, 3):
+                with self.subTest(existing_archive=existing_archive, stop_after=stop_after):
+                    self.setUp()
+                    self.split_fixture()
+                    if existing_archive:
+                        (self.authority / "archive/P0").mkdir(parents=True)
+                    before = self.snapshot()
+                    paths = sorted(p.relative_to(self.authority).as_posix() for p in self.authority.rglob("*"))
+                    with mock.patch.object(archive, "RECORD_RULES", (SplitNoteRule(),)):
+                        digest = archive.preview(self.root, "P1").digest
+                        child = subprocess.Popen([sys.executable, "-c", script, str(repository / "src"),
+                                                  str(repository / "tests"), str(self.root), digest,
+                                                  str(stop_after)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                 stderr=subprocess.PIPE, text=True)
+                        try:
+                            self.assertEqual(child.stdout.readline().strip(), "written")
+                        finally:
+                            child.kill()
+                            child.communicate(timeout=10)
+                        with self.assertRaises(archive.ArchiveError) as error:
+                            archive.archive(self.root, "P1", digest=digest)
+                        self.assertEqual(error.exception.code, "recovered-write")
+                        self.assertEqual(self.snapshot(), before)
+                        self.assertEqual(sorted(p.relative_to(self.authority).as_posix()
+                                                for p in self.authority.rglob("*")), paths)
+                        self.assertEqual(archive.preview(self.root, "P1").digest, digest)
+                        result = archive.archive(self.root, "P1", digest=digest)
+                        self.assertEqual(result.digest, digest)
+
+    def test_contract_can_move_after_earlier_archive_and_working_user_repoints(self):
+        self.rewrite("TASKS.md", "- AC: AC-T-TWO", "- AC: AC-T-ONE")
+        first = archive.archive(self.root, "P1")
+        self.assertEqual(first.contracts, [])
+        self.rewrite("TASKS.md", "- AC: AC-T-ONE\n- Evidence: —", "- AC: AC-T-TWO\n- Evidence: —")
+        before = archive._records(compiler.load(self.root))
+        result = archive.preview(self.root, "P1")
+        self.assertEqual(result.tasks, [])
+        self.assertEqual(result.contracts, ["AC-T-ONE"])
+        archive.archive(self.root, "P1", digest=result.digest)
+        self.assertEqual(archive._records(compiler.load(self.root)), before)
+        self.assertEqual(compiler.load(self.root).contracts["AC-T-ONE"].source.file, "archive/P1/ACCEPTANCE.md")
+
+    def test_full_heading_rule_keeps_and_reports_duplicate_headings(self):
+        class HeadingRule:
+            kind, filename, title = "journal", "JOURNAL.md", "Journal"
+            sections = staticmethod(archive.section_locations)
+
+            def candidates(self, context):
+                for heading in self.sections(context.text(self.filename)):
+                    yield archive.Candidate(heading, self.kind, self.filename, "archive/P2/JOURNAL.md")
+
+        heading = "2026-10-15 — Cùng tiêu đề"
+        unique = "2026-10-16 — Unique heading with spaces"
+        data = f"# Journal\n\n## {heading}\nFirst.\n\n## {heading}\nSecond.\n\n## {unique}\nThird.\n"
+        (self.authority / "JOURNAL.md").write_bytes(data.encode("utf-8"))
+        with mock.patch.object(archive, "RECORD_RULES", (HeadingRule(),)):
+            result = archive.preview(self.root, "P1")
+            kept = next(c for c in result.candidates if c.id == heading)
+            self.assertFalse(kept.moves)
+            self.assertIn("duplicate section heading (2 occurrences)", kept.reason)
+            self.assertIn(kept.reason, result.render(False))
+            archive.archive(self.root, "P1", digest=result.digest)
+        working = (self.authority / "JOURNAL.md").read_text(encoding="utf-8")
+        self.assertEqual(working.count(f"## {heading}"), 2)
+        self.assertIn("First.", working)
+        self.assertIn("Second.", working)
+        self.assertNotIn(unique, working)
+        target = (self.authority / "archive/P2/JOURNAL.md").read_text(encoding="utf-8")
+        self.assertIn(f"## {unique}\nThird.", target)
+        self.assertNotIn(heading, target)
+
+    def test_human_refresh_failure_still_prints_the_applied_plan_and_files(self):
+        digest = archive.preview(self.root, "P1").digest
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(respond, "refresh", side_effect=OSError("refresh failed")), \
+                redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(["-C", str(self.root), "archive", "apply", "P1", "--plan", digest])
+        self.assertEqual(code, 1)
+        self.assertIn("Moved 1 tasks", out.getvalue())
+        self.assertIn("T-ONE", out.getvalue())
+        self.assertIn(digest, out.getvalue())
+        self.assertIn("archive/P1/TASKS.md", out.getvalue())
+        self.assertIn("refresh-failed:", err.getvalue())
 
 
 if __name__ == "__main__":

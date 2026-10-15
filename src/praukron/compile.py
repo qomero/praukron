@@ -14,6 +14,7 @@ from . import analytics, domain, index, views
 from . import layout
 from .layout import AUTHORITY_DIR, COMPILED_DIR
 from .model import Project
+from .snapshot import SnapshotPath
 from .parse import (
     ParseError,
     parse_acceptance,
@@ -75,8 +76,10 @@ def _tasks_and_contracts(authority: Path, phases: list, modules: list) -> tuple[
     return tasks, contracts
 
 
-def load(root: Path) -> Project:
-    authority = root / AUTHORITY_DIR
+def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project:
+    """Load disk authority, or a captured read-only view through the same parsers."""
+    if authority is None:
+        authority = root / AUTHORITY_DIR
     phases, gates, milestones = parse_phases(authority / "PHASES.md")
     modules = parse_modules(authority / "MODULES.md")
     tasks, contracts = _tasks_and_contracts(authority, phases, modules)

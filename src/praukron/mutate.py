@@ -256,8 +256,8 @@ def recover_write(root: Path) -> bool:
         return False
     for record in records:
         try:
-            entries = json.loads(record.read_text(encoding="utf-8"))["files"]
-            for entry in entries:
+            payload = json.loads(record.read_text(encoding="utf-8"))
+            for entry in payload["files"]:
                 path = (root / entry["path"]).resolve()
                 if root not in path.parents:
                     raise ValueError("recovery path is outside the project")
@@ -266,6 +266,14 @@ def recover_write(root: Path) -> bool:
                 else:
                     path.parent.mkdir(parents=True, exist_ok=True)
                     _replace(path, base64.b64decode(entry["bytes"], validate=True))
+            directories = sorted(payload.get("directories", []), key=lambda name: (len(Path(name).parts), name),
+                                 reverse=True)
+            for name in directories:
+                path = (root / name).resolve()
+                if root not in path.parents:
+                    raise ValueError("recovery directory is outside the project")
+                if path.is_dir() and not any(path.iterdir()):
+                    path.rmdir()
         except (KeyError, TypeError, ValueError, OSError) as failure:
             raise RespondError(f"cannot restore interrupted write: {failure}") from failure
         record.unlink()
@@ -275,7 +283,8 @@ def recover_write(root: Path) -> bool:
 recover_archive = recover_write
 
 
-def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str = "archive") -> Path:
+def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str = "archive", *,
+                    directories: list[Path] | tuple[Path, ...] = ()) -> Path:
     """Persist originals before replacing any authoritative file."""
     root = root.resolve()
     directory = root / RECOVERY_DIR
@@ -292,7 +301,10 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
         else:
             item["bytes"] = base64.b64encode(original).decode("ascii")
         files.append(item)
-    _replace(record, json.dumps({"files": files}, separators=(",", ":")).encode("utf-8"))
+    payload = {"files": files}
+    if directories:
+        payload["directories"] = [path.resolve().relative_to(root).as_posix() for path in directories]
+    _replace(record, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     return record
 
 

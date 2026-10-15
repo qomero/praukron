@@ -290,17 +290,20 @@ def cmd_archive(root: Path, args: argparse.Namespace) -> int:
 
     def refused(code: str, message: str, *, written: bool = False) -> int:
         if args.json:
-            print(json.dumps({"ok": False, "error": {"code": code, "message": message},
+            detail = {**plan.as_json(), "applied": True} if written else {}
+            print(json.dumps({**detail, "ok": False, "error": {"code": code, "message": message},
                               "written": written, "refreshed": False}, separators=(",", ":")))
             return 1
+        if written:
+            print(plan.render(True), end="")
         return _fail(f"{code}: {message}")
 
     if not phase or (action == "archive" and args.selection):
         return refused("invalid-selection", "use archive [plan|apply] <phase>")
     if action == "apply" and not args.plan_digest:
         return refused("missing-plan", "archive apply requires --plan <digest>; run archive plan first")
-    if action == "plan" and args.plan_digest is not None:
-        return refused("invalid-option", "--plan is for applying a digest, not planning")
+    if action != "apply" and args.plan_digest is not None:
+        return refused("invalid-option", "--plan requires archive apply <phase>")
     try:
         plan = (archive.preview(root, phase) if action == "plan" else
                 archive.archive(root, phase, dry_run=args.dry_run, digest=args.plan_digest))

@@ -16,7 +16,9 @@ people arriving from a release page.
   self-contained, read-only file.
 - Add `archive plan <phase>` with per-record move/stay reasons and a SHA-256 plan digest,
   and `archive apply <phase> --plan <digest>` with stale-plan refusal under the shared lock;
-  preserve legacy archive/dry-run, shared-contract eligibility and durable recovery.
+  preserve legacy archive/dry-run, shared-contract eligibility and durable recovery. Plans,
+  writes and recovery originals share one captured byte inventory; split destinations,
+  full-heading section locators and directory recovery support later lifecycle rules.
 
 - Document the structured writes: a "Structured writes" section in the specification (pipeline,
   field permissions, freeze and owner rules, revisions, results, exit codes and retry semantics),
