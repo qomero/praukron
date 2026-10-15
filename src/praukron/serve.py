@@ -68,12 +68,16 @@ def make_server(root: Path, port: int = 0) -> tuple[HTTPServer, str, str]:
         def do_POST(self) -> None:  # noqa: N802 - stdlib name
             origin = self.headers.get("Origin")
             own = f"http://{HOST}:{self.server.server_address[1]}"
+            length = int(self.headers.get("Content-Length") or 0)
             if (urlparse(self.path).path != "/respond" or not self._token_ok()
                     or (origin is not None and origin != own)
                     or not (self.headers.get("Content-Type") or "").startswith("application/json")):
+                # Read the unread body first: closing a socket with unread data sends a
+                # reset on Windows, and the client sees an aborted connection, not the 403.
+                if 0 < length <= _MAX_BODY:
+                    self.rfile.read(length)
                 self._send(403, json.dumps({"ok": False, "error": "refused"}))
                 return
-            length = int(self.headers.get("Content-Length") or 0)
             if length > _MAX_BODY:
                 self._send(413, json.dumps({"ok": False, "error": "too large"}))
                 return
