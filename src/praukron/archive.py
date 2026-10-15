@@ -115,7 +115,7 @@ class Plan:
                 ("events", self.events),
             ) if records
         ) or "no records"
-        lines = [f"{verb} {len(moving)} records ({counts}; {self.moved_bytes:,} bytes) "
+        lines = [f"{verb} {counts} ({len(moving)} records; {self.moved_bytes:,} bytes) "
                  f"of {self.phase} to {target}"]
         if self.tasks:
             lines.append("  tasks:     " + ", ".join(self.tasks))

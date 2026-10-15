@@ -392,7 +392,7 @@ class TestArchiveApply(ArchivePlanCase):
 
         pnone_plan = archive.preview(self.root, "P-NONE")
         moving = [candidate for candidate in pnone_plan.candidates if candidate.moves]
-        self.assertIn(f"Would move {len(moving)} records", pnone_plan.render(False))
+        self.assertIn(f"{len(moving)} records", pnone_plan.render(False))
         archive.archive(self.root, "P-NONE", digest=pnone_plan.digest)
         after_pnone = compiler.load(self.root)
         self.assertEqual(archive._records(after_pnone), before)
