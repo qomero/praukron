@@ -169,6 +169,11 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None]) -> Path:
     """Persist originals before an archive starts replacing them."""
     directory = root / RECOVERY_DIR
     directory.mkdir(parents=True, exist_ok=True)
+    # A record holds whole chronicle files; installed projects have no ignore
+    # rule for it, so the directory ignores itself and is never committed.
+    ignore = directory / ".gitignore"
+    if not ignore.is_file():
+        ignore.write_text("*\n", encoding="utf-8")
     record = directory / f"archive-{time.time_ns()}.json"
     files = []
     for path, original in originals.items():

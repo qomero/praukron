@@ -3066,6 +3066,8 @@ class TestArchive(FixtureCase):
                 archive.archive(self.root, "P1")
         recovery = self.root / layout.RECOVERY_DIR
         self.assertTrue(list(recovery.glob("archive-*.json")))
+        # Records hold whole chronicle files; the directory keeps itself out of Git.
+        self.assertEqual((recovery / ".gitignore").read_text(encoding="utf-8"), "*\n")
         partial = compiler.load(self.root)
         self.assertIn("interrupted-archive", [f.code for f in validate.errors(validate.check(partial))])
         with self.assertRaisesRegex(archive.ArchiveError, "interrupted archive was rolled back"):
