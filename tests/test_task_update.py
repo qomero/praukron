@@ -293,7 +293,7 @@ class TestGovernedBy(UpdateCase):
         code, result = self.add(["ADR-001"])
         self.assertEqual(code, 1)
         self.assertEqual(result["error"]["code"], "no-change")
-        self.assertIn("ADR-001", result["error"]["message"])
+        self.assertEqual(result["error"]["alreadyGoverned"], ["ADR-001"])
         self.assertEqual(self.snapshot(), before)
         code, result = self.add(["ADR-001", "ADR-002"])
         self.assertEqual(code, 0, result)

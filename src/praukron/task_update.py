@@ -1,4 +1,4 @@
-"""Change a task's status, owner, claim, evidence, validation or governing ADRs in place (ADR-068)."""
+"""Change a task's status, owner, claim, evidence, validation or governing ADRs in place (ADR-068, amended by ADR-074)."""
 
 from __future__ import annotations
 
@@ -126,7 +126,8 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
             raise mutate.WriteError("invalid-value", "expectRevision must be 16 lowercase hex characters",
                                     "expectRevision")
         if not changes and not added:
-            raise mutate.WriteError("empty-set", "set or addGovernedBy must change at least one field", "set")
+            raise mutate.WriteError("empty-set", "set or addGovernedBy must change at least one field",
+                                    "addGovernedBy" if "addGovernedBy" in payload and "set" not in payload else "set")
 
         def prepare(project: Project) -> mutate.Plan:
             task = next((t for t in project.tasks if t.id == task_id), None)
@@ -179,8 +180,8 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 if not (evidence or "").strip():
                     raise mutate.WriteError("evidence-required", "DONE needs recorded evidence; include set.evidence", "evidence")
             if all(_current(task, label) == value for label, value in edits.items()):
-                already = f"; already in Governed by: {', '.join(skipped)}" if skipped else ""
-                raise mutate.WriteError("no-change", "the update would change nothing" + already)
+                raise mutate.WriteError("no-change", "the update would change nothing",
+                                        details={"alreadyGoverned": list(skipped)} if skipped else None)
             path = root / AUTHORITY_DIR / task.source.file
             data = path.read_bytes()
             located = mutate.section(data, task.source.anchor)

@@ -427,6 +427,13 @@ $ echo '{"id":"T-DOCS-01","expectRevision":"9101852277a8233c","set":{"status":"W
 is refused with `frozen-contract`, and no command changes a criterion's text or
 class. A criterion's state and evidence stay writable.
 
+Two more fields can be set in the same way (ADR-074). `{"id":"T-DOCS-01",
+"expectRevision":"<revision>","set":{"validation":"AI_REVIEWED"}}` records a
+review; `HUMAN_VERIFIED` is refused, because only a person verifies.
+`{"id":"T-DOCS-01","expectRevision":"<revision>","addGovernedBy":["ADR-074"]}`
+appends an existing ADR to `Governed by`; an id already listed is skipped and
+named in `alreadyGoverned`, and entries are never removed or reordered.
+
 **4. Record a criterion's result.** The revision is the contract's, not the
 criterion's. A stale one returns the current criterion line and revision.
 

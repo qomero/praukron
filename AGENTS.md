@@ -62,7 +62,7 @@ chronicle no longer holds. The tool writes only: the generated `INDEX.md`;
 `respond` (the owner's responses); `archive plan|apply|restore <phase>` (owner
 only: moves a COMPLETE phase's, or P-NONE's, eligible closed records, verbatim,
 into `chronicle/archive/<phase>/`, where they stay authority and the write
-commands cannot change them; `RESPONSES.md` and ADRs never move); and five validated, atomic structured writes (ADR-068). Use these
+commands cannot change them; `RESPONSES.md` and ADRs never move); and five validated, atomic structured writes (ADR-068, amended by ADR-074). Use these
 instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 
 ```sh
@@ -70,7 +70,7 @@ instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 .praukron/praukron criterion set --input -    # a criterion's state and evidence
 .praukron/praukron task add --input -         # a task and its new contract
 .praukron/praukron contract add --input -     # the contract of a TODO task
-.praukron/praukron task update --input -      # status, owner, claimed, evidence, validation (never HUMAN_VERIFIED), addGovernedBy
+.praukron/praukron task update --input -      # status, owner, claimed, evidence, validation (never HUMAN_VERIFIED), addGovernedBy (ADR-074)
 ```
 
 Each takes a JSON payload (`--schema` prints it, `--dry-run` previews), prints

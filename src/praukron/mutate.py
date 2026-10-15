@@ -70,8 +70,8 @@ GUIDANCE = {
         "EXAMPLE: praukron contract add --schema   (prints the payload schema and an example)",
     ),
     "task.update": (
-        "WHEN: claim a task, change its status, owner or validation (UNTESTED, SYNTHETIC, AI_REVIEWED), "
-        "record its evidence, or link it to further governing ADRs with addGovernedBy.",
+        "WHEN: claim a task, change its status, owner or validation (UNTESTED, SYNTHETIC, AI_REVIEWED; ADR-074), "
+        "record its evidence, or link it to further governing ADRs with addGovernedBy (ADR-074).",
         "WHEN NOT: to close an Authority: owner task, set HUMAN_VERIFIED, remove or reorder Governed by "
         "entries, or change Module, Dependencies, AC or Authority; DONE needs every criterion PASS and evidence.",
         "RETURNS: one JSON line with ok, recordId, source, revision (and alreadyGoverned when addGovernedBy "
