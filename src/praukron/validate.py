@@ -370,6 +370,13 @@ def check(project: Project) -> list[Finding]:
             record.relative_to(project.root).as_posix(),
         ))
 
+    for record in sorted(recovery.glob("write-*.json")):
+        findings.append(Finding(
+            "error", "interrupted-write",
+            "an interrupted write recovery record remains; run a write command to roll it back",
+            record.relative_to(project.root).as_posix(),
+        ))
+
     def error(code: str, message: str, where: str) -> None:
         findings.append(Finding("error", code, message, where))
 

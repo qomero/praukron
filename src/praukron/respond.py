@@ -10,9 +10,7 @@ else in the chronicle is touched; compiled views are refreshed afterwards.
 from __future__ import annotations
 
 import datetime as _dt
-import base64
 import ctypes
-import json
 import os
 import re
 import secrets
@@ -21,8 +19,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import analytics, compile as compiler, dashboard, mermaid, validate
-from .layout import AUTHORITY_DIR, COMPILED_DIR, RECOVERY_DIR
+from . import compile as compiler
+from .layout import AUTHORITY_DIR, COMPILED_DIR
 from .model import RESPONSE_ACTIONS, RESPONSE_STATUS
 
 FILE = "RESPONSES.md"
@@ -131,36 +129,15 @@ def _lock(root: Path) -> Lock:
             except FileNotFoundError:
                 continue
             if time.monotonic() > deadline:
-                raise RespondError("another response is being written; try again")
+                raise RespondError("another write is in progress; try again")
             time.sleep(0.05)
 
 
-def _recovery_records(root: Path) -> list[Path]:
-    return sorted((root / RECOVERY_DIR).glob("archive-*.json"))
-
-
 def recover_archive(root: Path) -> bool:
-    """Restore an interrupted archive, if its write-ahead record remains."""
-    records = _recovery_records(root)
-    if not records:
-        return False
-    root = root.resolve()
-    for record in records:
-        try:
-            entries = json.loads(record.read_text(encoding="utf-8"))["files"]
-            for entry in entries:
-                path = (root / entry["path"]).resolve()
-                if root not in path.parents:
-                    raise ValueError("recovery path is outside the project")
-                if entry.get("absent"):
-                    path.unlink(missing_ok=True)
-                else:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    _replace(path, base64.b64decode(entry["bytes"]))
-        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as failure:
-            raise RespondError(f"cannot restore interrupted archive: {failure}") from failure
-        record.unlink()
-    return True
+    """Compatibility name for recovery of any interrupted write."""
+    from .mutate import recover_write
+
+    return recover_write(root)
 
 
 def _replace(path: Path, data: bytes) -> None:
@@ -205,19 +182,16 @@ def _check(project, items: list[Item], by: str) -> None:
 
 
 def _errors(project) -> set[tuple[str, str, str]]:
-    return {(f.code, f.where, f.message) for f in validate.errors(validate.check(project))}
+    from .mutate import _errors as errors
+
+    return errors(project)
 
 
 def refresh(root: Path) -> None:
-    """Recompile every view so the dashboard shows what was just written."""
-    project = compiler.load(root)
-    report = analytics.report(project)
-    compiler.write(root, project)
-    compiled = root / COMPILED_DIR
-    for name, text in mermaid.render_all(project, report).items():
-        (compiled / name).write_text(text, encoding="utf-8")
-    (compiled / "dashboard.html").write_text(
-        dashboard.render(project, report, compiler.as_json(project)), encoding="utf-8")
+    """Recompile every view after recording the owner's response."""
+    from .mutate import refresh as refresh_views
+
+    refresh_views(root)
 
 
 def append(root: Path, items: list[Item], by: str, via: str = "cli",

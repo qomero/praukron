@@ -13,18 +13,14 @@ validation finds a new error.
 
 from __future__ import annotations
 
-import base64
-import json
-import os
 import re
-import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from . import analytics, compile as compiler, validate
-from .layout import ARCHIVE_DIR, AUTHORITY_DIR, RECOVERY_DIR
+from .layout import ARCHIVE_DIR, AUTHORITY_DIR
 from .model import DEBT_CLOSED, Project
-from .respond import RespondError, _lock, _replace, recover_archive
+from .mutate import RespondError, _lock, _replace, _spans, _write_recovery, recover_archive
 
 _TASK = re.compile(r"(T-[A-Za-z0-9.\-]+): ")
 _CONTRACT = re.compile(r"(AC-[A-Za-z0-9.\-]+)(?: — |$)")
@@ -60,19 +56,6 @@ class Plan:
         for task, why in self.kept:
             lines.append(f"  kept {task}: {why}")
         return "\n".join(lines) + "\n"
-
-
-def _spans(text: str, pattern: re.Pattern[str]) -> dict[str, tuple[int, int]]:
-    """Each `## ` section whose heading matches, from its heading to the next
-    heading of level one or two, as `parse._sections` bounds it."""
-    spans: dict[str, tuple[int, int]] = {}
-    for heading in re.finditer(r"(?m)^## (.+)$", text):
-        found = pattern.match(heading.group(1).strip())
-        if not found:
-            continue
-        following = re.compile(r"(?m)^#{1,2} ").search(text, heading.end())
-        spans[found.group(1)] = (heading.start(), following.start() if following else len(text))
-    return spans
 
 
 def _why_kept(project: Project, task_id: str, unresolved: set[str], waiting: set[str]) -> str | None:
@@ -163,31 +146,6 @@ def _records(project: Project) -> dict[str, object]:
         "tasks": {t.id: strip(asdict(t)) for t in project.tasks},
         "contracts": {c.id: strip(asdict(c)) for c in project.contracts.values()},
     }
-
-
-def _write_recovery(root: Path, originals: dict[Path, bytes | None]) -> Path:
-    """Persist originals before an archive starts replacing them."""
-    directory = root / RECOVERY_DIR
-    directory.mkdir(parents=True, exist_ok=True)
-    # A record holds whole chronicle files; installed projects have no ignore
-    # rule for it, so the directory ignores itself and is never committed.
-    ignore = directory / ".gitignore"
-    if not ignore.is_file():
-        ignore.write_text("*\n", encoding="utf-8")
-    record = directory / f"archive-{time.time_ns()}.json"
-    files = []
-    for path, original in originals.items():
-        item = {"path": path.relative_to(root).as_posix()}
-        if original is None:
-            item["absent"] = True
-        else:
-            item["bytes"] = base64.b64encode(original).decode("ascii")
-        files.append(item)
-    with record.open("x", encoding="utf-8", newline="") as out:
-        out.write(json.dumps({"files": files}, separators=(",", ":")))
-        out.flush()
-        os.fsync(out.fileno())
-    return record
 
 
 def archive(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
