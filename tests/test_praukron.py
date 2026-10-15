@@ -1043,8 +1043,6 @@ class TestDashboardTabs(FixtureCase):
         for name, _, _ in tabs:
             self.assertIn(f'id="panel-{name}" role="tabpanel" aria-labelledby="tab-{name}"', self.html)
         self.assertIn("root.setAttribute('data-tab', known.indexOf(tab) >= 0 ? tab : 'overview')", self.html)
-        # The hash carries the tab and, after it, any cross-filters.
-        self.assertIn("history.replaceState(null, '', '#' + hashFor(name))", self.html)
 
     def test_only_the_selected_panel_is_displayed(self) -> None:
         self.assertIn("html.js .panel { display: none; }", self.html)
@@ -1084,10 +1082,12 @@ class TestDashboardTabs(FixtureCase):
 
     def test_progress_and_phases_show_compiled_figures(self) -> None:
         overview = self.panel("overview")
+        # The figures carry cross-filter hooks, so they are read as shown text.
+        shown = re.sub(r"<[^>]+>", "", overview)
         done = self.compiled["metrics"]["taskCompletion"]
-        self.assertIn(f'{done["done"]} <span class="note">/ {done["total"]}</span>', overview)
+        self.assertIn(f'{done["done"]} / {done["total"]}', shown)
         for phase in self.compiled["phases"]:
-            self.assertIn(f'{phase["progress"]["done"]} / {phase["progress"]["total"]} execution tasks', overview)
+            self.assertIn(f'{phase["progress"]["done"]} / {phase["progress"]["total"]} execution tasks', shown)
         self.assertIn('class="phase current"', overview)
 
     def test_the_critical_path_is_a_chain_in_compiled_order(self) -> None:

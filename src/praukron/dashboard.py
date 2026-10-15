@@ -49,7 +49,7 @@ _STYLE = """
 :root, :root[data-theme="light"] {
   color-scheme: light;
   --bg: #f3f4f6; --panel: #ffffff; --panel-raised: #f8f9fa; --sunken: #eceef1;
-  --ink: #14171c; --muted: #565d68; --line: #dfe2e7; --line-strong: #878e99;
+  --ink: #14171c; --muted: #565d68; --line: #dfe2e7; --line-strong: #7a818c;
   --accent: #3b3fb6; --on-accent: #ffffff; --good: #1d7036; --warn: #8a5100; --bad: #b3261e;
   --wip: #0a63a8; --todo: #646b76; --ops: #4a5f80; --on-warn: #ffffff;
   --shadow: 0 1px 2px rgba(16, 20, 28, 0.06), 0 2px 6px rgba(16, 20, 28, 0.04);
@@ -58,7 +58,7 @@ _STYLE = """
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #0e1013; --panel: #161a1f; --panel-raised: #1c2127; --sunken: #232931;
-  --ink: #e7e9ed; --muted: #a0a8b4; --line: #2a3038; --line-strong: #6b7380;
+  --ink: #e7e9ed; --muted: #a0a8b4; --line: #2a3038; --line-strong: #717986;
   --accent: #a9b1ff; --on-accent: #0e1013; --good: #5fc684; --warn: #e3a64a; --bad: #f08a80;
   --wip: #5db2ec; --todo: #8f98a5; --ops: #9db4d3; --on-warn: #0e1013;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -67,7 +67,7 @@ _STYLE = """
   :root:not([data-theme]) {
     color-scheme: dark;
     --bg: #0e1013; --panel: #161a1f; --panel-raised: #1c2127; --sunken: #232931;
-    --ink: #e7e9ed; --muted: #a0a8b4; --line: #2a3038; --line-strong: #6b7380;
+    --ink: #e7e9ed; --muted: #a0a8b4; --line: #2a3038; --line-strong: #717986;
     --accent: #a9b1ff; --on-accent: #0e1013; --good: #5fc684; --warn: #e3a64a; --bad: #f08a80;
     --wip: #5db2ec; --todo: #8f98a5; --ops: #9db4d3; --on-warn: #0e1013;
     --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -120,12 +120,15 @@ aside.needs.is-live { border: 2px solid var(--accent); padding: 15px;
               background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
 aside.needs.is-live .live { display: inline; }
 aside.needs.is-live .review-bar { position: sticky; top: -15px; z-index: 2; margin: 10px -15px 0;
-              padding: 10px 15px; background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+              padding: 10px 15px; background: var(--panel);
               border-block: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
 aside.needs .remaining { flex: 1 0 100%; font-size: 13px; font-weight: 600; }
 @media (max-width: 1099px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
-  aside.needs { position: static; max-height: none; order: -1; }
+  /* The panel no longer scrolls itself here, so the page is what the
+     submit bar pins against. */
+  aside.needs { position: static; max-height: none; overflow: visible; order: -1; }
+  aside.needs.is-live .review-bar { top: 0; }
   aside.needs[data-waiting="0"] { order: 1; }
 }
 header.top { display: flex; gap: 12px 16px; align-items: center; justify-content: space-between;
@@ -250,8 +253,13 @@ html.js[data-tab="tasks"] #panel-tasks { display: block; }
          background: var(--sunken); margin: 0 2px 10px; }
 .stack .seg { flex: 0 1 0; min-width: 3px; cursor: pointer; transition: flex-grow 0.2s ease-out, opacity 0.15s; }
 .stack .seg.empty { display: none; }
-.seg.off, .key.off .sw, .key.off .track { opacity: 0.3; }
-.legend, .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+/* A mark a filter leaves out keeps its colour as an outline, so it still
+   reads at 3:1 against the track and the panel; only fill means selected. */
+.seg, .sw, .track i { background: var(--mark); }
+.seg.off, .key.off .sw { background: transparent; box-shadow: inset 0 0 0 2px var(--mark); }
+.legend, .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px;
+                 grid-template-columns: minmax(0, 1fr); }
+.legend > li, .bars > li { min-width: 0; }
 .key { width: 100%; display: flex; align-items: center; gap: 8px; padding: 5px 8px; cursor: pointer;
        border: 1px solid transparent; border-radius: var(--radius-s); background: none;
        text-align: left; font-size: 13px; color: var(--ink); }
@@ -271,13 +279,13 @@ html.js[data-tab="tasks"] #panel-tasks { display: block; }
 details.more-rows > summary { cursor: pointer; font-size: 13px; color: var(--accent); padding: 6px 8px;
        list-style: none; border-radius: var(--radius-s); }
 details.more-rows > summary::-webkit-details-marker { display: none; }
-.c-DONE, .c-HUMAN_VERIFIED { background: var(--good); }
-.c-WIP, .c-AI_REVIEWED { background: var(--wip); }
-.c-BLOCKED { background: var(--bad); }
-.c-TODO, .c-UNTESTED { background: var(--todo); }
-.c-SYNTHETIC { background: var(--warn); }
-.c-execution { background: var(--accent); }
-.c-operations { background: var(--ops); }
+.c-DONE, .c-HUMAN_VERIFIED { --mark: var(--good); }
+.c-WIP, .c-AI_REVIEWED { --mark: var(--wip); }
+.c-BLOCKED { --mark: var(--bad); }
+.c-TODO, .c-UNTESTED { --mark: var(--todo); }
+.c-SYNTHETIC { --mark: var(--warn); }
+.c-execution { --mark: var(--accent); }
+.c-operations { --mark: var(--ops); }
 
 /* Phases */
 .phases { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
@@ -483,6 +491,75 @@ footer { color: var(--muted); font-size: 12px; margin-top: 48px;
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important;
                            scroll-behavior: auto !important; }
+}
+"""
+
+# The cross-filter rules, kept free of the page so they can be run and
+# tested without a browser (see tests/test_dashboard_redesign.py).
+FILTER_JS = """
+// --- Cross-filter rules ------------------------------------------------
+// Pure: nothing here reads the page, so the rules run and are tested anywhere.
+// DATA and byId are the embedded compiled project, defined below.
+
+const DIMS = {
+  status: t => t.status, phase: t => t.phase, module: t => t.module || '~none',
+  domain: t => t.domain, validation: t => t.validation,
+};
+const DIM_LABEL = { status: 'Status', phase: 'Phase', module: 'Module', domain: 'Domain', validation: 'Validation' };
+const filters = Object.fromEntries(Object.keys(DIMS).map(dim => [dim, new Set()]));
+
+function filtering() { return Object.keys(DIMS).some(dim => filters[dim].size); }
+
+function passes(task, skip) {
+  if (!task) return !filtering();
+  return Object.keys(DIMS).every(dim =>
+    dim === skip || !filters[dim].size || filters[dim].has(DIMS[dim](task)));
+}
+
+function filterQuery() {
+  return Object.keys(DIMS).filter(dim => filters[dim].size)
+    .map(dim => dim + '=' + [...filters[dim]].map(encodeURIComponent).join(',')).join('&');
+}
+
+function readFilters(query) {
+  Object.values(filters).forEach(chosen => chosen.clear());
+  (query || '').split('&').forEach(pair => {
+    const [dim, values] = pair.split('=');
+    if (!filters[dim] || !values) return;
+    values.split(',').forEach(value => {
+      try { filters[dim].add(decodeURIComponent(value)); } catch (error) {}
+    });
+  });
+}
+
+function hashFor(name) {
+  const query = filterQuery();
+  return query ? name + '?' + query : name;
+}
+
+// A chart counts the tasks that pass every filter but its own, by value, and
+// splits each value by status.
+function countsFor(dim) {
+  const counts = {};
+  const byStatus = {};
+  DATA.tasks.filter(task => passes(task, dim)).forEach(task => {
+    const value = DIMS[dim](task);
+    counts[value] = (counts[value] || 0) + 1;
+    byStatus[value] = byStatus[value] || {};
+    byStatus[value][task.status] = (byStatus[value][task.status] || 0) + 1;
+  });
+  return { counts, byStatus };
+}
+
+// An aggregate is a list of [task ids, weight] entries written by the
+// compiler's selections. An entry counts while any of its tasks passes; one
+// that names no task can only be counted while nothing is filtered.
+function aggValue(entries) {
+  return entries.reduce((sum, [ids, weight]) => {
+    const known = ids.split(' ').filter(id => byId[id]);
+    const counted = known.length ? known.some(id => passes(byId[id])) : !filtering();
+    return sum + (counted ? weight : 0);
+  }, 0);
 }
 """
 
@@ -857,27 +934,16 @@ function graphShown() {
 }
 
 // --- Cross-filtering ---------------------------------------------------
-// Selecting a chart segment narrows every chart, table and the Needs you
-// panel to the tasks that pass all active filters. It hides what is already on
-// the page and recounts compiled tasks; it decides nothing new (ADR-044). The
-// filters are presentation state and live in the URL hash beside the tab.
+// Selecting a chart segment narrows every chart, table, figure and the Needs
+// you panel to the tasks that pass all active filters. It hides what is
+// already on the page and recounts compiled selections; it decides nothing
+// new (ADR-044). The rules are above, in FILTER_JS; this only applies them.
 
-const DIMS = {
-  status: t => t.status, phase: t => t.phase, module: t => t.module || '~none',
-  domain: t => t.domain, validation: t => t.validation,
-};
-const DIM_LABEL = { status: 'Status', phase: 'Phase', module: 'Module', domain: 'Domain', validation: 'Validation' };
-const filters = Object.fromEntries(Object.keys(DIMS).map(dim => [dim, new Set()]));
 const SCOPED = 'ul.xf-list > li, ol.chain > li, details.acard';
 const CLOSE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" ' +
   'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>';
 
-function filtering() { return Object.keys(DIMS).some(dim => filters[dim].size); }
-
-function passes(task, skip) {
-  return Object.keys(DIMS).every(dim =>
-    dim === skip || !filters[dim].size || filters[dim].has(DIMS[dim](task)));
-}
+function visible(element) { return Boolean(element && element.getClientRects().length); }
 
 // An element belongs to the tasks it names. One with no task (an assumption
 // recorded against a phase only) can be placed by a phase filter alone.
@@ -900,14 +966,7 @@ function keyLabel(dim, value) {
 function renderCharts() {
   document.querySelectorAll('[data-chart]').forEach(chart => {
     const dim = chart.dataset.chart;
-    const counts = {};
-    const byStatus = {};
-    DATA.tasks.filter(task => passes(task, dim)).forEach(task => {
-      const value = DIMS[dim](task);
-      counts[value] = (counts[value] || 0) + 1;
-      byStatus[value] = byStatus[value] || {};
-      byStatus[value][task.status] = (byStatus[value][task.status] || 0) + 1;
-    });
+    const { counts, byStatus } = countsFor(dim);
     const top = Math.max(1, ...Object.values(counts));
     const chosen = filters[dim];
     chart.querySelectorAll('[data-value]').forEach(node => {
@@ -923,6 +982,66 @@ function renderCharts() {
         part.style.width = ((byStatus[value] || {})[part.dataset.s] || 0) / top * 100 + '%';
       });
     });
+  });
+}
+
+// Every figure that counts tasks carries its compiled entries in data-agg.
+// Unfiltered it shows exactly what it was rendered with; filtered, the sums.
+function original(node, value) {
+  if (!('aggOrig' in node.dataset)) node.dataset.aggOrig = value;
+  return node.dataset.aggOrig;
+}
+
+function renderAggregates() {
+  const on = filtering();
+  const needs = document.getElementById('needs-you');
+  const shown = selector => [...needs.querySelectorAll(selector)]
+    .filter(item => !item.classList.contains('xf-out')).length;
+  document.querySelectorAll('[data-agg], [data-agg-from]').forEach(holder => {
+    const sums = {};
+    if (holder.dataset.aggFrom === 'needs') {
+      sums.review = shown('details.acard');
+      sums.held = shown('ul.owner-list > li');
+      sums.n = sums.review + sums.held;
+    } else {
+      Object.entries(JSON.parse(holder.dataset.agg)).forEach(([key, entries]) => {
+        sums[key] = aggValue(entries);
+      });
+    }
+    holder.querySelectorAll('[data-agg-key]').forEach(node => {
+      const before = original(node, node.textContent);
+      node.textContent = on ? sums[node.dataset.aggKey] : before;
+    });
+    holder.querySelectorAll('[data-agg-pct]').forEach(node => {
+      const before = original(node, node.textContent);
+      const [part, whole] = node.dataset.aggPct.split('/');
+      node.textContent = on ? Math.round(sums[whole] ? sums[part] / sums[whole] * 100 : 0) + '%' : before;
+    });
+    holder.querySelectorAll('[data-agg-bar]').forEach(bar => {
+      const before = original(bar, bar.style.width);
+      const [part, whole] = bar.dataset.aggBar.split('/');
+      bar.style.width = on ? (sums[whole] ? sums[part] / sums[whole] * 100 : 0) + '%' : before;
+    });
+    const count = on ? sums.n : Number(holder.dataset.aggN);
+    holder.querySelectorAll('[data-agg-text]').forEach(node => {
+      const before = original(node, node.textContent);
+      node.textContent = !on ? before
+        : holder.dataset.tone && !count ? 'Clear'
+        : node.dataset.aggText.replace(/\{(\w+)\}/g, (_, key) => sums[key]);
+    });
+    if (holder.dataset.tone) {
+      holder.classList.toggle('clear', !count);
+      holder.classList.toggle(holder.dataset.tone, Boolean(count));
+    }
+  });
+  // A group's count is the number of its items still shown.
+  document.querySelectorAll('details.group').forEach(group => {
+    const counter = group.querySelector(':scope > summary > .count');
+    const items = [...group.querySelectorAll(SCOPED)];
+    if (!counter || !items.length) return;
+    const before = original(counter, counter.textContent);
+    if (!/^\d+$/.test(before)) return;
+    counter.textContent = on ? items.filter(item => !item.classList.contains('xf-out')).length : before;
   });
 }
 
@@ -944,15 +1063,18 @@ function renderChips() {
 }
 
 function renderScoped() {
+  const on = filtering();
   document.querySelectorAll('tbody tr[data-task]').forEach(row => {
-    if (!row.closest('#task-registry')) row.classList.toggle('xf-out', !passes(byId[row.dataset.task] || {}));
+    if (!row.closest('#task-registry')) row.classList.toggle('xf-out', !passes(byId[row.dataset.task]));
   });
   document.querySelectorAll(SCOPED).forEach(element =>
-    element.classList.toggle('xf-out', filtering() && !scopeMatches(element)));
+    element.classList.toggle('xf-out', on && !scopeMatches(element)));
+  // Only a filter empties a table this way; the registry's own search says so
+  // in its own count.
   document.querySelectorAll('.tablewrap').forEach(wrap => {
     const rows = [...wrap.querySelectorAll('tbody tr[data-task]')];
-    wrap.classList.toggle('xf-none',
-      rows.length > 0 && rows.every(row => row.hidden || row.classList.contains('xf-out')));
+    wrap.classList.toggle('xf-none', on && rows.length > 0 &&
+      rows.every(row => row.hidden || row.classList.contains('xf-out')));
   });
   const needs = document.getElementById('needs-you');
   const hiddenHere = needs.querySelectorAll('.xf-out').length;
@@ -985,6 +1107,7 @@ function applyFilters({ record = true } = {}) {
   renderCharts();
   if (runRegistry) runRegistry();
   renderScoped();
+  renderAggregates();
   renderChips();
   syncSelects();
   if (record) writeHash();
@@ -1002,27 +1125,6 @@ function clearFilters() {
   applyFilters();
 }
 
-function filterQuery() {
-  return Object.keys(DIMS).filter(dim => filters[dim].size)
-    .map(dim => dim + '=' + [...filters[dim]].map(encodeURIComponent).join(',')).join('&');
-}
-
-function readFilters(query) {
-  Object.values(filters).forEach(chosen => chosen.clear());
-  (query || '').split('&').forEach(pair => {
-    const [dim, values] = pair.split('=');
-    if (!filters[dim] || !values) return;
-    values.split(',').forEach(value => {
-      try { filters[dim].add(decodeURIComponent(value)); } catch (error) {}
-    });
-  });
-}
-
-function hashFor(name) {
-  const query = filterQuery();
-  return query ? name + '?' + query : name;
-}
-
 function writeHash() {
   const name = document.documentElement.dataset.tab || 'overview';
   if (location.hash !== '#' + hashFor(name)) history.replaceState(null, '', '#' + hashFor(name));
@@ -1033,8 +1135,9 @@ document.addEventListener('click', event => {
   if (key) { toggleFilter(key.dataset.dim, key.dataset.value); return; }
   const chip = event.target.closest('[data-remove-dim]');
   if (chip) {
-    // Focus moves to the next chip, or back to the charts when none is left,
-    // so a keyboard reader is never dropped at the top of the page.
+    // Focus moves to the next chip; with none left, to the charts when they
+    // are on screen, else to the open tab, so a keyboard reader is never
+    // dropped at the top of the page.
     const next = chip.closest('li').nextElementSibling || chip.closest('li').previousElementSibling;
     const nextValue = next && next.querySelector('[data-remove-dim]');
     const target = nextValue ? [nextValue.dataset.removeDim, nextValue.dataset.removeValue] : null;
@@ -1042,7 +1145,9 @@ document.addEventListener('click', event => {
     applyFilters();
     const again = target && [...document.querySelectorAll('[data-remove-dim]')].find(node =>
       node.dataset.removeDim === target[0] && node.dataset.removeValue === target[1]);
-    (again || document.querySelector('#breakdown .key') || document.body).focus();
+    const fallback = [document.querySelector('#breakdown .key'),
+                      document.querySelector('.toptabs [aria-selected="true"]')].find(visible);
+    (again || fallback || document.body).focus();
     return;
   }
   if (event.target.closest('[data-xf-clear]')) clearFilters();
@@ -1110,6 +1215,9 @@ addEventListener('hashchange', () => {
   const holder = target.parentElement && target.parentElement.closest('details');
   if (holder) holder.open = true;
   target.scrollIntoView({ block: 'start' });
+  // The anchor has done its work; the address goes back to tab and filters,
+  // so a reload or a shared link keeps what the reader is looking at.
+  if (filtering()) writeHash();
 });
 selectTab(location.hash.slice(1).split('?')[0] || 'overview', { record: Boolean(location.hash) });
 
@@ -1238,22 +1346,45 @@ applyFilters({ record: false });
 """
 
 
-def _metric_card(label: str, progress: dict, note: str = "") -> str:
+def _agg(**figures: list) -> str:
+    """The compiled entries behind a card's figures, for the cross-filters.
+
+    Each figure is a list of (task ids, weight). Unfiltered, the weights sum
+    to the compiled figure; filtered, the page sums the entries whose tasks
+    pass, so it recounts the compiler's selection and decides nothing (ADR-044)."""
+    data = {
+        name: [[" ".join(ids), weight] for ids, weight in entries if weight]
+        for name, entries in figures.items()
+    }
+    return f' data-agg="{esc(json.dumps(data, separators=(",", ":")))}"'
+
+
+def _each(ids, weight: int = 1) -> list:
+    return [([task_id], weight) for task_id in ids]
+
+
+def _text(template: str) -> str:
+    return f' data-agg-text="{esc(template)}"' if template else ""
+
+
+def _metric_card(label: str, progress: dict, note: str = "", agg: str = "", template: str = "") -> str:
     percent = round(progress["fraction"] * 100)
     return (
-        f'<div class="card"><div class="k">{label}</div>'
-        f'<div class="v">{progress["done"]} <span class="note">/ {progress["total"]}</span></div>'
-        f'<div class="bar"><i style="width:{percent}%"></i></div>'
-        + (f'<div class="more">{esc(note)}</div>' if note else "")
+        f'<div class="card"{agg}><div class="k">{label}</div>'
+        f'<div class="v"><span data-agg-key="done">{progress["done"]}</span> <span class="note">/ '
+        f'<span data-agg-key="total">{progress["total"]}</span></span></div>'
+        f'<div class="bar"><i data-agg-bar="done/total" style="width:{percent}%"></i></div>'
+        + (f'<div class="more"{_text(template)}>{esc(note)}</div>' if note else "")
         + "</div>"
     )
 
 
-def _count_card(label: str, value: object, note: str = "", alert: bool = False) -> str:
+def _count_card(label: str, value: object, note: str = "", alert: bool = False,
+                agg: str = "", template: str = "") -> str:
     return (
-        f'<div class="card{" alert" if alert else ""}"><div class="k">{esc(label)}</div>'
-        f'<div class="v">{esc(value)}</div>'
-        + (f'<div class="more">{esc(note)}</div>' if note else "")
+        f'<div class="card{" alert" if alert else ""}"{agg}><div class="k">{esc(label)}</div>'
+        f'<div class="v" data-agg-key="n">{esc(value)}</div>'
+        + (f'<div class="more"{_text(template)}>{esc(note)}</div>' if note else "")
         + "</div>"
     )
 
@@ -1356,13 +1487,15 @@ def _breakdown(compiled: dict) -> str:
     )
 
 
-def _signal(count: int, label: str, href: str, tone: str, note: str) -> str:
+def _signal(count: int, label: str, href: str, tone: str, note: str,
+            agg: str = "", template: str = "") -> str:
     """One attention count. A zero reads as clear rather than disappearing, so
     the band keeps its shape and its absence of trouble is visible too."""
     return (
-        f'<a class="sig {tone if count else "clear"}" href="{href}">'
-        f'<span class="sig-n">{count}</span><span class="sig-l">{esc(label)}</span>'
-        f'<span class="sig-note">{esc(note if count else "Clear")}</span></a>'
+        f'<a class="sig {tone if count else "clear"}" href="{href}"{agg}'
+        f' data-tone="{tone}" data-agg-n="{count}">'
+        f'<span class="sig-n" data-agg-key="n">{count}</span><span class="sig-l">{esc(label)}</span>'
+        f'<span class="sig-note"{_text(template or note)}>{esc(note if count else "Clear")}</span></a>'
     )
 
 
@@ -1607,37 +1740,72 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 
     started = metrics["acceptanceBreakdown"]["started"]
     later = metrics["acceptanceBreakdown"]["notStarted"]
+    # Each figure below also carries the tasks it counts, chosen by the same
+    # rules analytics used, so a cross-filter recounts rather than re-derives.
+    exec_tasks = project.execution_tasks
+    exec_ids = [t.id for t in exec_tasks]
+    contracts = {c.id: c for c in project.contracts.values() if not c.is_global}
+
+    def criteria(begun: bool, state: str | None = None) -> list:
+        # Analytics counts a contract once per group, however many tasks name
+        # it; here its criteria ride on the group's first task that does.
+        seen: set[str] = set()
+        out = []
+        for task in exec_tasks:
+            contract = contracts.get(task.contract) if task.contract else None
+            if (task.status in ("WIP", "DONE")) != begun or contract is None or contract.id in seen:
+                continue
+            seen.add(contract.id)
+            out.append(([task.id], sum(1 for c in contract.criteria if state is None or c.state == state)))
+        return out
+
+    def with_validation(*states: str) -> list:
+        return _each(t.id for t in exec_tasks if t.validation in states)
+
     cards = "".join(
         [
-            _metric_card("Task completion", metrics["taskCompletion"]),
+            _metric_card("Task completion", metrics["taskCompletion"],
+                         agg=_agg(done=_each(t.id for t in exec_tasks if t.done), total=_each(exec_ids))),
             _metric_card(
                 "Criteria passed, started work",
                 {"done": started["PASS"], "total": sum(started.values()),
                  "fraction": started["PASS"] / sum(started.values()) if sum(started.values()) else 0.0},
                 f"{started['FAIL']} fail · {started['NOT_RUN']} not run · "
                 f"{sum(later.values())} more in work not started",
+                agg=_agg(done=criteria(True, "PASS"), total=criteria(True), fail=criteria(True, "FAIL"),
+                         notrun=criteria(True, "NOT_RUN"), later=criteria(False)),
+                template="{fail} fail · {notrun} not run · {later} more in work not started",
             ),
             _metric_card(
                 "Reviewed or verified tasks", metrics["validationCoverage"],
                 f"of all execution tasks · SYNTHETIC {metrics['validationBreakdown'].get('SYNTHETIC', 0)}"
                 f" · UNTESTED {metrics['validationBreakdown'].get('UNTESTED', 0)}",
+                agg=_agg(done=with_validation(*metrics["validationCounts"]), total=_each(exec_ids),
+                         synthetic=with_validation("SYNTHETIC"), untested=with_validation("UNTESTED")),
+                template="of all execution tasks · SYNTHETIC {synthetic} · UNTESTED {untested}",
             ),
             _metric_card("Gate readiness", metrics["gateReadiness"]),
-            _metric_card("Critical path", metrics["criticalPathCompletion"]),
+            _metric_card("Critical path", metrics["criticalPathCompletion"], agg=_agg(
+                done=_each(t for t in compiled["criticalPath"] if project.task(t) and project.task(t).done),
+                total=_each(compiled["criticalPath"]))),
         ]
     )
 
     phase_cards = "".join(
-        f'<article class="phase{" current" if phase["id"] == current_id else ""}">'
+        f'<article class="phase{" current" if phase["id"] == current_id else ""}"'
+        + _agg(done=_each(t.id for t in project.execution_in(phase["id"]) if t.done),
+               total=_each(t.id for t in project.execution_in(phase["id"])))
+        + '>'
         f'<header><strong><code>{esc(phase["id"])}</code> {esc(phase["name"])}</strong> '
         f'{_pill(phase["status"])}'
         + (' <span class="pill current">Current</span>' if phase["id"] == current_id else "")
         + "</header>"
         f'<div class="outcome">{esc(phase["outcome"])}</div>'
-        f'<div class="mono">{phase["progress"]["done"]} / {phase["progress"]["total"]} execution tasks'
+        f'<div class="mono"><span data-agg-key="done">{phase["progress"]["done"]}</span> / '
+        f'<span data-agg-key="total">{phase["progress"]["total"]}</span> execution tasks'
         + (f' · exit authority {esc(phase["exitAuthority"])}' if phase["exitAuthority"] else "")
         + (f' · exit waits on {esc(phase["waitsOn"])}' if phase.get("waitsOn") else "")
-        + f'</div><div class="bar"><i style="width:{round(phase["progress"]["fraction"] * 100)}%"></i></div>'
+        + f'</div><div class="bar"><i data-agg-bar="done/total" style="width:{round(phase["progress"]["fraction"] * 100)}%"></i></div>'
         "</article>"
         for phase in compiled["phases"]
     ) or '<p class="note">No phases recorded.</p>'
@@ -1653,8 +1821,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     def module_block(module: dict) -> str:
         items = "".join(f"<li>{_pill(tasks[t]['status'])} {ref(t)}</li>" for t in module["tasks"])
         return (
-            f'<div class="module"><div><code>{esc(module["id"])}</code> <strong>{esc(module["name"])}</strong>'
-            f' <span class="note">{len(module["tasks"])} tasks</span></div>'
+            f'<div class="module"{_agg(n=_each(module["tasks"]))}><div><code>{esc(module["id"])}</code>'
+            f' <strong>{esc(module["name"])}</strong>'
+            f' <span class="note" data-agg-text="{{n}} tasks">{len(module["tasks"])} tasks</span></div>'
             f'<div class="outcome">{esc(module["outcome"])}</div>'
             + (f'<ul class="plain xf-list">{items}</ul>' if items else '<p class="note">No tasks yet.</p>')
             + "</div>"
@@ -1820,17 +1989,40 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     om = operations["metrics"]
     all_events = sorted(operations["events"], key=lambda e: (e["time"] or "", e["id"]))
     affects_execution = set(om["affectingExecution"])
+    ops_tasks = project.operations_tasks
+    blocked_ids = set(compiled["blocked"])
+    unresolved = set(operations["unresolvedFailures"])
+
+    def event_entries(chosen) -> list:
+        # An event belongs to the task it came from and the tasks it affects.
+        return [([e.task] if e.task else []) + list(e.affects) for e in chosen]
+
+    def events_where(test) -> list:
+        return [(ids, 1) for ids in event_entries([e for e in project.events if test(e)])]
+
     summary = "".join([
-        _count_card("Active operations", om["tasks"]["active"], f'{om["tasks"]["open"]} open'),
-        _count_card("Blocked operations", om["tasks"]["blocked"], alert=bool(om["tasks"]["blocked"])),
+        _count_card("Active operations", om["tasks"]["active"], f'{om["tasks"]["open"]} open',
+                    agg=_agg(n=_each(t.id for t in ops_tasks if t.status == "WIP"),
+                             open=_each(t.id for t in ops_tasks if not t.done)),
+                    template="{open} open"),
+        _count_card("Blocked operations", om["tasks"]["blocked"], alert=bool(om["tasks"]["blocked"]),
+                    agg=_agg(n=_each(t.id for t in ops_tasks if t.id in blocked_ids))),
         _count_card("Affecting execution", len(om["affectingExecution"]),
                     f'{len(om["affectingCriticalPath"])} on the critical path · {len(om["affectingGate"])} on the next gate',
-                    alert=bool(om["affectingExecution"])),
-        _count_card("Events recorded", om["events"]["total"]),
+                    alert=bool(om["affectingExecution"]),
+                    agg=_agg(n=_each(om["affectingExecution"]), path=_each(om["affectingCriticalPath"]),
+                             gate=_each(om["affectingGate"])),
+                    template="{path} on the critical path · {gate} on the next gate"),
+        _count_card("Events recorded", om["events"]["total"], agg=_agg(n=events_where(lambda e: True))),
         _count_card("Failures", om["events"]["failures"], f'{om["events"]["unresolvedFailures"]} unresolved',
-                    alert=bool(om["events"]["unresolvedFailures"])),
-        _count_card("Retries", om["events"]["retries"]),
-        _count_card("Mutations", om["events"]["mutations"]),
+                    alert=bool(om["events"]["unresolvedFailures"]),
+                    agg=_agg(n=events_where(lambda e: e.failed),
+                             unresolved=events_where(lambda e: e.id in unresolved)),
+                    template="{unresolved} unresolved"),
+        _count_card("Retries", om["events"]["retries"],
+                    agg=_agg(n=events_where(lambda e: e.retry_of or e.type == "retry"))),
+        _count_card("Mutations", om["events"]["mutations"],
+                    agg=_agg(n=events_where(lambda e: e.type == "mutation"))),
     ])
 
     def operation_row(task_id: str) -> str:
@@ -1933,10 +2125,12 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         if closed_debt else ""
     )
     total_tasks = metrics["domainBreakdown"]["execution"]
+    # Execution tasks only, as compiled; the cross-filters recount the rows.
     validation_rows = "".join(
-        f"<tr><td>{_pill(state)}</td><td class=\"num\">{count}</td>"
-        f'<td class="num">{(count / total_tasks * 100) if total_tasks else 0:.0f}%</td>'
-        f'<td style="width:40%"><div class="bar"><i style="width:{(count / total_tasks * 100) if total_tasks else 0:.1f}%"></i></div></td></tr>'
+        f'<tr{_agg(n=with_validation(state), total=_each(exec_ids))}><td>{_pill(state)}</td>'
+        f'<td class="num" data-agg-key="n">{count}</td>'
+        f'<td class="num" data-agg-pct="n/total">{(count / total_tasks * 100) if total_tasks else 0:.0f}%</td>'
+        f'<td style="width:40%"><div class="bar"><i data-agg-bar="n/total" style="width:{(count / total_tasks * 100) if total_tasks else 0:.1f}%"></i></div></td></tr>'
         for state, count in sorted(metrics["validationBreakdown"].items())
     )
 
@@ -2032,20 +2226,30 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     open_risk = [d for d in compiled["debt"] if d["status"] not in ("RESOLVED", "INVALIDATED")
                  and d["triggerState"] in ("REACHED", "APPROACHING")]
     reached = sum(1 for d in open_risk if d["triggerState"] == "REACHED")
+    events_by_id = {e.id: e for e in project.events}
     attention = (
         '<h2 class="sr">Needs attention</h2><div class="attention">'
         + _signal(len(compiled["blocked"]), "Blocked tasks", "#execution", "bad",
-                  "waiting on unfinished dependencies")
+                  "waiting on unfinished dependencies", agg=_agg(n=_each(compiled["blocked"])))
         + _signal(len(execution["failures"]), "Failing work", "#execution", "bad",
-                  f'{started["FAIL"]} criteria fail' if started["FAIL"] else "failed operational evidence")
+                  f'{started["FAIL"]} criteria fail' if started["FAIL"] else "failed operational evidence",
+                  agg=_agg(n=_each(f["task"] for f in execution["failures"]), fail=criteria(True, "FAIL")),
+                  template="{fail} criteria fail" if started["FAIL"] else "")
         + _signal(waiting, "Needs you", "#needs-you", "warn",
-                  f"{queued} to review · {len(owner_held)} held by you")
+                  f"{queued} to review · {len(owner_held)} held by you",
+                  agg=' data-agg-from="needs"', template="{review} to review · {held} held by you")
         + _signal(len(review_gaps), "Review gaps", "#execution", "warn",
-                  "done without a recorded review")
+                  "done without a recorded review", agg=_agg(n=_each(o["subject"] for o in review_gaps)))
         + _signal(len(open_risk), "Debt at its trigger", "#governance", "bad" if reached else "warn",
-                  f"{reached} reached · {len(open_risk) - reached} approaching")
+                  f"{reached} reached · {len(open_risk) - reached} approaching",
+                  agg=_agg(n=[(d["linkedTasks"], 1) for d in open_risk],
+                           reached=[(d["linkedTasks"], 1) for d in open_risk if d["triggerState"] == "REACHED"],
+                           approaching=[(d["linkedTasks"], 1) for d in open_risk if d["triggerState"] != "REACHED"]),
+                  template="{reached} reached · {approaching} approaching")
         + _signal(om["events"]["unresolvedFailures"], "Unresolved failures", "#operations", "bad",
-                  "operational events not yet retried or explained")
+                  "operational events not yet retried or explained",
+                  agg=_agg(n=[(ids, 1) for ids in event_entries(
+                      [events_by_id[e] for e in operations["unresolvedFailures"] if e in events_by_id])]))
         + "</div>"
     )
     ahead = execution.get("workAhead")
@@ -2255,7 +2459,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 <script type="application/json" id="diagram-data">{embed(diagrams)}</script>
 <script type="application/json" id="node-map">{embed(node_map)}</script>
 <script src="{MERMAID_CDN}" onerror="window.mermaidFailed=true"></script>
-<script>{_SCRIPT}{review.script(interactive)}</script>
+<script>{FILTER_JS}{_SCRIPT}{review.script(interactive)}</script>
 </body>
 </html>
 """
