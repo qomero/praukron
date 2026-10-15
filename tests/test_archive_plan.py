@@ -916,8 +916,10 @@ class TestArchiveReviewRoundTwo(ArchivePlanCase):
         self.assertNotEqual(alias, self.root)
         self.assertEqual(alias.resolve(), self.root)
 
-        def canonical_mode(root):
+        def canonical_mode(root, snapshot, destinations):
             self.assertEqual(root, self.root)
+            self.assertEqual(snapshot.authority, self.authority)
+            self.assertTrue(all(not Path(name).is_absolute() for name in destinations))
             return "nogit"
 
         with mock.patch.object(archive, "archive_mode", side_effect=canonical_mode):

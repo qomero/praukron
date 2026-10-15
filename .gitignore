@@ -9,4 +9,5 @@ next_plan/
 .praukron/chronicle/
 .praukron/compiled/
 .praukron/recovery/
+.praukron/backup/
 .praukron/upgrade/

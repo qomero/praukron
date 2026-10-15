@@ -20,9 +20,10 @@ import re
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import Iterable, Protocol
 
-from . import analytics, compile as compiler, layout, validate
+from . import analytics, archive_recovery, compile as compiler, layout, validate
 from .layout import ARCHIVE_DIR, AUTHORITY_DIR
 from .model import DEBT_CLOSED, NO_PHASE, Project
 from .mutate import (RespondError, _lock, _replace, _spans, _write_recovery, recover_archive,
@@ -95,6 +96,8 @@ class Plan:
     digest: str | None = None
     mode: str | None = None
     version: str | None = None
+    operation: str = "archive"
+    recovery: dict = field(default_factory=dict)
     snapshot: Snapshot | None = field(default=None, repr=False, compare=False)
     writes: dict[Path, str] = field(default_factory=dict, repr=False, compare=False)
     changed_files: list[str] = field(default_factory=list)
@@ -108,11 +111,13 @@ class Plan:
             "candidates": [c.as_json() for c in self.candidates],
             "digest": self.digest, "mode": self.mode, "version": self.version,
             "changedFiles": self.changed_files, "createdFiles": self.created_files,
+            "operation": self.operation, "recovery": self.recovery,
         }
 
     def render(self, applied: bool) -> str:
         verb = "Moved" if applied else "Would move"
-        target = f"{AUTHORITY_DIR}/{ARCHIVE_DIR}/{self.phase}/"
+        target = (f"{AUTHORITY_DIR}/" if self.operation == "restore" else
+                  f"{AUTHORITY_DIR}/{ARCHIVE_DIR}/{self.phase}/")
         moving = [candidate for candidate in self.candidates if candidate.moves]
         counts = ", ".join(
             f"{len(records)} {label}" for label, records in (
@@ -140,6 +145,7 @@ class Plan:
             lines.append("  created: " + ", ".join(self.created_files))
         if self.digest:
             lines.append(f"Plan: {self.digest} (mode: {self.mode}, version: {self.version})")
+        lines.extend(archive_recovery.describe(self.recovery))
         return "\n".join(lines) + "\n"
 
 
@@ -406,9 +412,10 @@ def _why_kept(project: Project, task_id: str, unresolved: set[str], waiting: set
     return None
 
 
-def archive_mode(root: Path) -> str:
-    """Mode placeholder; lifecycle recovery will replace this with Git detection."""
-    return "nogit"
+def archive_mode(root: Path, snapshot: Snapshot | None = None, destinations: Iterable[str] = ()) -> str:
+    """Git recovery requires every captured and prospective file to be trackable."""
+    names = snapshot.files if snapshot is not None else None
+    return archive_recovery.mode(root, names, destinations)
 
 
 def _inventory(snapshot: Snapshot, destinations: Iterable[str]) -> list[dict[str, str]]:
@@ -468,7 +475,7 @@ def plan(project: Project, phase_id: str, root: Path | None = None, *, snapshot:
         result.writes = _prepare_writes(root, result)
         result.changed_files = sorted(p.relative_to(snapshot.authority).as_posix() for p in result.writes)
         result.created_files = [name for name in result.changed_files if not snapshot.is_file(name)]
-        result.mode, result.version = archive_mode(root), layout.version()
+        result.mode, result.version = archive_mode(root, snapshot, result.changed_files), layout.version()
         result.digest = _plan_digest(root, result)
     return result
 
@@ -594,6 +601,156 @@ def _records(project: Project) -> dict[str, object]:
     }
 
 
+def _execute(root: Path, project: Project, result: Plan, writes: dict[Path, bytes | None]) -> None:
+    """Archive and restore share the same byte-exact, write-ahead transaction."""
+    if result.mode == "git":
+        archive_recovery.require_clean(root)
+    if not writes:
+        return
+    authority = result.snapshot.authority
+    originals = {path: result.snapshot.original(path.relative_to(authority).as_posix()) for path in writes}
+    created = set()
+    for path in writes:
+        directory = path.parent
+        while directory != authority:
+            name = directory.relative_to(authority).as_posix()
+            if result.snapshot.is_dir(name):
+                break
+            created.add(directory)
+            directory = directory.parent
+    created = sorted(created, key=lambda p: (len(p.parts), p.as_posix()))
+    if result.mode == "git":
+        result.recovery = archive_recovery.instructions(
+            root, originals, result.phase, result.operation, directories=created, snapshot=result.snapshot)
+    else:
+        result.recovery = archive_recovery.backup(root, originals)
+    before = _records(project)
+    recovery = _write_recovery(root, originals, directories=created)
+    try:
+        for directory in created:
+            directory.mkdir(exist_ok=True)
+        with staged_replacements(root, recovery):
+            for path, data in writes.items():
+                if data is None:
+                    path.unlink()
+                else:
+                    _replace(path, data)
+        after = compiler.load(root)
+        if _records(after) != before:
+            raise ArchiveError("the records read back differently after the move")
+        introduced = [finding for finding in validate.errors(validate.check(after))
+                      if finding.code != "interrupted-archive"]
+        if introduced:
+            raise ArchiveError("the move introduced validation errors: "
+                               + "; ".join(f"{f.code}: {f.message}" for f in introduced))
+        recovery.unlink()
+    except Exception as failure:
+        recover_archive(root)
+        if isinstance(failure, ArchiveError):
+            raise ArchiveError(f"nothing was moved: {failure}") from failure
+        raise
+
+
+@dataclass(frozen=True)
+class _RestoreLocator:
+    filename: str
+    kind: str
+    pattern: re.Pattern[str] | None = None
+
+    def sections(self, text: str) -> dict[str, list[tuple[int, int]]]:
+        return section_locations(text, self.pattern)
+
+
+def _restore_rules() -> list:
+    # Lifecycle records use the production rules; journal history only needs
+    # a full-heading locator until its eligibility rule is installed.
+    rules = {rule.filename: rule for rule in (_RestoreLocator("JOURNAL.md", "journal"), *RECORD_RULES)}
+    return list(rules.values())
+
+
+def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan, dict[Path, bytes | None]]:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-]*", phase_id) or ".." in phase_id:
+        raise ArchiveError("invalid archive phase", "invalid-selection")
+    authority = snapshot.authority
+    directory = f"{ARCHIVE_DIR}/{phase_id}"
+    if not snapshot.is_dir(directory):
+        raise ArchiveError(f"no archive for {phase_id}", "unknown-archive")
+    rules = {snapshot.resolve(f"{directory}/{rule.filename}"): rule for rule in _restore_rules()}
+    result = Plan(phase_id, snapshot=snapshot, version=layout.version(), operation="restore")
+    writes = {}
+    for captured in snapshot.path(directory).iterdir():
+        source = authority / captured.key
+        rule = rules.get(captured.key)
+        if rule is None or not captured.is_file():
+            raise ArchiveError(f"unsupported archive path: {source.name}", "invalid-archive")
+        target_name = snapshot.resolve(rule.filename)
+        target = authority / target_name
+        archived_bytes = captured.read_bytes()
+        archived = archived_bytes.decode("utf-8")
+        working = snapshot.original(rule.filename) or b""
+        working_ids = set(rule.sections(working.decode("utf-8")))
+        restored = []
+        for record_id, spans in rule.sections(archived).items():
+            if len(spans) != 1 or record_id in working_ids:
+                raise ArchiveError(f"record already exists or has duplicate sections: {record_id}", "id-collision")
+            working_ids.add(record_id)
+            start, end = spans[0]
+            data = archived[start:end].encode("utf-8")
+            restored.append((start, data))
+            result.moved_bytes += len(data)
+            result.candidates.append(Candidate(record_id, rule.kind, captured.key, target_name))
+            if rule.kind == "task":
+                result.tasks.append(record_id)
+            elif rule.kind == "contract":
+                result.contracts.append(record_id)
+            elif rule.kind == "assumption":
+                result.assumptions.append(record_id)
+            elif rule.kind == "debt":
+                result.debts.append(record_id)
+            elif rule.kind == "event":
+                result.events.append(record_id)
+        if restored:
+            newline = b"\r\n" if b"\r\n" in (working or archived_bytes) else b"\n"
+            combined = working
+            for _, data in sorted(restored):
+                if combined and not combined.endswith(newline * 2):
+                    combined += newline if combined.endswith(newline) else newline * 2
+                combined += data.replace(b"\r\n", b"\n").replace(b"\n", newline)
+            writes[target] = combined
+            writes[source] = None
+    if not writes:
+        raise ArchiveError(f"no records in archive for {phase_id}", "unknown-archive")
+    result.changed_files = sorted(p.relative_to(authority).as_posix() for p in writes)
+    result.created_files = [name for name in result.changed_files if not snapshot.is_file(name)]
+    result.mode = archive_mode(root, snapshot, result.changed_files)
+    return result, writes
+
+
+def restore(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
+    """Owner-only return of archived records, without rechecking eligibility."""
+    root = root.resolve()
+    with _locked(root):
+        if recover_archive(root):
+            raise ArchiveError("an interrupted archive was rolled back; try again", "recovered-write")
+        snapshot = Snapshot.capture(root / AUTHORITY_DIR)
+        result, writes = _restore_writes(root, phase_id, snapshot)
+        project = compiler.load(root, authority=snapshot.path())
+        # A returned record may repair a reference the current loader cannot
+        # resolve yet. Validate the proposed state before backing up or writing.
+        files = dict(snapshot.files)
+        for path, data in writes.items():
+            name = path.relative_to(snapshot.authority).as_posix()
+            if data is None:
+                files.pop(name, None)
+            else:
+                files[name] = data
+        proposed = replace(snapshot, files=MappingProxyType(files))
+        _check_valid(compiler.load(root, authority=proposed.path()))
+        if not dry_run:
+            _execute(root, project, result, writes)
+        return result
+
+
 def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | None = None) -> Plan:
     root = root.resolve()
     with _locked(root):
@@ -609,48 +766,10 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
         if digest is not None and digest != result.digest:
             raise ArchiveError("plan no longer matches the chronicle; run archive plan again", "stale-plan")
         _check_valid(project)
-        writes = result.writes
-        if not writes:
-            return result
-        if dry_run:
-            return result
-        before = _records(project)
-        authority = result.snapshot.authority
-        originals = {path: result.snapshot.original(path.relative_to(authority).as_posix()) for path in writes}
-        created = set()
-        for path in writes:
-            directory = path.parent
-            while directory != authority:
-                name = directory.relative_to(authority).as_posix()
-                if result.snapshot.is_dir(name):
-                    break
-                created.add(directory)
-                directory = directory.parent
-        created = sorted(created, key=lambda p: (len(p.parts), p.as_posix()))
-        recovery = _write_recovery(root, originals, directories=created)
-        try:
-            for directory in created:
-                directory.mkdir(exist_ok=True)
-            with staged_replacements(root, recovery):
-                for path, text in writes.items():
-                    _replace(path, text.encode("utf-8"))
-            after = compiler.load(root)
-            if _records(after) != before:
-                raise ArchiveError("the records read back differently after the move")
-            introduced = [finding for finding in validate.errors(validate.check(after))
-                          if finding.code != "interrupted-archive"]
-            if introduced:
-                raise ArchiveError("the move introduced validation errors: "
-                                   + "; ".join(f"{f.code}: {f.message}" for f in introduced))
-        except Exception as failure:
-            recover_archive(root)
-            if isinstance(failure, ArchiveError):
-                raise ArchiveError(f"nothing was moved: {failure}") from failure
-            raise
-        recovery.unlink()
+        if not dry_run:
+            _execute(root, project, result, {p: text.encode("utf-8") for p, text in result.writes.items()})
         return result
-
 
 __all__ = ["ArchiveError", "Candidate", "EligibilityContext", "Plan", "RecordRule",
            "RECORD_RULES", "IdRule", "Selection", "Snapshot", "latest_phase", "section_locations",
-           "archive", "archive_mode", "plan", "preview"]
+           "archive", "archive_mode", "plan", "preview", "restore"]
