@@ -6,6 +6,9 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Archive eligible P-NONE tasks and closed, reconciled assumptions, technical debt and trace events;
+  load and retrieve those lifecycle records from phase archives while preserving their provenance.
+
 - Redesign the dashboard to put attention first: a "Needs attention" band (blocked tasks, failing
   work, owner input, review gaps, debt at its trigger, unresolved operational failures) above progress;
   cross-filtering Status, Domain, Validation, Phase and Module charts that narrow every chart, table,

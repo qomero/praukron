@@ -121,7 +121,8 @@ class Chronicle:
 
     def section(self, name: str, anchor: str) -> str | None:
         found = self._find(name, anchor)
-        if found is None and name in ("TASKS.md", "ACCEPTANCE.md"):
+        if found is None and name in ("TASKS.md", "ACCEPTANCE.md", "ASSUMPTIONS.md",
+                                      "TECH_DEBT.md", "TRACE.md"):
             # A pointer written before its phase was archived still resolves (ADR-067).
             for archived in sorted((self.authority / layout.ARCHIVE_DIR).glob(f"*/{name}")):
                 found = self._find(archived.relative_to(self.authority).as_posix(), anchor)
@@ -218,13 +219,19 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
                 chronicle.section(name, t.contract))
 
     def debt(debt_id: str, reason: str) -> None:
-        add("TECH DEBT", debt_id, f"TECH_DEBT.md#{debt_id}", reason, chronicle.section("TECH_DEBT.md", debt_id))
+        record = next((debt for debt in project.debts if debt.id == debt_id), None)
+        if record is not None:
+            add("TECH DEBT", debt_id, f"{record.source.file}#{debt_id}", reason,
+                chronicle.section(record.source.file, debt_id))
 
     def decision(adr: str, reason: str) -> None:
         add("DECISION", adr, f"ADR/{adr}.md", reason, chronicle.file(f"ADR/{adr}.md"))
 
     def event(event_id: str, reason: str) -> None:
-        add("OPERATIONS EVENT", event_id, f"TRACE.md#{event_id}", reason, chronicle.section("TRACE.md", event_id))
+        record = next((event for event in project.events if event.id == event_id), None)
+        if record is not None:
+            add("OPERATIONS EVENT", event_id, f"{record.source.file}#{event_id}", reason,
+                chronicle.section(record.source.file, event_id))
 
     def blocking_chain(t, depth: int) -> None:
         """Open dependencies, followed as far as `depth` levels: what a task
