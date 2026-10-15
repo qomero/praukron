@@ -24,7 +24,6 @@ EXAMPLE = {"title": "Progress", "body": "Recorded the result."}
 
 def append(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
     """Preserve every existing byte and append one final section."""
-    root = root.resolve()
     operation = "journal.append"
     try:
         mutate.validate_payload(payload, SCHEMA)
@@ -39,7 +38,7 @@ def append(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
         anchor = heading.rstrip()
 
         def prepare(project: Project) -> mutate.Plan:
-            authority = root / AUTHORITY_DIR
+            authority = Path(project.root) / AUTHORITY_DIR
             path = authority / "JOURNAL.md"
             for existing in [path, *sorted((authority / ARCHIVE_DIR).glob("*/JOURNAL.md"))]:
                 if existing.is_file() and any(
@@ -56,6 +55,6 @@ def append(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 updated += newline
             return mutate.Plan({path: updated}, anchor, f"JOURNAL.md#{anchor}")
 
-        return mutate.transaction(root.resolve(), operation, prepare, dry_run=dry_run)
+        return mutate.transaction(root, operation, prepare, dry_run=dry_run)
     except mutate.WriteError as error:
         return mutate.refusal(operation, error)

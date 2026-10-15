@@ -6,8 +6,10 @@ import datetime as dt
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -28,6 +30,8 @@ from test_praukron import FixtureCase  # noqa: E402
 class WriteCase(FixtureCase):
     def setUp(self):
         super().setUp()
+        self.root = self.root.resolve()
+        self.project = compiler.load(self.root)
         self.authority = self.root / layout.AUTHORITY_DIR
         self.journal = self.authority / "JOURNAL.md"
         self.journal.write_bytes("# Journal\n\n## 2026-01-01 — Start\n\nEarlier.\n".encode())
@@ -553,6 +557,105 @@ class TestMutationPipeline(WriteCase):
                     respond._lock(self.root)
         finally:
             lock.release()
+
+
+@unittest.skipUnless(os.name == "posix", "POSIX symlink regression")
+class TestSymlinkedMutationRoot(WriteCase):
+    def setUp(self):
+        super().setUp()
+        directory = tempfile.TemporaryDirectory(prefix="praukron-alias-")
+        self.addCleanup(directory.cleanup)
+        self.alias = Path(directory.name) / "project"
+        self.alias.symlink_to(self.root, target_is_directory=True)
+        self.assertNotEqual(self.alias, self.root)
+        self.assertEqual(self.alias.resolve(), self.root)
+
+    def linked_plan(self, project):
+        return mutate.Plan({self.alias / layout.AUTHORITY_DIR / name:
+                            (self.authority / name).read_bytes() + b"\n"
+                            for name in ("TASKS.md", "ACCEPTANCE.md")}, "T-ONE", "TASKS.md#T-ONE")
+
+    def test_mixed_symlinked_and_resolved_targets_write_and_dry_run_identically(self):
+        for root in (self.alias, self.root):
+            for target_root in (self.alias, self.root):
+                for dry_run in (True, False):
+                    with self.subTest(root=root, target_root=target_root, dry_run=dry_run):
+                        before = self.snapshot()
+
+                        def prepare(project):
+                            self.assertEqual(Path(project.root), self.root)
+                            plan = self.plan(project)
+                            plan.changes = {target_root / layout.AUTHORITY_DIR / p.name: data
+                                            for p, data in plan.changes.items()}
+                            return plan
+
+                        with mock.patch.object(mutate, "_replace", wraps=mutate._replace) as replace:
+                            result = mutate.transaction(root, "test.batch", prepare, dry_run=dry_run)
+                        self.assertTrue(result["ok"], result)
+                        self.assertEqual(result["source"], "TASKS.md#T-ONE")
+                        for call in replace.call_args_list:
+                            self.assertEqual(call.args[0], call.args[0].resolve())
+                        if dry_run:
+                            self.assertFalse(result["written"])
+                            self.assertEqual(self.snapshot(), before)
+                            self.assertEqual([item["file"] for item in result["wouldWrite"]],
+                                             ["TASKS.md", "ACCEPTANCE.md"])
+                            replace.assert_not_called()
+                        else:
+                            self.assertTrue(result["written"])
+                            self.assertTrue(result["refreshed"])
+                            for name in ("TASKS.md", "ACCEPTANCE.md"):
+                                self.assertEqual((self.authority / name).read_bytes(), before[Path(name)] + b"\n")
+                        self.assertEqual(mutate._recovery_records(root), [])
+
+        before = self.snapshot()
+        task = self.authority / "TASKS.md"
+        alias_task = self.alias / layout.AUTHORITY_DIR / "TASKS.md"
+        result = mutate.transaction(self.alias, "test.batch", lambda p: mutate.Plan(
+            {task: task.read_bytes(), alias_task: task.read_bytes() + b"\n"}, "T-ONE", "TASKS.md#T-ONE"))
+        self.assertEqual(result["error"]["code"], "duplicate-target", result)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_symlinked_plans_roll_back_and_recover_using_either_root(self):
+        before = self.snapshot()
+        task = self.authority / "TASKS.md"
+
+        def invalid(project):
+            plan = self.linked_plan(project)
+            key = self.alias / layout.AUTHORITY_DIR / "TASKS.md"
+            plan.changes[key] = task.read_bytes().replace(b"- Dependencies: T-ONE", b"- Dependencies: T-GHOST")
+            return plan
+
+        result = mutate.transaction(self.alias, "test.batch", invalid)
+        self.assertEqual(result["error"]["code"], "validation-failed", result)
+        self.assertEqual(self.snapshot(), before)
+        real = mutate._replace
+
+        def killed(path, data):
+            real(path, data)
+            if path == task:
+                raise SystemExit("killed through symlinked project root")
+
+        with mock.patch.object(mutate, "_replace", killed):
+            with self.assertRaises(SystemExit):
+                mutate.transaction(self.alias, "test.batch", self.linked_plan)
+        self.assertNotEqual(self.snapshot(), before)
+        records = mutate._recovery_records(self.alias)
+        self.assertEqual(records, mutate._recovery_records(self.root))
+        self.assertEqual(len(records), 1)
+        own_errors = mutate._errors(compiler.load(self.alias), records[0])
+        self.assertNotIn("interrupted-write", {code for code, _, _ in own_errors})
+        with self.assertRaisesRegex(respond.RespondError, "rolled back"):
+            respond.append(self.alias, [respond.Item("T-ONE", "GUIDE", "hello")], "owner")
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(mutate._recovery_records(self.alias), [])
+        # Archive callers can supply an unresolved root with resolved originals too.
+        record = mutate._write_recovery(self.alias, {task: task.read_bytes()}, prefix="write")
+        self.assertEqual(record, record.resolve())
+        self.assertEqual(json.loads(record.read_text(encoding="utf-8"))["files"][0]["path"],
+                         f"{layout.AUTHORITY_DIR}/TASKS.md")
+        self.assertTrue(mutate.recover_write(self.alias))
+        self.assertEqual(self.snapshot(), before)
 
 
 if __name__ == "__main__":

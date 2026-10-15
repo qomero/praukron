@@ -148,16 +148,16 @@ def id_exists(project: Project, record_id: str) -> bool:
 
 
 def _recovery_records(root: Path) -> list[Path]:
-    directory = root / RECOVERY_DIR
+    directory = root.resolve() / RECOVERY_DIR
     return sorted([*directory.glob("archive-*.json"), *directory.glob("write-*.json")])
 
 
 def recover_write(root: Path) -> bool:
     """Restore any interrupted mutation before another writer proceeds."""
+    root = root.resolve()
     records = _recovery_records(root)
     if not records:
         return False
-    root = root.resolve()
     for record in records:
         try:
             entries = json.loads(record.read_text(encoding="utf-8"))["files"]
@@ -181,6 +181,7 @@ recover_archive = recover_write
 
 def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str = "archive") -> Path:
     """Persist originals before replacing any authoritative file."""
+    root = root.resolve()
     directory = root / RECOVERY_DIR
     directory.mkdir(parents=True, exist_ok=True)
     ignore = directory / ".gitignore"
@@ -189,7 +190,7 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
     record = directory / f"{prefix}-{time.time_ns()}.json"
     files = []
     for path, original in originals.items():
-        item = {"path": path.relative_to(root).as_posix()}
+        item = {"path": path.resolve().relative_to(root).as_posix()}
         if original is None:
             item["absent"] = True
         else:
@@ -212,7 +213,7 @@ def _spans(text: str, pattern: re.Pattern[str]) -> dict[str, tuple[int, int]]:
 
 
 def _errors(project: Project, recovery: Path | None = None) -> set[tuple[str, str, str]]:
-    own = recovery.relative_to(project.root).as_posix() if recovery else None
+    own = recovery.resolve().relative_to(Path(project.root).resolve()).as_posix() if recovery else None
     return {(f.code, f.where, f.message) for f in validate.errors(validate.check(project))
             if not (f.where == own and f.code in ("interrupted-archive", "interrupted-write"))}
 
@@ -252,24 +253,28 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
             before = _errors(project)
             plan = prepare(project)
             authority = (root / AUTHORITY_DIR).resolve()
-            for path in plan.changes:
+            changes = {}
+            for path, data in plan.changes.items():
                 resolved = path.resolve()
                 if authority not in resolved.parents:
                     raise WriteError("invalid-target", "write target is outside the chronicle")
                 ensure_mutable(resolved.relative_to(authority).as_posix())
+                if resolved in changes:
+                    raise WriteError("duplicate-target", "multiple changes resolve to the same chronicle file")
+                changes[resolved] = data
             name, anchor = plan.source.split("#", 1)
-            target = root / AUTHORITY_DIR / name
+            target = (root / AUTHORITY_DIR / name).resolve()
             result = {"ok": True, "operation": operation, "recordId": plan.record_id,
-                      "source": plan.source, "revision": section(plan.changes[target], anchor).revision,
+                      "source": plan.source, "revision": section(changes[target], anchor).revision,
                       "validation": "passed", "written": False, "refreshed": False}
             if dry_run:
                 return {**result, "dryRun": True, "wouldWrite": [
                     {"file": p.relative_to(authority).as_posix(), "bytes": len(data)}
-                    for p, data in plan.changes.items()]}
-            originals = {p: p.read_bytes() if p.is_file() else None for p in plan.changes}
+                    for p, data in changes.items()]}
+            originals = {p: p.read_bytes() if p.is_file() else None for p in changes}
             recovery = _write_recovery(root, originals, prefix="write")
             try:
-                for path, data in plan.changes.items():
+                for path, data in changes.items():
                     _replace(path, data)
                 introduced = _errors(compiler.load(root), recovery) - before
                 if introduced:
