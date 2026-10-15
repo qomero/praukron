@@ -1033,7 +1033,7 @@ function renderAggregates() {
       const before = original(node, node.textContent);
       node.textContent = !on ? before
         : holder.dataset.tone && !count ? 'Clear'
-        : node.dataset.aggText.replace(/\{(\w+)\}/g, (_, key) => sums[key]);
+        : node.dataset.aggText.replace(/\\{(\\w+)\\}/g, (_, key) => sums[key]);
     });
     if (holder.dataset.tone) {
       holder.classList.toggle('clear', !count);
@@ -1046,7 +1046,7 @@ function renderAggregates() {
     const items = [...group.querySelectorAll(SCOPED)];
     if (!counter || !items.length) return;
     const before = original(counter, counter.textContent);
-    if (!/^\d+$/.test(before)) return;
+    if (!/^\\d+$/.test(before)) return;
     counter.textContent = on ? items.filter(item => !item.classList.contains('xf-out')).length : before;
   });
 }
