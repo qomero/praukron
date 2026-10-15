@@ -8,7 +8,9 @@ people arriving from a release page.
 
 - Add Git-aware archive recovery with a clean-chronicle guard and exact undo commands,
   persistent byte-exact backups outside Git, and `archive restore <phase>` after later edits;
-  apply and restore share durable rollback across all record files.
+  apply and restore share durable rollback across all record files. Detect partial ignores and nested
+  repositories, keep backups private, and print POSIX sh and PowerShell recovery procedures; restore
+  validates before writing and follows the working file's line endings.
 
 - Archive eligible P-NONE tasks and closed, reconciled assumptions, technical debt and trace events;
   load and retrieve those lifecycle records from phase archives while preserving their provenance.

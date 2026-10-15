@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -18,7 +19,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from praukron import archive, archive_recovery, cli, compile as compiler, layout, mutate, validate
+from praukron import archive, archive_recovery, cli, compile as compiler, layout, mutate, parse, validate
 from test_archive_plan import ArchivePlanCase
 
 
@@ -68,7 +69,7 @@ class RecoveryCase(ArchivePlanCase):
         records = self.add_all_record_files()
         rules = []
         for filename, (record_id, _) in records.items():
-            class Rule:
+            class Rule(archive.IdRule):
                 def candidates(self, context):
                     yield archive.Candidate(self.record_id, self.kind, self.filename,
                                             context.selection.destination(self.filename))
@@ -82,6 +83,107 @@ class RecoveryCase(ArchivePlanCase):
 
 
 class TestGitRecovery(RecoveryCase):
+    def test_partial_ignores_select_backup_and_restore_every_byte(self):
+        for ignored in ("TASKS.md", "archive/", "opaque.txt"):
+            with self.subTest(ignored=ignored):
+                self.setUp()
+                self.init_git()
+                if ignored == "TASKS.md":
+                    self.git("rm", "--cached", "--", f"{layout.AUTHORITY_DIR}/TASKS.md")
+                if ignored == "opaque.txt":
+                    (self.authority / ignored).write_bytes(b"read by the snapshot\r\n")
+                (self.root / ".gitignore").write_bytes(f"{layout.AUTHORITY_DIR}/{ignored}\n".encode())
+                self.git("add", "--", ".gitignore")
+                self.git("commit", "-m", "Ignore part of the chronicle")
+                self.assertEqual(self.git("status", "--porcelain", "--", layout.AUTHORITY_DIR), "")
+                before = self.snapshot()
+                result = archive.preview(self.root, "P1")
+                self.assertEqual(result.mode, "nogit")
+                applied = archive.archive(self.root, "P1", digest=result.digest)
+                self.assertNotIn("changedTrackedFiles", applied.recovery)
+                self.assertTrue(Path(applied.recovery["backup"]).is_dir())
+                self.run_commands(applied.recovery["commands"]["backup"])
+                self.assertEqual(self.snapshot(), before)
+
+    def test_mode_is_per_selection_and_mode_change_invalidates_digest(self):
+        self.add_phase("P2")
+        self.init_git()
+        original = archive.preview(self.root, "P1")
+        (self.root / ".gitignore").write_bytes(f"{layout.AUTHORITY_DIR}/archive/P1/\n".encode())
+        self.assertEqual(archive.preview(self.root, "P1").mode, "nogit")
+        self.assertEqual(archive.preview(self.root, "P2").mode, "git")
+        before = self.snapshot()
+        with self.assertRaises(archive.ArchiveError) as error:
+            archive.archive(self.root, "P1", digest=original.digest)
+        self.assertEqual(error.exception.code, "stale-plan")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_dirty_check_sees_ignored_files_appearing_after_snapshot(self):
+        self.init_git()
+        real_digest = archive._plan_digest
+
+        def ignored_after_snapshot(root, result):
+            digest = real_digest(root, result)
+            (root / ".gitignore").write_bytes(f"{layout.AUTHORITY_DIR}/secret.txt\n".encode())
+            (self.authority / "secret.txt").write_bytes(b"ignored")
+            return digest
+
+        with mock.patch.object(archive, "_plan_digest", ignored_after_snapshot), \
+                mock.patch.object(archive, "_replace") as replaced, \
+                self.assertRaises(archive.ArchiveError) as error:
+            archive.archive(self.root, "P1")
+        self.assertEqual(error.exception.code, "dirty-chronicle")
+        replaced.assert_not_called()
+
+    def test_nested_repositories_use_the_chronicle_git_context(self):
+        if not shutil.which("git"):
+            self.skipTest("git is not installed")
+
+        def git_at(directory, *args):
+            result = subprocess.run(["git", "-C", str(directory), *args], capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout
+
+        for outer in (False, True):
+            for inner in (layout.HOME_DIR, layout.AUTHORITY_DIR):
+                with self.subTest(outer=outer, inner=inner):
+                    self.setUp()
+                    if outer:
+                        git_at(self.root, "init")
+                        (self.root / ".gitignore").write_bytes(f"{layout.HOME_DIR}/\n".encode())
+                        git_at(self.root, "add", ".gitignore")
+                        git_at(self.root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                               "-c", "commit.gpgsign=false", "commit", "-m", "Outer")
+                    nested = self.root / inner
+                    git_at(nested, "init")
+                    git_at(nested, "config", "core.autocrlf", "false")
+                    git_at(nested, "config", "user.name", "Test")
+                    git_at(nested, "config", "user.email", "test@example.invalid")
+                    git_at(nested, "config", "commit.gpgsign", "false")
+                    git_at(nested, "add", ".")
+                    git_at(nested, "commit", "-m", "Inner fixture")
+                    before = {p.name: p.read_bytes() for p in self.authority.glob("*.md")}
+                    plan = archive.preview(self.root, "P1")
+                    self.assertEqual(plan.mode, "git")
+                    self.assertFalse(any(".git" in Path(name).parts for name in plan.snapshot.files))
+                    path = self.authority / "HANDOFF.md"
+                    path.write_bytes(path.read_bytes() + b"dirty\n")
+                    with self.assertRaises(archive.ArchiveError) as error:
+                        archive.archive(self.root, "P1")
+                    self.assertEqual(error.exception.code, "dirty-chronicle")
+                    path.write_bytes(before[path.name])
+                    result = archive.archive(self.root, "P1", digest=plan.digest)
+                    self.run_commands(result.recovery["commands"]["unstaged"])
+                    self.assertEqual({p.name: p.read_bytes() for p in self.authority.glob("*.md")}, before)
+                    self.assertFalse((self.authority / "archive").exists())
+                    self.assertEqual(git_at(self.authority, "status", "--porcelain", "--", "."), b"")
+
+    def test_git_exit_128_falls_back_without_crashing(self):
+        inside = subprocess.CompletedProcess([], 0, b"true\n", b"")
+        unavailable = subprocess.CompletedProcess([], 128, b"", b"fatal: not a git repository")
+        with mock.patch.object(archive_recovery, "_git", side_effect=[inside, unavailable]):
+            self.assertEqual(archive.archive_mode(self.root), "nogit")
+
     def test_mode_detection_missing_git_ignored_and_untracked(self):
         self.assertEqual(archive.archive_mode(self.root), "nogit")
         with mock.patch.object(archive_recovery, "_git", side_effect=FileNotFoundError):
@@ -147,6 +249,8 @@ class TestGitRecovery(RecoveryCase):
                 self.setUp()
                 self.init_git()
                 before = self.snapshot()
+                directories = sorted(p.relative_to(self.authority).as_posix()
+                                     for p in self.authority.rglob("*") if p.is_dir())
                 result = archive.archive(self.root, "P1")
                 if state != "unstaged":
                     self.git("add", "--", layout.AUTHORITY_DIR)
@@ -161,6 +265,11 @@ class TestGitRecovery(RecoveryCase):
                 else:
                     self.run_commands(result.recovery["commands"][state])
                 self.assertEqual(self.snapshot(), before)
+                self.assertEqual(sorted(p.relative_to(self.authority).as_posix()
+                                        for p in self.authority.rglob("*") if p.is_dir()), directories)
+                with self.assertRaises(archive.ArchiveError) as error:
+                    archive.restore(self.root, "P1")
+                self.assertEqual(error.exception.code, "unknown-archive")
                 self.assertEqual(self.git("status", "--porcelain", "--", layout.AUTHORITY_DIR), "")
 
     def test_restore_is_one_reviewable_change_after_later_commits(self):
@@ -203,6 +312,19 @@ class TestGitRecovery(RecoveryCase):
 
 
 class TestBackupRecovery(RecoveryCase):
+    def test_private_backups_ignore_themselves_in_git(self):
+        self.init_git()
+        self.git("rm", "-r", "--cached", "--", layout.AUTHORITY_DIR)
+        (self.root / ".gitignore").write_bytes(f"{layout.AUTHORITY_DIR}/\n".encode())
+        self.git("add", ".gitignore")
+        self.git("commit", "-m", "Keep the chronicle private")
+        result = archive.archive(self.root, "P1")
+        self.assertEqual(result.mode, "nogit")
+        self.assertEqual((self.root / layout.HOME_DIR / "backup/.gitignore").read_bytes(), b"*\n")
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+        archive.restore(self.root, "P1")
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
     def test_backup_precedes_replace_and_restores_every_byte_and_absent_file(self):
         before = self.snapshot()
         replace = archive._replace
@@ -264,6 +386,40 @@ class TestBackupRecovery(RecoveryCase):
 
 
 class TestArchiveRestore(RecoveryCase):
+    def test_restore_uses_converted_working_file_line_endings(self):
+        for archived_newline, working_newline in ((b"\n", b"\r\n"), (b"\r\n", b"\n")):
+            with self.subTest(working_newline=working_newline):
+                self.setUp()
+                for name in ("TASKS.md", "ACCEPTANCE.md"):
+                    path = self.authority / name
+                    path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", archived_newline))
+                archive.archive(self.root, "P1")
+                for name in ("TASKS.md", "ACCEPTANCE.md"):
+                    path = self.authority / name
+                    path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", working_newline))
+                archive.restore(self.root, "P1")
+                for name in ("TASKS.md", "ACCEPTANCE.md"):
+                    data = (self.authority / name).read_bytes()
+                    self.assertIn(working_newline, data)
+                    if working_newline == b"\n":
+                        self.assertNotIn(b"\r\n", data)
+                    else:
+                        self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+                self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+
+    def test_empty_archive_is_not_silently_restored(self):
+        directory = self.authority / "archive/P1"
+        directory.mkdir(parents=True)
+        for headers_only in (False, True):
+            with self.subTest(headers_only=headers_only):
+                if headers_only:
+                    (directory / "TASKS.md").write_bytes(b"# Tasks\n")
+                before = self.snapshot()
+                with self.assertRaises(archive.ArchiveError) as error:
+                    archive.restore(self.root, "P1")
+                self.assertEqual(error.exception.code, "unknown-archive")
+                self.assertEqual(self.snapshot(), before)
+
     def test_restore_preserves_later_edits_and_new_dependency(self):
         archive.archive(self.root, "P1")
         self.rewrite("TASKS.md", "- Dependencies: T-TWO", "- Dependencies: T-TWO, T-ONE")
@@ -292,7 +448,24 @@ class TestArchiveRestore(RecoveryCase):
         response = ("# Responses\n\n## R-2: A-CLOSED CONFIRM\n- By: Owner\n"
                     "- Date: 2026-10-15\n- Via: cli\n\n> Confirmed again.\n").encode()
         (self.authority / "RESPONSES.md").write_bytes(response)
-        result = archive.restore(self.root, "P1")
+        # The parallel records worker supplies archived-assumption loading.
+        # Bridge that extension here with the canonical parser, without
+        # bypassing validation or modifying that worker's compiler code.
+        real_load = compiler.load
+
+        def load_all_assumptions(root, **kwargs):
+            project = real_load(root, **kwargs)
+            authority = kwargs.get("authority", root / layout.AUTHORITY_DIR)
+            for phase in compiler.archived(authority, project.phases):
+                name = f"archive/{phase}/ASSUMPTIONS.md"
+                if not any(a.source.file == name for a in project.assumptions):
+                    for assumption in parse.parse_assumptions(authority / name):
+                        assumption.source = type(assumption.source)(name, assumption.id)
+                        project.assumptions.append(assumption)
+            return project
+
+        with mock.patch.object(compiler, "load", load_all_assumptions):
+            result = archive.restore(self.root, "P1")
         self.assertEqual(len(result.candidates), 6)
         for filename, data in saved.items():
             self.assertIn(data, (self.authority / filename).read_bytes())
@@ -312,14 +485,19 @@ class TestArchiveRestore(RecoveryCase):
             self.assertEqual(error.exception.code, code)
             self.assertEqual(self.snapshot(), before)
 
-    def test_validation_failure_restores_every_byte_and_retains_backup(self):
+    def test_preexisting_validation_failure_is_refused_before_backup_or_replace(self):
         archive.archive(self.root, "P1")
         self.rewrite("TASKS.md", "- Dependencies: T-TWO", "- Dependencies: T-GHOST")
         before = self.snapshot()
-        with self.assertRaisesRegex(archive.ArchiveError, "nothing was moved"):
+        with mock.patch.object(archive, "_replace") as replace, \
+                mock.patch.object(archive_recovery, "backup") as backup, \
+                self.assertRaises(archive.ArchiveError) as error:
             archive.restore(self.root, "P1")
+        self.assertEqual(error.exception.code, "validation-failed")
+        replace.assert_not_called()
+        backup.assert_not_called()
         self.assertEqual(self.snapshot(), before)
-        self.assertEqual(len(list((self.root / ".praukron/backup").glob("*/manifest.json"))), 2)
+        self.assertEqual(len(list((self.root / ".praukron/backup").glob("*/manifest.json"))), 1)
 
     def test_dry_run_restore_writes_no_backup_or_recovery(self):
         archive.archive(self.root, "P1")
@@ -357,6 +535,58 @@ class TestArchiveRestore(RecoveryCase):
                 self.assertFalse((self.authority / "archive/P1/TASKS.md").exists())
                 mutate.refresh(self.root)
                 self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
+
+
+class TestRecoveryShells(RecoveryCase):
+    def test_procedures_label_both_shells_and_preserve_arguments(self):
+        argv = ["git", "-C", "/a path/café's repo", "restore", "--", "quoted 'file'.md"]
+        info = {"commands": {"unstaged": [argv]}}
+        rendered = "\n".join(archive_recovery.describe(info))
+        for shell in ("POSIX sh", "PowerShell"):
+            self.assertIn(f"Recovery (unstaged, {shell}):", rendered)
+        self.assertEqual(shlex.split(archive_recovery.command(argv, "POSIX sh")), argv)
+        self.assertTrue(archive_recovery.command(argv, "PowerShell").startswith("& "))
+        self.assertIn("café''s repo", archive_recovery.command(argv, "PowerShell"))
+
+    def test_rendered_git_procedures_run_in_each_available_shell(self):
+        if not shutil.which("git"):
+            self.skipTest("git is not installed")
+        git_path = Path(shutil.which("git"))
+        sh = next((str(p) for p in (git_path.parent.parent / "usr/bin/sh.exe",)
+                   if p.is_file()), shutil.which("sh"))
+        shells = []
+        if sh:
+            shells.append(("POSIX sh", [sh, "-c"]))
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if powershell:
+            shells.append(("PowerShell", [powershell, "-NoProfile", "-Command"]))
+        self.assertTrue(shells)
+        for shell, runner in shells:
+            for state in ("unstaged", "staged", "committed"):
+                with self.subTest(shell=shell, state=state):
+                    self.setUp()
+                    # Both shell syntaxes must handle spaces, Unicode and quotes.
+                    from test_praukron import build_fixture
+                    self.root = build_fixture(self.root / "café's project with spaces")
+                    self.authority = self.root / layout.AUTHORITY_DIR
+                    self.rewrite("PHASES.md", "Status:\nACTIVE", "Status:\nCOMPLETE")
+                    self.init_git()
+                    before = self.snapshot()
+                    result = archive.archive(self.root, "P1")
+                    if state != "unstaged":
+                        self.git("add", "--", layout.AUTHORITY_DIR)
+                    if state == "committed":
+                        self.git("commit", "-m", "Archive")
+                        commit = self.git("rev-parse", "HEAD")
+                    for argv in result.recovery["commands"][state]:
+                        if state == "committed":
+                            argv = [commit if arg == "<archive-commit>" else arg for arg in argv]
+                        rendered = archive_recovery.command(argv, shell)
+                        with mock.patch.dict(os.environ, {"GIT_EDITOR": "true"}):
+                            completed = subprocess.run([*runner, rendered], capture_output=True)
+                        self.assertEqual(completed.returncode, 0, (rendered, completed.stderr))
+                    self.assertEqual(self.snapshot(), before)
+                    self.assertFalse((self.authority / "archive").exists())
 
 
 class TestKilledArchiveRecovery(RecoveryCase):
@@ -408,7 +638,7 @@ root, operation, boundary = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
 rules = []
 for filename, record_id in [("ASSUMPTIONS.md", "A-CLOSED"), ("TECH_DEBT.md", "TD-CLOSED"),
                             ("TRACE.md", "EV-DONE"), ("JOURNAL.md", "2026-10-15 — Completed")]:
-    class Rule:
+    class Rule(archive.IdRule):
         def candidates(self, context):
             yield archive.Candidate(self.record_id, self.kind, self.filename,
                                     context.selection.destination(self.filename))

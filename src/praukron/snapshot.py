@@ -37,6 +37,9 @@ class Snapshot:
         files, directories = {}, {""}
         for path in sorted(authority.rglob("*")):
             name = path.relative_to(authority).as_posix()
+            # A nested repository's Git metadata is not chronicle authority.
+            if ".git" in PurePosixPath(name).parts:
+                continue
             if path.is_file():
                 files[name] = path.read_bytes()
             elif path.is_dir():
