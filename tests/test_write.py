@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from praukron import (  # noqa: E402
-    archive, cli, compile as compiler, journal, layout, mutate, respond, retrieve, validate,
+    archive, cli, compile as compiler, criterion, journal, layout, mutate, respond, retrieve, validate,
 )
 from praukron.model import DOMAINS, Source  # noqa: E402
 from praukron.parse import _sections  # noqa: E402
@@ -350,6 +350,151 @@ class TestJournalWrite(WriteCase):
         self.assertEqual(sum(r["ok"] for r in results), 1, results)
         self.assertEqual([r["error"]["code"] for r in results if not r["ok"]], ["duplicate-heading"])
         self.assertEqual(self.journal.read_bytes().count(f"## {self.heading}".encode()), 1)
+
+
+class CriterionCase(WriteCase):
+    criterion_id = "AC-T-TWO-01"
+
+    def revision(self, contract_id="AC-T-TWO"):
+        return mutate.working_section(self.root, Source("ACCEPTANCE.md", contract_id)).revision
+
+    def payload_for(self, **patch):
+        return {
+            "criterion": self.criterion_id,
+            "state": "PASS",
+            "evidence": "Đã chạy kiểm thử.",
+            "expectRevision": self.revision(),
+            **patch,
+        }
+
+    def run_criterion_cli(self, *options, payload=None, raw=None):
+        out, err = io.StringIO(), io.StringIO()
+        content = raw if raw is not None else json.dumps(self.payload_for() if payload is None else payload)
+        with redirect_stdout(out), redirect_stderr(err), mock.patch("sys.stdin", io.StringIO(content)):
+            code = cli.main(["-C", str(self.root), "criterion", "set", *options])
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(len(out.getvalue().splitlines()), 1)
+        return code, json.loads(out.getvalue())
+
+
+class TestCriterionWrite(CriterionCase):
+    def test_todo_criterion_changes_only_state_and_evidence_and_round_trips(self):
+        acceptance = self.authority / "ACCEPTANCE.md"
+        before = acceptance.read_bytes()
+        before_contract = mutate.section(before, "AC-T-TWO")
+        payload = self.payload_for()
+
+        code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+        self.assertEqual(code, 0, result)
+        after = acceptance.read_bytes()
+        after_contract = mutate.section(after, "AC-T-TWO")
+        newline = b"\r\n" if b"\r\n" in before_contract.data else b"\n"
+        expected = before_contract.data.replace(
+            b"`NOT_RUN`" + newline,
+            b"`PASS`" + newline + b"  - Evidence: " + payload["evidence"].encode("utf-8") + newline,
+        )
+        self.assertEqual(after_contract.data, expected)
+        self.assertEqual(before[:before_contract.span[0]], after[:after_contract.span[0]])
+        self.assertEqual(before[before_contract.span[1]:], after[after_contract.span[1]:])
+        parsed = compiler.load(self.root).contracts["AC-T-TWO"].criteria[0]
+        self.assertEqual((parsed.id, parsed.state, parsed.evidence),
+                         (self.criterion_id, "PASS", payload["evidence"]))
+        self.assertEqual(result["recordId"], self.criterion_id)
+        self.assertEqual(result["source"], "ACCEPTANCE.md#AC-T-TWO")
+        self.assertEqual(result["revision"], after_contract.revision)
+
+    def test_existing_evidence_is_replaced_once_and_crlf_is_preserved(self):
+        acceptance = self.authority / "ACCEPTANCE.md"
+        acceptance.write_bytes(acceptance.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        self.criterion_id = "AC-T-ONE-01"
+        payload = self.payload_for(
+            criterion=self.criterion_id, evidence="Bằng chứng tiếng Việt mới.",
+            expectRevision=self.revision("AC-T-ONE"),
+        )
+
+        code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+        self.assertEqual(code, 0, result)
+        written = acceptance.read_bytes()
+        contract = mutate.section(written, "AC-T-ONE").data
+        self.assertNotIn(b"Measured on site.", contract)
+        self.assertEqual(contract.count(b"  - Evidence: "), 1)
+        self.assertIn(payload["evidence"].encode("utf-8"), contract)
+        self.assertNotIn(b"\n", written.replace(b"\r\n", b""))
+        parsed = compiler.load(self.root).contracts["AC-T-ONE"].criteria[0]
+        self.assertEqual(parsed.evidence, payload["evidence"])
+        self.assertTrue(result["written"])
+
+    def test_evidence_is_optional_and_does_not_add_a_line(self):
+        payload = {
+            "criterion": self.criterion_id, "state": "FAIL", "expectRevision": self.revision(),
+        }
+
+        code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+        self.assertEqual(code, 0, result)
+        parsed = compiler.load(self.root).contracts["AC-T-TWO"].criteria[0]
+        self.assertEqual((parsed.state, parsed.evidence), ("FAIL", None))
+        self.assertNotIn(b"  - Evidence: ", mutate.section(
+            (self.authority / "ACCEPTANCE.md").read_bytes(), "AC-T-TWO").data)
+
+    def test_refusals_leave_bytes_unchanged_and_stale_reports_current_record(self):
+        before = self.snapshot()
+        stale = self.payload_for(expectRevision="0" * 16)
+        code, result = self.run_criterion_cli("--input", "-", payload=stale)
+        self.assertEqual(code, 1)
+        self.assertEqual(result["error"]["code"], "stale-revision")
+        self.assertEqual(result["error"]["currentRevision"], self.revision())
+        self.assertIn(self.criterion_id, result["error"]["currentCriterion"])
+        self.assertEqual(self.snapshot(), before)
+
+        cases = [
+            (self.payload_for(evidence="two\nlines"), "invalid-evidence"),
+            (self.payload_for(criterion="AC-T-MISSING-01"), "criterion-not-found"),
+            (json.dumps({**self.payload_for(), "text": "changed"}), "unknown-field"),
+            (json.dumps({**self.payload_for(), "evidenceClass": "MANUAL"}), "unknown-field"),
+        ]
+        for payload, error in cases:
+            with self.subTest(error=error):
+                if isinstance(payload, str):
+                    code, result = self.run_criterion_cli("--input", "-", raw=payload)
+                else:
+                    code, result = self.run_criterion_cli("--input", "-", payload=payload)
+                self.assertEqual(code, 1)
+                self.assertEqual(result["error"]["code"], error)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_archived_criterion_is_immutable(self):
+        acceptance = self.authority / "ACCEPTANCE.md"
+        original = acceptance.read_bytes()
+        contract = mutate.section(original, "AC-T-TWO")
+        acceptance.write_bytes(original[:contract.span[0]] + original[contract.span[1]:])
+        archived = self.authority / "archive" / "P1" / "ACCEPTANCE.md"
+        archived.parent.mkdir(parents=True)
+        archived.write_bytes(b"# Acceptance\n\n# Contracts\n\n" + contract.data)
+        before = self.snapshot()
+
+        code, result = self.run_criterion_cli("--input", "-", payload={
+            "criterion": self.criterion_id, "state": "PASS", "expectRevision": "0" * 16,
+        })
+
+        self.assertEqual(code, 1)
+        self.assertEqual(result["error"]["code"], "archived-record")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_schema_and_dry_run(self):
+        before = self.snapshot()
+        code, schema = self.run_criterion_cli("--schema")
+        self.assertEqual(code, 0)
+        mutate.validate_payload(schema["example"], schema["schema"])
+        code, result = self.run_criterion_cli("--input", "-", "--dry-run", payload=self.payload_for())
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["dryRun"])
+        self.assertFalse(result["written"])
+        self.assertFalse(result["refreshed"])
+        self.assertEqual(result["wouldWrite"][0]["file"], "ACCEPTANCE.md")
+        self.assertEqual(self.snapshot(), before)
 
 
 class TestMutationPipeline(WriteCase):

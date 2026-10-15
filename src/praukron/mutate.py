@@ -24,15 +24,17 @@ from .respond import RespondError, _lock, _replace
 class WriteError(Exception):
     """A structured write was refused."""
 
-    def __init__(self, code: str, message: str, field: str | None = None):
+    def __init__(self, code: str, message: str, field: str | None = None,
+                 details: dict | None = None):
         super().__init__(message)
-        self.code, self.field = code, field
+        self.code, self.field, self.details = code, field, details or {}
 
 
 def refusal(operation: str, error: WriteError) -> dict:
     detail = {"code": error.code, "message": str(error)}
     if error.field is not None:
         detail["field"] = error.field
+    detail.update(error.details)
     return {"ok": False, "operation": operation, "error": detail, "written": False}
 
 
