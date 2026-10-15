@@ -24,7 +24,8 @@ from typing import Iterable, Protocol
 from . import analytics, compile as compiler, layout, validate
 from .layout import ARCHIVE_DIR, AUTHORITY_DIR
 from .model import DEBT_CLOSED, Project
-from .mutate import RespondError, _lock, _replace, _spans, _write_recovery, recover_archive
+from .mutate import (RespondError, _lock, _replace, _spans, _write_recovery, recover_archive,
+                     staged_replacements)
 from .parse import ParseError
 from .snapshot import Snapshot
 
@@ -254,6 +255,7 @@ def _inventory(snapshot: Snapshot, destinations: Iterable[str]) -> list[dict[str
     for name, data in snapshot.files.items():
         entries[name] = {"path": name, "type": "file", "sha256": hashlib.sha256(data).hexdigest()}
     for name in destinations:
+        name = snapshot.resolve(name)
         entries.setdefault(name, {"path": name, "type": "absent"})
     return [entries[name] for name in sorted(entries)]
 
@@ -296,7 +298,7 @@ def plan(project: Project, phase_id: str, root: Path | None = None, *, snapshot:
     if root is not None:
         result.writes = _prepare_writes(root, result)
         result.changed_files = sorted(p.relative_to(root / AUTHORITY_DIR).as_posix() for p in result.writes)
-        result.created_files = [name for name in result.changed_files if name not in snapshot.files]
+        result.created_files = [name for name in result.changed_files if not snapshot.is_file(name)]
         result.mode, result.version = archive_mode(root), layout.version()
         result.digest = _plan_digest(root, result)
     return result
@@ -313,11 +315,11 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
             if candidate.kind == rule.kind and candidate.moves:
                 groups.setdefault((candidate.source, candidate.destination), []).append(candidate.id)
         for (source, destination), ids in groups.items():
-            target = root / AUTHORITY_DIR / destination
+            target = root / AUTHORITY_DIR / snapshot.resolve(destination)
             text = snapshot.text(source)
             locations = rule.sections(text)
             archived_text = writes.get(target)
-            if archived_text is None and destination in snapshot.files:
+            if archived_text is None and snapshot.is_file(destination):
                 archived_text = snapshot.text(destination)
             phase = PurePosixPath(destination).parent.name
             header = (f"# {rule.title} · {phase} (archived)\n\n"
@@ -327,7 +329,7 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
             result.moved_bytes += size
             writes[target] = new_archive
     for source, spans in cuts.items():
-        working = root / AUTHORITY_DIR / source
+        working = root / AUTHORITY_DIR / snapshot.resolve(source)
         if working in writes:
             raise ArchiveError(f"a destination is also a working source: {source}", "invalid-target")
         writes[working] = _cut(snapshot.text(source), spans)[0]
@@ -439,13 +441,13 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
         if dry_run:
             return result
         before = _records(project)
-        originals = {path: result.snapshot.files.get(path.relative_to(authority).as_posix()) for path in writes}
+        originals = {path: result.snapshot.original(path.relative_to(authority).as_posix()) for path in writes}
         created = set()
         for path in writes:
             directory = path.parent
             while directory != authority:
                 name = directory.relative_to(authority).as_posix()
-                if name in result.snapshot.directories:
+                if result.snapshot.is_dir(name):
                     break
                 created.add(directory)
                 directory = directory.parent
@@ -454,8 +456,9 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
         try:
             for directory in created:
                 directory.mkdir(exist_ok=True)
-            for path, text in writes.items():
-                _replace(path, text.encode("utf-8"))
+            with staged_replacements(root, recovery):
+                for path, text in writes.items():
+                    _replace(path, text.encode("utf-8"))
             after = compiler.load(root)
             if _records(after) != before:
                 raise ArchiveError("the records read back differently after the move")

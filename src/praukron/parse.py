@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .snapshot import glob_paths
 from .model import (
     Assumption,
     Contract,
@@ -344,7 +345,7 @@ def parse_phases(path: Path) -> tuple[list[Phase], list[Gate], list[Milestone]]:
 
 def parse_decisions(directory: Path) -> list[Decision]:
     decisions: list[Decision] = []
-    for path in sorted(directory.glob("ADR-*.md")):
+    for path in sorted(glob_paths(directory, "ADR-*.md")):
         text = path.read_text(encoding="utf-8")
         heading = re.match(r"# (ADR-[0-9]+): (.+)", text)
         if not heading:

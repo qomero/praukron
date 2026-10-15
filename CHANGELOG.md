@@ -19,6 +19,8 @@ people arriving from a release page.
   preserve legacy archive/dry-run, shared-contract eligibility and durable recovery. Plans,
   writes and recovery originals share one captured byte inventory; split destinations,
   full-heading section locators and directory recovery support later lifecycle rules.
+  Preserve native filesystem case aliases in captured lookups, and record exact replacement
+  staging paths so recovery also handles a kill after the temporary file is flushed.
 
 - Document the structured writes: a "Structured writes" section in the specification (pipeline,
   field permissions, freeze and owner rules, revisions, results, exit codes and retry semantics),

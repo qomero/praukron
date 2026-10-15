@@ -16,6 +16,8 @@ import re
 import secrets
 import tempfile
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,6 +33,7 @@ HEADER = (
 )
 _LOCK = "respond.lock"
 _STALE_SECONDS = 60
+_STAGING: ContextVar[dict[Path, Path] | None] = ContextVar("replacement_staging", default=None)
 
 
 class RespondError(Exception):
@@ -140,9 +143,23 @@ def recover_archive(root: Path) -> bool:
     return recover_write(root)
 
 
+@contextmanager
+def _staging_paths(paths: dict[Path, Path]):
+    """Use only staging names already persisted in the transaction's recovery record."""
+    token = _STAGING.set(paths)
+    try:
+        yield
+    finally:
+        _STAGING.reset(token)
+
+
 def _replace(path: Path, data: bytes) -> None:
     """Write through a temporary file in the same directory, then swap it in."""
-    handle, temporary = tempfile.mkstemp(prefix=".respond-", dir=path.parent)
+    temporary = (_STAGING.get() or {}).get(path.resolve())
+    if temporary is None:
+        handle, temporary = tempfile.mkstemp(prefix=".respond-", dir=path.parent)
+    else:
+        handle = os.open(temporary, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     try:
         with os.fdopen(handle, "wb") as out:
             out.write(data)

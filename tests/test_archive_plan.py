@@ -587,5 +587,169 @@ archive.archive(Path(sys.argv[3]), "P1", digest=sys.argv[4])
         self.assertIn("refresh-failed:", err.getvalue())
 
 
+class TestArchiveReviewRoundTwo(ArchivePlanCase):
+    def require_case_insensitive_filesystem(self):
+        try:
+            insensitive = (self.authority / "tasks.md").samefile(self.authority / "TASKS.md")
+        except FileNotFoundError:
+            insensitive = False
+        if not insensitive:
+            self.skipTest("the fixture filesystem is case-sensitive")
+
+    def rename_case(self, name, target):
+        path = self.authority / name
+        intermediate = path.with_name("case-rename-intermediate")
+        path.rename(intermediate)
+        intermediate.rename(self.authority / target)
+
+    def assert_disk_snapshot_parity(self):
+        disk = compiler.load(self.root)
+        with archive._locked(self.root):
+            snapshot = archive.Snapshot.capture(self.authority)
+            captured = compiler.load(self.root, authority=snapshot.path())
+        self.assertEqual(compiler.as_json(captured), compiler.as_json(disk))
+        self.assertEqual(validate.errors(validate.check(captured)), [])
+        self.assertEqual(validate.errors(validate.check(disk)), [])
+        return snapshot
+
+    def test_case_insensitive_working_names_and_existing_archive_targets(self):
+        self.require_case_insensitive_filesystem()
+        for mode in ("legacy", "digest"):
+            with self.subTest(mode=mode):
+                self.setUp()
+                before_rename = archive.preview(self.root, "P1").digest
+                self.rename_case("TASKS.md", "tasks.md")
+                self.rename_case("ACCEPTANCE.md", "acceptance.md")
+                snapshot = self.assert_disk_snapshot_parity()
+                self.assertIn("tasks.md", snapshot.files)
+                self.assertNotIn("TASKS.md", snapshot.files)
+                self.assertEqual(snapshot.original("TASKS.md"), (self.authority / "tasks.md").read_bytes())
+                preview = archive.preview(self.root, "P1")
+                self.assertNotEqual(preview.digest, before_rename)
+                self.assertNotIn("tasks.md", preview.created_files)
+                self.assertNotIn("acceptance.md", preview.created_files)
+                options = ("P1",) if mode == "legacy" else ("apply", "P1", "--plan", preview.digest)
+                code, result = self.run_cli(*options)
+                self.assertEqual(code, 0, result)
+                self.assertTrue(result["written"])
+                self.rename_case("archive/P1/TASKS.md", "archive/P1/tasks.md")
+                self.rename_case("archive/P1/ACCEPTANCE.md", "archive/P1/acceptance.md")
+                self.rename_case("archive/P1", "archive/p1")
+                self.rewrite("TASKS.md", "- Status: TODO", "- Status: DONE")
+                self.rewrite("ACCEPTANCE.md", "`NOT_RUN`", "`PASS`")
+                before = self.snapshot()
+                digest = archive.preview(self.root, "P1").digest
+                real_records, calls = archive._records, 0
+
+                def drift(project):
+                    nonlocal calls
+                    calls += 1
+                    return real_records(project) if calls == 1 else {}
+
+                with mock.patch.object(archive, "_records", drift), self.assertRaises(archive.ArchiveError):
+                    archive.archive(self.root, "P1", digest=digest)
+                self.assertEqual(self.snapshot(), before)
+                self.assertEqual(archive.preview(self.root, "P1").digest, digest)
+                result = archive.archive(self.root, "P1", digest=digest if mode == "digest" else None)
+                self.assertEqual(result.created_files, [])
+                self.assertIn("archive/p1/tasks.md", result.changed_files)
+                self.assertIn("archive/p1/acceptance.md", result.changed_files)
+                self.assert_disk_snapshot_parity()
+
+    def test_case_insensitive_adr_extension_disk_snapshot_parity(self):
+        self.require_case_insensitive_filesystem()
+        for mode in ("legacy", "digest"):
+            with self.subTest(mode=mode):
+                self.setUp()
+                self.rename_case("ADR/ADR-001.md", "ADR/ADR-001.MD")
+                snapshot = self.assert_disk_snapshot_parity()
+                self.assertEqual([p.name for p in snapshot.path("adr").glob("ADR-*.md")], ["ADR-001.MD"])
+                preview = archive.preview(self.root, "P1")
+                options = ("P1",) if mode == "legacy" else ("apply", "P1", "--plan", preview.digest)
+                code, result = self.run_cli(*options)
+                self.assertEqual(code, 0, result)
+                self.assertTrue(result["written"])
+                self.assert_disk_snapshot_parity()
+
+    def test_snapshot_preserves_native_case_distinctions(self):
+        native_alias = (self.authority / "tasks.md").is_file()
+        if not native_alias:
+            (self.authority / "tasks.md").write_bytes(b"distinct lower-case file")
+            (self.authority / "ADR/ADR-002.MD").write_bytes(b"not matched by a case-sensitive glob")
+        with archive._locked(self.root):
+            snapshot = archive.Snapshot.capture(self.authority)
+        self.assertEqual(snapshot.path("tasks.md").is_file(), (self.authority / "tasks.md").is_file())
+        if native_alias:
+            self.assertEqual(snapshot.original("tasks.md"), snapshot.original("TASKS.md"))
+        else:
+            self.assertNotEqual(snapshot.original("tasks.md"), snapshot.original("TASKS.md"))
+            self.assertFalse(snapshot.path("TaSkS.md").is_file())
+            self.assertEqual([p.name for p in snapshot.path("ADR").glob("ADR-*.md")], ["ADR-001.md"])
+
+    def test_kill_after_staging_fsync_before_rename_restores_inventory_and_digest(self):
+        repository = Path(__file__).resolve().parents[1]
+        script = '''
+import json, sys
+from pathlib import Path
+sys.path[:0] = [sys.argv[1], sys.argv[2]]
+from praukron import archive, respond
+from test_archive_plan import SplitNoteRule
+archive.RECORD_RULES = (SplitNoteRule(),)
+root = Path(sys.argv[3])
+authority = root / ".praukron/chronicle"
+real_replace, calls = respond.os.replace, 0
+def staged(source, destination):
+    global calls
+    target = Path(destination)
+    if authority in target.parents and target.name == "NOTES.md":
+        calls += 1
+        if calls == int(sys.argv[5]):
+            print(json.dumps({"temporary": str(source), "target": str(target)}), flush=True)
+            sys.stdin.buffer.read(1)
+    return real_replace(source, destination)
+respond.os.replace = staged
+archive.archive(root, "P1", digest=sys.argv[4])
+'''
+        for existing_archive in (False, True):
+            for stop_after in (1, 2, 3):
+                with self.subTest(existing_archive=existing_archive, stop_after=stop_after):
+                    self.setUp()
+                    TestArchiveReview.split_fixture(self)
+                    (self.authority / ".respond-unrelated").write_bytes(b"not owned by this transaction")
+                    if existing_archive:
+                        directory = self.authority / "archive/P0"
+                        directory.mkdir(parents=True)
+                        (directory / ".respond-another-transaction").write_bytes(b"keep this too")
+                    before = self.snapshot()
+                    paths = sorted(p.relative_to(self.authority).as_posix() for p in self.authority.rglob("*"))
+                    with mock.patch.object(archive, "RECORD_RULES", (SplitNoteRule(),)):
+                        preview = archive.preview(self.root, "P1")
+                        child = subprocess.Popen([sys.executable, "-c", script, str(repository / "src"),
+                                                  str(repository / "tests"), str(self.root), preview.digest,
+                                                  str(stop_after)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                                 stderr=subprocess.PIPE, text=True)
+                        try:
+                            staged = json.loads(child.stdout.readline())
+                            temporary, target = Path(staged["temporary"]), Path(staged["target"])
+                            self.assertEqual(temporary.read_bytes(), preview.writes[target].encode("utf-8"))
+                            record = next((self.root / layout.RECOVERY_DIR).glob("archive-*.json"))
+                            payload = json.loads(record.read_text(encoding="utf-8"))
+                            self.assertIn(temporary.relative_to(self.root).as_posix(),
+                                          [entry["temporary"] for entry in payload["files"]])
+                        finally:
+                            child.kill()
+                            child.communicate(timeout=10)
+                        self.assertTrue(temporary.is_file())
+                        with self.assertRaises(archive.ArchiveError) as error:
+                            archive.archive(self.root, "P1", digest=preview.digest)
+                        self.assertEqual(error.exception.code, "recovered-write")
+                        self.assertFalse(temporary.exists())
+                        self.assertEqual(self.snapshot(), before)
+                        self.assertEqual(sorted(p.relative_to(self.authority).as_posix()
+                                                for p in self.authority.rglob("*")), paths)
+                        self.assertEqual(archive.preview(self.root, "P1").digest, preview.digest)
+                        archive.archive(self.root, "P1", digest=preview.digest)
+
+
 if __name__ == "__main__":
     unittest.main()
