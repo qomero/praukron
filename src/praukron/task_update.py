@@ -1,4 +1,4 @@
-"""Change a task's status, owner, claim or evidence in place (ADR-068)."""
+"""Change a task's status, owner, claim, evidence, validation or governing ADRs in place (ADR-068)."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ import re
 import textwrap
 from pathlib import Path
 
-from . import mutate
+from . import contract, mutate
 from .layout import AUTHORITY_DIR
-from .model import Project
+from .model import VALIDATIONS, Project
 from .parse import _fields
 
 SCHEMA = {
@@ -26,14 +26,19 @@ SCHEMA = {
                 "claimed": {"type": "string", "format": "date", "description": "YYYY-MM-DD"},
                 "evidence": {"type": "string", "minLength": 1,
                              "description": "Single spaces, no blank line, no leading or trailing em dash; caller line breaks become spaces; the text is re-wrapped"},
+                "validation": {"type": "string", "enum": [v for v in VALIDATIONS if v != "HUMAN_VERIFIED"],
+                               "description": "Validation strength; HUMAN_VERIFIED is never set by a command"},
             },
         },
+        "addGovernedBy": {"type": "array", "items": {"type": "string"},
+                          "description": "Existing ADR ids to append to Governed by, in order; ids already listed are skipped and reported in alreadyGoverned; entries are never removed or reordered"},
     },
-    "required": ["id", "expectRevision", "set"],
+    "required": ["id", "expectRevision"],
 }
 EXAMPLE = {"id": "T-EXAMPLE-01", "expectRevision": "0123456789abcdef", "set": {"status": "WIP", "owner": "worker"}}
 
-_LABELS = {"status": "Status", "owner": "Owner", "claimed": "Claimed", "evidence": "Evidence"}
+_LABELS = {"status": "Status", "owner": "Owner", "claimed": "Claimed", "evidence": "Evidence",
+           "validation": "Validation"}
 # Where an absent field goes: after the nearest earlier field in this order.
 _ORDER = ["Status", "Module", "Phase", "Domain", "Authority", "Validation", "Dependencies",
           "Owner", "Claimed", "AC", "Schedule", "Evidence", "Governed by"]
@@ -111,14 +116,17 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
     root = root.resolve()
     operation = "task.update"
     stale: dict = {}
+    skipped: list[str] = []
     try:
         mutate.validate_payload(payload, SCHEMA)
-        task_id, expected, changes = payload["id"], payload["expectRevision"], payload["set"]
+        task_id, expected, changes = payload["id"], payload["expectRevision"], payload.get("set", {})
+        added = payload.get("addGovernedBy", [])
+        contract.string_list(added, "addGovernedBy", "ADR-")
         if not re.fullmatch(r"[0-9a-f]{16}", expected):
             raise mutate.WriteError("invalid-value", "expectRevision must be 16 lowercase hex characters",
                                     "expectRevision")
-        if not changes:
-            raise mutate.WriteError("empty-set", "set must change at least one field", "set")
+        if not changes and not added:
+            raise mutate.WriteError("empty-set", "set or addGovernedBy must change at least one field", "set")
 
         def prepare(project: Project) -> mutate.Plan:
             task = next((t for t in project.tasks if t.id == task_id), None)
@@ -135,7 +143,7 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
             owner = changes.get("owner", task.owner)
             evidence = changes.get("evidence", task.evidence)
             edits: dict[str, str] = {}
-            for key in ("status", "owner", "claimed"):
+            for key in ("status", "owner", "claimed", "validation"):
                 if key in changes:
                     edits[_LABELS[key]] = _lines(key, changes[key], True)[0]
             if "evidence" in changes:
@@ -144,6 +152,15 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                     raise mutate.WriteError(
                         "invalid-value", "evidence may not start or end with an em dash (the parser strips it)",
                         "evidence")
+            if added:
+                known = {d.id for d in project.decisions}
+                for decision in added:
+                    if decision not in known:
+                        raise mutate.WriteError("unknown-decision", f"no ADR named {decision}", "addGovernedBy")
+                fresh = list(dict.fromkeys(d for d in added if d not in task.decisions))
+                skipped[:] = [d for d in dict.fromkeys(added) if d in task.decisions]
+                if fresh:
+                    edits["Governed by"] = ", ".join([*task.decisions, *fresh])
             if status == "WIP" and task.status != "WIP":
                 if not _usable(owner):
                     raise mutate.WriteError("owner-required", "WIP needs an owner; include set.owner in the same update", "owner")
@@ -162,7 +179,8 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 if not (evidence or "").strip():
                     raise mutate.WriteError("evidence-required", "DONE needs recorded evidence; include set.evidence", "evidence")
             if all(_current(task, label) == value for label, value in edits.items()):
-                raise mutate.WriteError("no-change", "the update would change nothing")
+                already = f"; already in Governed by: {', '.join(skipped)}" if skipped else ""
+                raise mutate.WriteError("no-change", "the update would change nothing" + already)
             path = root / AUTHORITY_DIR / task.source.file
             data = path.read_bytes()
             located = mutate.section(data, task.source.anchor)
@@ -173,6 +191,8 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
         result = mutate.transaction(root, operation, prepare, dry_run=dry_run)
     except mutate.WriteError as error:
         return mutate.refusal(operation, error)
+    if skipped and result.get("ok"):
+        result["alreadyGoverned"] = list(skipped)
     if stale and not result.get("ok", True) and result.get("error", {}).get("code") == "stale-revision":
         result["error"].update(stale)
     return result
@@ -180,4 +200,5 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
 
 def _current(task, label: str) -> str | None:
     return {"Status": task.status, "Owner": task.owner, "Claimed": task.claimed,
-            "Evidence": task.evidence}[label]
+            "Evidence": task.evidence, "Validation": task.validation,
+            "Governed by": ", ".join(task.decisions)}[label]

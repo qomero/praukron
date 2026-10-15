@@ -70,10 +70,12 @@ GUIDANCE = {
         "EXAMPLE: praukron contract add --schema   (prints the payload schema and an example)",
     ),
     "task.update": (
-        "WHEN: claim a task, change its status or owner, or record its evidence.",
-        "WHEN NOT: to close an Authority: owner task, set HUMAN_VERIFIED, or change Module, Dependencies, "
-        "AC or Authority; DONE needs every criterion PASS and evidence.",
-        "RETURNS: one JSON line with ok, recordId, source, revision. A stale expectRevision is refused with "
+        "WHEN: claim a task, change its status, owner or validation (UNTESTED, SYNTHETIC, AI_REVIEWED), "
+        "record its evidence, or link it to further governing ADRs with addGovernedBy.",
+        "WHEN NOT: to close an Authority: owner task, set HUMAN_VERIFIED, remove or reorder Governed by "
+        "entries, or change Module, Dependencies, AC or Authority; DONE needs every criterion PASS and evidence.",
+        "RETURNS: one JSON line with ok, recordId, source, revision (and alreadyGoverned when addGovernedBy "
+        "named ids already listed, which are skipped). A stale expectRevision is refused with "
         "currentRevision and the current section.",
         "EXAMPLE: echo '{\"id\":\"T-ONE\",\"expectRevision\":\"<16 hex>\",\"set\":{\"status\":\"WIP\","
         "\"owner\":\"me\"}}' | praukron task update --input -",
@@ -115,7 +117,7 @@ NEXT_STEP = {
     "different-contract": "the task already names a contract; change it through an Acceptance Change Request",
     "mixed-newlines": "fix the task section's line endings by hand, then retry",
     "duplicate-field": "remove the repeated field from the task by hand, then retry",
-    "empty-set": "set at least one of status, owner, claimed or evidence",
+    "empty-set": "set at least one of status, owner, claimed, evidence or validation, or give addGovernedBy",
     "no-change": "nothing to do; the record already has these values",
 }
 

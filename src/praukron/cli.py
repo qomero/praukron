@@ -712,7 +712,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_task = task_commands.add_parser("add", help="append a task and optionally its contract")
     write_options(add_task, "task.add")
     add_task.set_defaults(handler=task.command, write_operation="task.add")
-    update_task = task_commands.add_parser("update", help="change a task's status, owner, claim or evidence")
+    update_task = task_commands.add_parser("update", help="change a task's status, owner, claim, evidence, validation or governing ADRs")
     write_options(update_task, "task.update")
     update_task.set_defaults(handler=cmd_task_update, write_operation="task.update")
 

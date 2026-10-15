@@ -14,6 +14,11 @@ people arriving from a release page.
   instead of the console code page, so non-ASCII text no longer fails with UnicodeEncodeError on Windows;
   invalid UTF-8 is refused with a clear error.
 
+
+- `task update` (ADR-074, amending ADR-068) sets a task's validation level (`set.validation`: `UNTESTED`, `SYNTHETIC` or `AI_REVIEWED`;
+  `HUMAN_VERIFIED` is refused) and links it to further governing ADRs (`addGovernedBy`: existing ids are
+  appended once in order, ids already listed are skipped and reported, unknown ids are refused, and entries
+  are never removed or reordered).
 - Validate permanent archive invariants: archive paths and records, task phase placement, journal headings,
   and journal-named references now validate across working and archived files; archive apply and restore both
   report a committed authoritative move when any projection refresh step fails.

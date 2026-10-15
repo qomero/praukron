@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from praukron import cli, compile as compiler, layout, mutate, task_update  # noqa: E402
 from praukron.parse import _fields  # noqa: E402
-from test_praukron import FixtureCase  # noqa: E402
+from test_praukron import ADR, FixtureCase  # noqa: E402
 
 
 class UpdateCase(FixtureCase):
@@ -114,7 +114,7 @@ class TestTaskUpdate(UpdateCase):
     def test_refusals_change_nothing(self):
         refused = [
             ({"module": "M-OTHER"}, "T-TWO", "unknown-field"),
-            ({"validation": "HUMAN_VERIFIED"}, "T-TWO", "unknown-field"),
+            ({"validation": "HUMAN_VERIFIED"}, "T-TWO", "invalid-value"),
             ({"title": "x"}, "T-TWO", "unknown-field"),
             ({"status": "DONE", "evidence": "Claimed done."}, "T-TWO", "unresolved-acceptance"),
             ({"status": "DONE"}, "T-ONE", "no-change"),
@@ -234,6 +234,111 @@ class TestTaskUpdate(UpdateCase):
         self.assertEqual(code, 0, result)
         section = mutate.section(self.tasks.read_bytes(), "T-ONE").data.decode().replace("\r\n", "\n")
         self.assertIn("- Owner: someone\n- Claimed: 2026-10-02\n- AC: AC-T-ONE", section)
+
+class TestValidationField(UpdateCase):
+    """AC-T-WRITE-VALIDATION-01."""
+
+    def test_sets_each_allowed_level_and_refreshes(self):
+        for level in ("SYNTHETIC", "AI_REVIEWED", "UNTESTED"):
+            with self.subTest(level=level):
+                code, result = self.update({"validation": level})
+                self.assertEqual(code, 0, result)
+                self.assertTrue(result["written"] and result["refreshed"])
+                self.assertEqual(result["revision"], self.revision())
+                self.assertEqual(compiler.load(self.root).task("T-TWO").validation, level)
+
+    def test_human_verified_and_unknown_values_are_refused(self):
+        for value in ("HUMAN_VERIFIED", "human_verified", "PERFECT", ""):
+            with self.subTest(value=value):
+                before = self.snapshot()
+                code, result = self.update({"validation": value})
+                self.assertEqual(code, 1)
+                self.assertFalse(result["written"])
+                self.assertEqual(result["error"]["code"], "invalid-value")
+                self.assertEqual(result["error"]["field"], "validation")
+                self.assertEqual(self.snapshot(), before)
+
+    def test_schema_describes_the_field_and_the_exclusion(self):
+        spec = task_update.SCHEMA["properties"]["set"]["properties"]["validation"]
+        self.assertEqual(spec["enum"], ["UNTESTED", "SYNTHETIC", "AI_REVIEWED"])
+        self.assertIn("HUMAN_VERIFIED", spec["description"])
+        self.assertIn("HUMAN_VERIFIED", task_update.SCHEMA["description"])
+
+
+class TestGovernedBy(UpdateCase):
+    """AC-T-WRITE-GOVERNED-01."""
+
+    def setUp(self):
+        super().setUp()
+        for number in ("002", "003"):
+            (self.authority / "ADR" / f"ADR-{number}.md").write_text(
+                ADR.replace("ADR-001", f"ADR-{number}"), encoding="utf-8")
+
+    def governed(self, task="T-TWO"):
+        return compiler.load(self.root).task(task).decisions
+
+    def add(self, ids, task="T-TWO", **extra):
+        return self.run_cli({"id": task, "expectRevision": self.revision(task), "addGovernedBy": ids, **extra})
+
+    def test_appends_existing_adrs_once_in_order_keeping_entries(self):
+        code, result = self.add(["ADR-003", "ADR-002", "ADR-003"])
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["written"] and result["refreshed"])
+        self.assertEqual(result["revision"], self.revision())
+        self.assertEqual(self.governed(), ["ADR-001", "ADR-003", "ADR-002"])
+        self.assertNotIn("alreadyGoverned", result)
+
+    def test_already_listed_is_reported_and_alone_is_a_no_change(self):
+        before = self.snapshot()
+        code, result = self.add(["ADR-001"])
+        self.assertEqual(code, 1)
+        self.assertEqual(result["error"]["code"], "no-change")
+        self.assertIn("ADR-001", result["error"]["message"])
+        self.assertEqual(self.snapshot(), before)
+        code, result = self.add(["ADR-001", "ADR-002"])
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["alreadyGoverned"], ["ADR-001"])
+        self.assertEqual(self.governed(), ["ADR-001", "ADR-002"])
+
+    def test_unknown_adr_and_malformed_ids_are_refused(self):
+        for ids, name in ((["ADR-9999"], "unknown-decision"), (["ADR-002", "ADR-9999"], "unknown-decision"),
+                          (["T-ONE"], "invalid-id"), ([5], "wrong-type")):
+            with self.subTest(ids=ids):
+                before = self.snapshot()
+                code, result = self.add(ids)
+                self.assertEqual(code, 1)
+                self.assertEqual(result["error"]["code"], name)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_removal_and_reordering_are_not_supported(self):
+        for extra in ({"removeGovernedBy": ["ADR-001"]}, {"governedBy": []}):
+            with self.subTest(extra=extra):
+                before = self.snapshot()
+                code, result = self.add(["ADR-002"], **extra)
+                self.assertEqual(result["error"]["code"], "unknown-field")
+                self.assertEqual(self.snapshot(), before)
+        code, result = self.update({"governedBy": []})
+        self.assertEqual(result["error"]["code"], "unknown-field")
+        self.assertEqual(self.governed(), ["ADR-001"])
+
+    def test_empty_request_is_refused_and_none_list_is_extended(self):
+        code, result = self.add([])
+        self.assertEqual(result["error"]["code"], "empty-set")
+        self.rewrite("TASKS.md", "- Governed by: ADR-001", "- Governed by: none")
+        code, result = self.add(["ADR-002"], "T-ONE")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.governed("T-ONE"), ["ADR-002"])
+
+    def test_combines_with_set_in_one_write(self):
+        code, result = self.add(["ADR-002"], set={"owner": "Rhea", "validation": "SYNTHETIC"})
+        self.assertEqual(code, 0, result)
+        task = compiler.load(self.root).task("T-TWO")
+        self.assertEqual((task.owner, task.validation, task.decisions), ("Rhea", "SYNTHETIC", ["ADR-001", "ADR-002"]))
+
+    def test_schema_describes_adding_governing_adrs(self):
+        self.assertIn("addGovernedBy", task_update.SCHEMA["properties"])
+        self.assertIn("never removed", task_update.SCHEMA["properties"]["addGovernedBy"]["description"])
+        self.assertIn("addGovernedBy", task_update.SCHEMA["description"])
 
 
 if __name__ == "__main__":

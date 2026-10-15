@@ -70,7 +70,7 @@ instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 .praukron/praukron criterion set --input -    # a criterion's state and evidence
 .praukron/praukron task add --input -         # a task and its new contract
 .praukron/praukron contract add --input -     # the contract of a TODO task
-.praukron/praukron task update --input -      # status, owner, claimed, evidence
+.praukron/praukron task update --input -      # status, owner, claimed, evidence, validation (never HUMAN_VERIFIED), addGovernedBy
 ```
 
 Each takes a JSON payload (`--schema` prints it, `--dry-run` previews), prints
