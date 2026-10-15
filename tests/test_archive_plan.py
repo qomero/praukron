@@ -53,6 +53,14 @@ class ArchivePlanCase(FixtureCase):
         self.assertEqual(len(out.getvalue().splitlines()), 1)
         return code, json.loads(out.getvalue())
 
+    def refresh_commands(self):
+        for command in ("compile", "graph", "dashboard"):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = cli.main(["-C", str(self.root), command])
+            self.assertEqual(code, 0, (command, out.getvalue(), err.getvalue()))
+            self.assertEqual(err.getvalue(), "")
+
     def add_phase(self, phase):
         path = self.authority / "PHASES.md"
         text = path.read_text(encoding="utf-8")
@@ -471,6 +479,85 @@ class TestArchiveApply(ArchivePlanCase):
         with self.assertRaisesRegex(ParseError, "duplicate assumption"):
             compiler.load(self.root)
 
+    def test_validate_reports_unknown_archive_markdown_and_wrong_task_phase(self):
+        archive.archive(self.root, "P1")
+        unknown = self.authority / "archive/P1/NOTES.md"
+        unknown.write_text("# Notes\n", encoding="utf-8")
+        findings = validate.check(compiler.load(self.root))
+        self.assertIn("invalid-archive-file", {finding.code for finding in findings})
+        unknown.unlink()
+        tasks = self.authority / "archive/P1/TASKS.md"
+        misplaced = self.authority / "archive/P2/TASKS.md"
+        misplaced.parent.mkdir(parents=True)
+        tasks.replace(misplaced)
+        findings = validate.check(compiler.load(self.root))
+        phase = [finding for finding in findings if finding.code == "wrong-archive-phase"]
+        self.assertEqual(len(phase), 1)
+        self.assertEqual(phase[0].severity, "warning")
+
+    def test_validate_reports_bad_journal_heading_and_named_reference(self):
+        (self.authority / "archive/P1").mkdir(parents=True)
+        (self.authority / "archive/P1/JOURNAL.md").write_text(
+            "# Journal\n\n## not a dated heading\nT-MISSING\n", encoding="utf-8")
+        findings = {finding.code: finding for finding in validate.check(compiler.load(self.root))}
+        self.assertEqual(findings["invalid-journal-heading"].severity, "error")
+        self.assertEqual(findings["unknown-journal-reference"].severity, "warning")
+
+    def test_validate_reports_case_mismatched_archive_record_filenames(self):
+        archive.archive(self.root, "P1")
+        captured = archive.Snapshot.capture(self.authority)
+        files = dict(captured.files)
+        task_bytes = files.pop("archive/P1/TASKS.md")
+        files["archive/P1/tasks.md"] = b"\xffignored by a case-sensitive loader"
+        sensitive = archive.Snapshot(files, captured.directories)
+        project = compiler.load(self.root, authority=sensitive.path())
+        findings = validate.check(project, snapshot=sensitive)
+        mismatch = [f for f in findings if f.code == "case-mismatched-archive-filename"]
+        self.assertEqual(len(mismatch), 1)
+        self.assertEqual(mismatch[0].severity, "warning")
+        self.assertIn("TASKS.md", mismatch[0].message)
+
+        files["archive/P1/tasks.md"] = task_bytes
+        insensitive = archive.Snapshot(
+            files, captured.directories, frozenset({"archive/P1"}),
+            {("archive/P1", "tasks.md"): "tasks.md"},
+        )
+        project = compiler.load(self.root, authority=insensitive.path())
+        findings = validate.check(project, snapshot=insensitive)
+        self.assertFalse(any(f.code == "case-mismatched-archive-filename" for f in findings))
+
+    def test_validate_ignores_unreadable_nonrecord_and_reports_archive_input_errors(self):
+        stray = self.authority / "attachments/locked.bin"
+        stray.parent.mkdir()
+        stray.write_bytes(b"not a record")
+        project = compiler.load(self.root)
+        original_read_bytes = Path.read_bytes
+
+        def unreadable(path):
+            if path == stray:
+                raise PermissionError("locked")
+            return original_read_bytes(path)
+
+        with mock.patch.object(Path, "read_bytes", unreadable), \
+             mock.patch("praukron.validate.Snapshot.capture", side_effect=AssertionError("full capture")):
+            findings = validate.check(project)
+        self.assertNotIn("invalid-archive-input", {finding.code for finding in findings})
+
+        archive_dir = self.authority / "archive/P1"
+        archive_dir.mkdir(parents=True)
+        original_iterdir = Path.iterdir
+
+        def inaccessible(path):
+            if path == archive_dir:
+                raise PermissionError("archive locked")
+            return original_iterdir(path)
+
+        with mock.patch.object(Path, "iterdir", inaccessible):
+            findings = validate.check(project)
+        bad_input = [finding for finding in findings if finding.code == "invalid-archive-input"]
+        self.assertEqual(len(bad_input), 1)
+        self.assertEqual(bad_input[0].severity, "error")
+
     def test_invalid_invocations_return_coded_json(self):
         before = self.snapshot(self.root)
         for options, expected in [(("plan",), "invalid-selection"),
@@ -612,20 +699,28 @@ class TestArchiveApply(ArchivePlanCase):
         self.assertEqual(self.snapshot(), before)
 
     def test_refresh_failure_reports_written_without_reapplying(self):
-        digest = archive.preview(self.root, "P1").digest
-        with mock.patch.object(respond, "refresh", side_effect=OSError("refresh failed")):
-            code, result = self.run_cli("apply", "P1", "--plan", digest)
-        self.assertEqual(code, 1)
-        self.assertEqual(result["error"]["code"], "refresh-failed")
-        self.assertTrue(result["written"])
-        self.assertFalse(result["refreshed"])
-        self.assertEqual(result["digest"], digest)
-        self.assertEqual(result["tasks"], ["T-ONE"])
-        self.assertIn("archive/P1/TASKS.md", result["changedFiles"])
-        self.assertIn("archive/P1/ACCEPTANCE.md", result["createdFiles"])
-        self.assertEqual(compiler.load(self.root).task("T-ONE").source.file, "archive/P1/TASKS.md")
-        respond.refresh(self.root)
-        self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
+        for step in ("compile", "graph", "dashboard"):
+            with self.subTest(step=step):
+                self.setUp()
+                digest = archive.preview(self.root, "P1").digest
+                patches = {
+                    "compile": mock.patch.object(compiler, "write", side_effect=OSError(step)),
+                    "graph": mock.patch("praukron.mutate.mermaid.render_all", side_effect=OSError(step)),
+                    "dashboard": mock.patch("praukron.mutate.dashboard.render", side_effect=OSError(step)),
+                }
+                with patches[step]:
+                    code, result = self.run_cli("apply", "P1", "--plan", digest)
+                self.assertEqual(code, 1)
+                self.assertEqual(result["error"]["code"], "refresh-failed")
+                self.assertTrue(result["written"])
+                self.assertFalse(result["refreshed"])
+                self.assertEqual(result["digest"], digest)
+                self.assertEqual(result["tasks"], ["T-ONE"])
+                self.assertIn("archive/P1/TASKS.md", result["changedFiles"])
+                self.assertIn("archive/P1/ACCEPTANCE.md", result["createdFiles"])
+                self.assertEqual(compiler.load(self.root).task("T-ONE").source.file, "archive/P1/TASKS.md")
+                self.refresh_commands()
+                self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
 
     def test_shared_contract_across_three_runs_moves_only_with_last_working_user(self):
         self.add_phase("P2")

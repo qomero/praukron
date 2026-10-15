@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .layout import AUTHORITY_DIR, RECOVERY_DIR
+from .layout import ARCHIVE_DIR, AUTHORITY_DIR, RECOVERY_DIR
 from .snapshot import Snapshot
 from .model import (
     ASSUMPTION_STATUSES,
@@ -149,6 +149,9 @@ def trace_findings(project: Project) -> list[Finding]:
         | {d.id for d in project.decisions}
         | set(project.contracts)
         | {c.id for contract in project.contracts.values() for c in contract.criteria}
+        | {a.id for a in project.assumptions}
+        | {d.id for d in project.debts}
+        | {e.id for e in project.events}
     )
     event_ids = {e.id for e in project.events}
     for event in project.events:
@@ -366,13 +369,15 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
     Archive/restore use this same analysis to keep only the affected journal
     entries. A captured/proposed authority must never be checked against disk.
     """
-    from .archive import _JOURNAL_ORDER, _ORDER_REPAIR, _journal_order_state
+    from .archive import (_JOURNAL, _JOURNAL_ORDER, _NAMED, _ORDER_REPAIR,
+                          _journal_order_state)
 
     if snapshot is None and project.journal_validation is not None:
         return list(project.journal_validation)
     try:
-        state = _journal_order_state(snapshot if snapshot is not None
-                                     else Snapshot.capture_journals(Path(project.root) / AUTHORITY_DIR))
+        captured = snapshot if snapshot is not None else Snapshot.capture_journals(
+            Path(project.root) / AUTHORITY_DIR)
+        state = _journal_order_state(captured)
     except (OSError, UnicodeError) as error:
         findings = [Finding("warning", "invalid-journal-order", f"cannot read journal input: {error}. {_ORDER_REPAIR}",
                             _JOURNAL_ORDER)]
@@ -383,8 +388,89 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
                                 f"heading appears {count} times across working/archived journals: {heading}; "
                                 "reconcile the duplicate before restoring it", f"JOURNAL.md#{heading}")
                         for heading, count in state.counts.items() if count > 1)
+        known = ({task.id for task in project.tasks} | set(project.contracts)
+                 | {criterion.id for contract in project.contracts.values()
+                    for criterion in contract.criteria}
+                 | {decision.id for decision in project.decisions}
+                 | {assumption.id for assumption in project.assumptions}
+                 | {debt.id for debt in project.debts}
+                 | {event.id for event in project.events})
+        for name, text in state.files.items():
+            for heading, start, end in state.sections[name]:
+                where = f"{name}#{heading}"
+                if name.casefold().startswith(f"{ARCHIVE_DIR}/") and not _JOURNAL.fullmatch(heading):
+                    findings.append(Finding("error", "invalid-journal-heading",
+                                            "archived journal heading must read '## YYYY-MM-DD — <title>'", where))
+                for reference in dict.fromkeys(_NAMED.findall(text[start:end])):
+                    if reference not in known:
+                        findings.append(Finding("warning", "unknown-journal-reference",
+                                                f"names {reference}, which does not exist", where))
     if snapshot is None:
         project.journal_validation = list(findings)
+    return findings
+
+
+def archive_findings(project: Project, snapshot: Snapshot | None = None) -> list[Finding]:
+    """Archive paths and placement that the normal record parsers cannot express."""
+    from .archive import RECORD_RULES
+
+    allowed = {rule.filename.casefold(): rule.filename for rule in RECORD_RULES}
+    findings: list[Finding] = []
+    if snapshot is not None:
+        names = [(name, snapshot.resolve(f"{ARCHIVE_DIR}/{name.split('/')[1]}/"
+                                        f"{allowed.get(name.split('/')[2].casefold(), '')}") == name)
+                 for name in snapshot.files
+                 if len(name.split("/")) == 3
+                 and name.split("/")[0].casefold() == ARCHIVE_DIR
+                 and name.split("/")[2].casefold().endswith(".md")]
+    else:
+        names = []
+        archive_root = Path(project.root) / AUTHORITY_DIR / ARCHIVE_DIR
+        try:
+            phases = tuple(archive_root.iterdir())
+        except FileNotFoundError:
+            phases = ()
+        except OSError as error:
+            findings.append(Finding("error", "invalid-archive-input",
+                                    f"cannot inspect archive inputs: {error}", ARCHIVE_DIR))
+            phases = ()
+        for phase in phases:
+            try:
+                records = tuple(phase.iterdir())
+            except NotADirectoryError:
+                continue
+            except OSError as error:
+                where = phase.relative_to(archive_root.parent).as_posix()
+                findings.append(Finding("error", "invalid-archive-input",
+                                        f"cannot inspect archive inputs: {error}", where))
+                continue
+            for record in records:
+                if record.suffix.casefold() != ".md":
+                    continue
+                try:
+                    if record.is_file():
+                        expected = phase / allowed.get(record.name.casefold(), "")
+                        names.append((record.relative_to(archive_root.parent).as_posix(),
+                                      expected.is_file() and expected.samefile(record)))
+                except OSError as error:
+                    where = record.relative_to(archive_root.parent).as_posix()
+                    findings.append(Finding("error", "invalid-archive-input",
+                                            f"cannot inspect archive inputs: {error}", where))
+    for name, parsed in names:
+        parts = name.split("/")
+        expected = allowed.get(parts[2].casefold())
+        if expected is None:
+            findings.append(Finding("error", "invalid-archive-file",
+                                    "archive files must be known record files under archive/<phase>/", name))
+        elif not parsed:
+            findings.append(Finding("warning", "case-mismatched-archive-filename",
+                                    f"loader expects archive/<phase>/{expected}; this file is ignored", name))
+    for task in project.tasks:
+        parts = task.source.file.split("/")
+        if len(parts) == 3 and parts[0].casefold() == ARCHIVE_DIR and parts[1] != task.phase:
+            findings.append(Finding("warning", "wrong-archive-phase",
+                                    f"task phase is {task.phase}, but it is stored in archive/{parts[1]}",
+                                    f"{task.source.file}#{task.id}"))
     return findings
 
 
@@ -634,6 +720,7 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
     findings.extend(assumption_findings(project))
     findings.extend(stale_references(project))
     findings.extend(journal_findings(project, snapshot))
+    findings.extend(archive_findings(project, snapshot))
     return findings
 
 

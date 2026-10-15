@@ -6,6 +6,10 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Validate permanent archive invariants: archive paths and records, task phase placement, journal headings,
+  and journal-named references now validate across working and archived files; archive apply and restore both
+  report a committed authoritative move when any projection refresh step fails.
+
 - Add Git-aware archive recovery with a clean-chronicle guard and exact undo commands,
   persistent byte-exact backups outside Git, and `archive restore <phase>` after later edits;
   apply and restore share durable rollback across all record files. Detect partial ignores and nested
