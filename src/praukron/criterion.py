@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
+import tempfile
 from pathlib import Path
 
 from . import mutate
-from .model import CRITERION_STATES, Contract, Project
+from .model import CRITERION_STATES, Contract, Criterion, Project
+from .parse import ParseError, _BULLET, _CRITERION, parse_acceptance
 
 SCHEMA = {
     "type": "object", "additionalProperties": False,
@@ -25,112 +27,174 @@ EXAMPLE = {
 }
 
 
-def _criterion_span(data: bytes, criterion_id: str) -> tuple[int, int]:
-    start_match = re.search(
-        rb"(?m)^- `" + re.escape(criterion_id.encode("utf-8")) + rb"` \xe2\x80\x94", data
-    )
-    if start_match is None:
-        raise mutate.WriteError("criterion-not-found", f"no criterion found for {criterion_id}", "criterion")
-    following = re.search(rb"(?m)^- `AC-[A-Za-z0-9.\-]+` \xe2\x80\x94", data[start_match.end():])
-    end = start_match.end() + following.start() if following else len(data)
-    return start_match.start(), end
+def _criterion_location(text: str, criterion_id: str) -> tuple[int, int, re.Match[str], re.Match[str] | None]:
+    """Locate parser-valid state and evidence syntax inside one contract section."""
+    bullets = list(_BULLET.finditer(text))
+    for index, boundary in enumerate(bullets):
+        start = boundary.start()
+        end = bullets[index + 1].start() if index + 1 < len(bullets) else len(text)
+        found = _CRITERION.match(text[start:end])
+        if found is None or found.group("id") != criterion_id:
+            continue
+        evidence = re.match(r"\s*\n\s+- Evidence: (?P<value>.+)", text[start + found.end():end])
+        return start, end, found, evidence
+    raise mutate.WriteError("criterion-not-found", f"no criterion found for {criterion_id}", "criterion")
 
 
 def _current_line(data: bytes, criterion_id: str) -> str:
-    start, _ = _criterion_span(data, criterion_id)
-    return data[start:].splitlines()[0].decode("utf-8")
+    text = data.decode("utf-8")
+    start, _, _, _ = _criterion_location(text, criterion_id)
+    return text[start:].splitlines()[0]
 
 
 def _update_criterion(data: bytes, criterion_id: str, state: str, evidence: str | None) -> bytes:
-    """Change one state token and, when supplied, its one-line evidence."""
-    start, end = _criterion_span(data, criterion_id)
-    criterion = data[start:end]
-    state_match = re.search(
-        rb"`(?:TEST|MUTATION|INSPECTION|RUNTIME|MANUAL)`[ \t]*"
-        rb"(?:\xc2\xb7[ \t]*`(?P<state>PASS|FAIL|NOT_RUN)`)?",
-        criterion,
-    )
-    if state_match is None:
-        raise mutate.WriteError("criterion-malformed", f"criterion has no evidence class: {criterion_id}")
-    state_token = state_match.group("state")
-    if state_token is None:
-        state_change = (start + state_match.end(), start + state_match.end(),
-                        f" · `{state}`".encode("utf-8"))
+    """Use parse_acceptance's grammar to replace one state and evidence value."""
+    text = data.decode("utf-8")
+    start, _end, found, evidence_match = _criterion_location(text, criterion_id)
+    state_span = found.span("state") if found.group("state") is not None else None
+    state_end = start + found.end()
+    newline = "\r\n" if "\r\n" in text else "\n"
+    edits: list[tuple[int, int, str]] = []
+
+    if state_span is None:
+        insertion = f" · `{state}`"
+        if evidence is not None and evidence_match is None:
+            insertion += f"{newline}  - Evidence: {evidence}"
+        edits.append((state_end, state_end, insertion))
     else:
-        state_change = (start + state_match.start("state"), start + state_match.end("state"),
-                        state.encode("utf-8"))
+        edits.append((start + state_span[0], start + state_span[1], state))
 
-    changes = [state_change]
     if evidence is not None:
-        line_end = criterion.find(b"\n", state_match.end())
-        if line_end < 0:
-            line_end = len(criterion)
-            newline = b"\r\n" if b"\r\n" in data else b"\n"
-            evidence_start = start + line_end
-            changes.append((evidence_start, evidence_start, newline + b"  - Evidence: "
-                            + evidence.encode("utf-8")))
+        if evidence_match is None:
+            if state_span is not None:
+                edits.append((state_end, state_end, f"{newline}  - Evidence: {evidence}"))
         else:
-            line_end += 1
-            newline = b"\r\n" if criterion[line_end - 2:line_end] == b"\r\n" else b"\n"
-            evidence_start = start + line_end
-            existing = re.match(rb"  - Evidence: [^\r\n]*(?:\r?\n)?", criterion[line_end:])
-            replacement = b"  - Evidence: " + evidence.encode("utf-8")
-            if existing is None:
-                changes.append((evidence_start, evidence_start, replacement + newline))
-            else:
-                old = existing.group(0)
-                ending = newline if old.endswith((b"\n", b"\r")) else b""
-                changes.append((evidence_start, evidence_start + len(old), replacement + ending))
+            value_start = start + found.end() + evidence_match.start("value")
+            value_end = start + found.end() + evidence_match.end("value")
+            ending = "\r" if evidence_match.group("value").endswith("\r") else ""
+            edits.append((value_start, value_end, evidence + ending))
 
-    updated = data
-    for change_start, change_end, replacement in sorted(changes, reverse=True):
-        updated = updated[:change_start] + replacement + updated[change_end:]
-    return updated
+    updated = text
+    for edit_start, edit_end, replacement in sorted(edits, key=lambda item: item[0], reverse=True):
+        updated = updated[:edit_start] + replacement + updated[edit_end:]
+    return updated.encode("utf-8")
+
+
+def _find(project: Project, criterion_id: object) -> tuple[Contract, Criterion] | None:
+    if not isinstance(criterion_id, str):
+        return None
+    for contract in project.contracts.values():
+        for criterion in contract.criteria:
+            if criterion.id == criterion_id:
+                return contract, criterion
+    return None
+
+
+def _contract_section(root: Path, contract: Contract) -> mutate.Section:
+    path = root / mutate.AUTHORITY_DIR / contract.source.file
+    data = path.read_bytes()
+    if not contract.is_global:
+        return mutate.section(data, contract.source.anchor)
+    heading = rb"### " + re.escape(contract.source.anchor.encode("utf-8")) + rb"(?: \xe2\x80\x94 [^\r\n]+)?\r?$"
+    found = re.search(rb"(?m)^" + heading, data)
+    if found is None:
+        raise mutate.WriteError("record-not-found", f"no contract section found for {contract.id}")
+    following = re.search(rb"(?m)^#{1,3} ", data[found.end():])
+    end = found.end() + following.start() if following else len(data)
+    return mutate.Section(data[found.start():end], (found.start(), end))
+
+
+def _parsed_contract(data: bytes, source: str, contract_id: str) -> Contract:
+    with tempfile.TemporaryDirectory(prefix="praukron-criterion-") as directory:
+        path = Path(directory) / "ACCEPTANCE.md"
+        path.write_bytes(data)
+        return parse_acceptance(path, source)[contract_id]
+
+
+def _signature(criterion: Criterion) -> tuple[str, str, str, str, str | None]:
+    return (criterion.id, criterion.text, criterion.evidence_class, criterion.state, criterion.evidence)
+
+
+def _verify(updated: bytes, source: str, contract: Contract, criterion: Criterion,
+            state: str, evidence: str | None) -> None:
+    """Refuse a byte edit unless it parses exactly as the requested record update."""
+    try:
+        parsed = _parsed_contract(updated, source, contract.id)
+    except (KeyError, ParseError, UnicodeDecodeError) as error:
+        raise mutate.WriteError("round-trip-failed", f"criterion update does not parse: {error}") from error
+    expected_evidence = criterion.evidence if evidence is None else evidence
+    expected = (criterion.id, criterion.text, criterion.evidence_class, state, expected_evidence)
+    found = {item.id: item for item in parsed.criteria}
+    actual = _signature(found[criterion.id]) if criterion.id in found else None
+    if actual != expected:
+        raise mutate.WriteError("round-trip-failed", "criterion update did not preserve the requested result")
+    original = {item.id: _signature(item) for item in contract.criteria if item.id != criterion.id}
+    if {item.id: _signature(item) for item in parsed.criteria if item.id != criterion.id} != original:
+        raise mutate.WriteError("round-trip-failed", "criterion update changed another criterion")
+
+
+def _attach_revision(error: mutate.WriteError, section: mutate.Section | None) -> mutate.WriteError:
+    error.details.setdefault("currentRevision", section.revision if section else None)
+    return error
+
+
+def refuse(root: Path, error: mutate.WriteError) -> dict:
+    """Report malformed payloads with a revision when they name a criterion."""
+    payload = getattr(error, "payload", None)
+
+    def prepare(project: Project) -> mutate.Plan:
+        found = _find(project, payload.get("criterion") if isinstance(payload, dict) else None)
+        section = _contract_section(root, found[0]) if found else None
+        raise _attach_revision(error, section)
+
+    if not isinstance(payload, dict):
+        return mutate.refusal("criterion.set", _attach_revision(error, None))
+    return mutate.transaction(root.resolve(), "criterion.set", prepare)
 
 
 def set_result(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
     """Set a criterion state and optional evidence under the shared write lock."""
     root = root.resolve()
     operation = "criterion.set"
-    try:
-        mutate.validate_payload(payload, SCHEMA)
-        expected = payload["expectRevision"]
-        if not re.fullmatch(r"[0-9a-f]{16}", expected):
-            raise mutate.WriteError("invalid-revision", "expectRevision must be 16 lowercase hexadecimal characters",
-                                    "expectRevision")
-        evidence = payload.get("evidence")
-        if evidence is not None:
-            if "\r" in evidence or "\n" in evidence or not evidence.strip():
-                raise mutate.WriteError("invalid-evidence", "evidence must be one non-empty line", "evidence")
-            evidence = evidence.strip()
 
-        def prepare(project: Project) -> mutate.Plan:
-            found: tuple[Contract, object] | None = None
-            for contract in project.contracts.values():
-                for criterion in contract.criteria:
-                    if criterion.id == payload["criterion"]:
-                        found = contract, criterion
-                        break
-                if found is not None:
-                    break
+    def prepare(project: Project) -> mutate.Plan:
+        found = _find(project, payload.get("criterion") if isinstance(payload, dict) else None)
+        section = _contract_section(root, found[0]) if found else None
+        try:
+            mutate.validate_payload(payload, SCHEMA)
             if found is None:
                 raise mutate.WriteError("criterion-not-found", f"no criterion found for {payload['criterion']}",
                                         "criterion")
             contract, criterion = found
-            current = mutate.working_section(root, contract.source)
-            if current.revision != expected:
+            if contract.is_global:
+                raise mutate.WriteError("invariant-criterion",
+                                        "inherited invariant criteria are not set through this command")
+            mutate.ensure_mutable(contract.source)
+            expected = payload["expectRevision"]
+            if not re.fullmatch(r"[0-9a-f]{16}", expected):
+                raise mutate.WriteError("invalid-revision",
+                                        "expectRevision must be 16 lowercase hexadecimal characters",
+                                        "expectRevision")
+            if section is None:
+                raise mutate.WriteError("record-not-found", f"no contract section found for {contract.id}")
+            if section.revision != expected:
                 raise mutate.WriteError(
                     "stale-revision", "criterion changed; fetch the current contract before retrying",
-                    "expectRevision", details={"currentRevision": current.revision,
-                                                "currentCriterion": _current_line(current.data, criterion.id)},
+                    "expectRevision", details={"currentCriterion": _current_line(section.data, criterion.id)},
                 )
-            updated_section = _update_criterion(current.data, criterion.id, payload["state"], evidence)
+            evidence = payload.get("evidence")
+            if evidence is not None:
+                if "\r" in evidence or "\n" in evidence or not evidence.strip():
+                    raise mutate.WriteError("invalid-evidence", "evidence must be one non-empty line", "evidence")
+                evidence = evidence.strip()
+            updated_section = _update_criterion(section.data, criterion.id, payload["state"], evidence)
             path = root / mutate.AUTHORITY_DIR / contract.source.file
             updated = path.read_bytes()
-            changed = updated[:current.span[0]] + updated_section + updated[current.span[1]:]
+            changed = updated[:section.span[0]] + updated_section + updated[section.span[1]:]
+            _verify(changed, contract.source.file, contract, criterion, payload["state"], evidence)
             return mutate.Plan({path: changed}, criterion.id,
                                f"{contract.source.file}#{contract.source.anchor}")
+        except mutate.WriteError as error:
+            raise _attach_revision(error, section)
 
-        return mutate.transaction(root, operation, prepare, dry_run=dry_run)
-    except mutate.WriteError as error:
-        return mutate.refusal(operation, error)
+    return mutate.transaction(root, operation, prepare, dry_run=dry_run)

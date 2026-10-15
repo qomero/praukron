@@ -348,7 +348,7 @@ def cmd_criterion_set(root: Path, args: argparse.Namespace) -> int:
             payload = mutate.load_payload(args.input, criterion.SCHEMA)
             result = criterion.set_result(root, payload, dry_run=args.dry_run)
         except mutate.WriteError as error:
-            result = mutate.refusal("criterion.set", error)
+            result = criterion.refuse(root, error)
     print(json.dumps(result, separators=(",", ":")))
     return 0 if result.get("ok", args.schema) else 1
 

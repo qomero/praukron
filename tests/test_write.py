@@ -376,6 +376,12 @@ class CriterionCase(WriteCase):
         self.assertEqual(len(out.getvalue().splitlines()), 1)
         return code, json.loads(out.getvalue())
 
+    def acceptance_with_newline(self, newline):
+        acceptance = self.authority / "ACCEPTANCE.md"
+        data = acceptance.read_bytes().replace(b"\r\n", b"\n")
+        acceptance.write_bytes(data.replace(b"\n", newline))
+        return acceptance
+
 
 class TestCriterionWrite(CriterionCase):
     def test_todo_criterion_changes_only_state_and_evidence_and_round_trips(self):
@@ -407,6 +413,8 @@ class TestCriterionWrite(CriterionCase):
     def test_existing_evidence_is_replaced_once_and_crlf_is_preserved(self):
         acceptance = self.authority / "ACCEPTANCE.md"
         acceptance.write_bytes(acceptance.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+        before = acceptance.read_bytes()
+        before_contract = mutate.section(before, "AC-T-ONE")
         self.criterion_id = "AC-T-ONE-01"
         payload = self.payload_for(
             criterion=self.criterion_id, evidence="Bằng chứng tiếng Việt mới.",
@@ -422,6 +430,8 @@ class TestCriterionWrite(CriterionCase):
         self.assertEqual(contract.count(b"  - Evidence: "), 1)
         self.assertIn(payload["evidence"].encode("utf-8"), contract)
         self.assertNotIn(b"\n", written.replace(b"\r\n", b""))
+        self.assertEqual(before[:before_contract.span[0]], written[:mutate.section(written, "AC-T-ONE").span[0]])
+        self.assertEqual(before[before_contract.span[1]:], written[mutate.section(written, "AC-T-ONE").span[1]:])
         parsed = compiler.load(self.root).contracts["AC-T-ONE"].criteria[0]
         self.assertEqual(parsed.evidence, payload["evidence"])
         self.assertTrue(result["written"])
@@ -439,6 +449,80 @@ class TestCriterionWrite(CriterionCase):
         self.assertNotIn(b"  - Evidence: ", mutate.section(
             (self.authority / "ACCEPTANCE.md").read_bytes(), "AC-T-TWO").data)
 
+    def test_missing_final_state_and_newline_round_trip_with_evidence(self):
+        original = (self.authority / "ACCEPTANCE.md").read_bytes()
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                acceptance = self.authority / "ACCEPTANCE.md"
+                acceptance.write_bytes(original.replace(b"\r\n", b"\n").replace(b"\n", newline).replace(
+                    b"  `RUNTIME` \xc2\xb7 `NOT_RUN`" + newline,
+                    b"  `RUNTIME`",
+                ).rstrip(b"\r\n"))
+                self.criterion_id = "AC-T-THREE-01"
+                payload = self.payload_for(
+                    criterion=self.criterion_id, evidence="new evidence",
+                    expectRevision=self.revision("AC-T-THREE"),
+                )
+
+                code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+                self.assertEqual(code, 0, result)
+                contract = mutate.section(acceptance.read_bytes(), "AC-T-THREE").data
+                self.assertEqual(contract.count(b"`PASS`"), 1)
+                self.assertEqual(contract.count(b"- Evidence: "), 1)
+                parsed = compiler.load(self.root).contracts["AC-T-THREE"].criteria[0]
+                self.assertEqual((parsed.state, parsed.evidence), ("PASS", "new evidence"))
+
+    def test_parser_valid_state_and_evidence_layouts_round_trip(self):
+        original = (self.authority / "ACCEPTANCE.md").read_bytes()
+        layouts = {
+            "nonbreaking-space": b"  `TEST`\xc2\xa0\xc2\xb7\xc2\xa0`NOT_RUN`",
+            "wrapped-state": b"  `TEST`\n  \xc2\xb7 `NOT_RUN`",
+        }
+        for newline in (b"\n", b"\r\n"):
+            for name, layout in layouts.items():
+                with self.subTest(newline=newline, layout=name):
+                    acceptance = self.authority / "ACCEPTANCE.md"
+                    old = b"  `TEST` \xc2\xb7 `NOT_RUN`"
+                    replacement = layout.replace(b"\n", newline)
+                    acceptance.write_bytes(original.replace(b"\r\n", b"\n").replace(b"\n", newline).replace(
+                        old, replacement, 1))
+                    payload = self.payload_for(expectRevision=self.revision())
+
+                    code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+                    self.assertEqual(code, 0, result)
+                    contract = mutate.section(acceptance.read_bytes(), "AC-T-TWO").data
+                    self.assertEqual(contract.count(b"`PASS`"), 1)
+                    parsed = compiler.load(self.root).contracts["AC-T-TWO"].criteria[0]
+                    self.assertEqual((parsed.state, parsed.evidence), ("PASS", payload["evidence"]))
+
+    def test_parser_valid_evidence_layouts_are_replaced_once(self):
+        original = (self.authority / "ACCEPTANCE.md").read_bytes()
+        layouts = {
+            "four-space": b"    - Evidence: old evidence",
+            "tab": b"\t- Evidence: old evidence",
+            "blank-line": b"\n    - Evidence: old evidence",
+        }
+        for newline in (b"\n", b"\r\n"):
+            for name, evidence_line in layouts.items():
+                with self.subTest(newline=newline, layout=name):
+                    acceptance = self.authority / "ACCEPTANCE.md"
+                    marker = b"  `TEST` \xc2\xb7 `NOT_RUN`" + newline
+                    replacement = marker + evidence_line.replace(b"\n", newline) + newline
+                    acceptance.write_bytes(original.replace(b"\r\n", b"\n").replace(b"\n", newline).replace(
+                        marker, replacement, 1))
+                    payload = self.payload_for(expectRevision=self.revision())
+
+                    code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+                    self.assertEqual(code, 0, result)
+                    contract = mutate.section(acceptance.read_bytes(), "AC-T-TWO").data
+                    self.assertEqual(contract.count(b"- Evidence: "), 1)
+                    self.assertNotIn(b"old evidence", contract)
+                    parsed = compiler.load(self.root).contracts["AC-T-TWO"].criteria[0]
+                    self.assertEqual((parsed.state, parsed.evidence), ("PASS", payload["evidence"]))
+
     def test_refusals_leave_bytes_unchanged_and_stale_reports_current_record(self):
         before = self.snapshot()
         stale = self.payload_for(expectRevision="0" * 16)
@@ -450,12 +534,12 @@ class TestCriterionWrite(CriterionCase):
         self.assertEqual(self.snapshot(), before)
 
         cases = [
-            (self.payload_for(evidence="two\nlines"), "invalid-evidence"),
-            (self.payload_for(criterion="AC-T-MISSING-01"), "criterion-not-found"),
-            (json.dumps({**self.payload_for(), "text": "changed"}), "unknown-field"),
-            (json.dumps({**self.payload_for(), "evidenceClass": "MANUAL"}), "unknown-field"),
+            (self.payload_for(evidence="two\nlines"), "invalid-evidence", self.revision()),
+            (self.payload_for(criterion="AC-T-MISSING-01"), "criterion-not-found", None),
+            (json.dumps({**self.payload_for(), "text": "changed"}), "unknown-field", self.revision()),
+            (json.dumps({**self.payload_for(), "evidenceClass": "MANUAL"}), "unknown-field", self.revision()),
         ]
-        for payload, error in cases:
+        for payload, error, revision in cases:
             with self.subTest(error=error):
                 if isinstance(payload, str):
                     code, result = self.run_criterion_cli("--input", "-", raw=payload)
@@ -463,6 +547,16 @@ class TestCriterionWrite(CriterionCase):
                     code, result = self.run_criterion_cli("--input", "-", payload=payload)
                 self.assertEqual(code, 1)
                 self.assertEqual(result["error"]["code"], error)
+                self.assertEqual(result["error"]["currentRevision"], revision)
+                self.assertEqual(self.snapshot(), before)
+
+        for evidence in ("   ", "two\nlines", "two\rlines"):
+            with self.subTest(evidence=evidence):
+                code, result = self.run_criterion_cli(
+                    "--input", "-", payload=self.payload_for(evidence=evidence))
+                self.assertEqual(code, 1)
+                self.assertEqual(result["error"]["code"], "invalid-evidence")
+                self.assertEqual(result["error"]["currentRevision"], self.revision())
                 self.assertEqual(self.snapshot(), before)
 
     def test_archived_criterion_is_immutable(self):
@@ -481,6 +575,21 @@ class TestCriterionWrite(CriterionCase):
 
         self.assertEqual(code, 1)
         self.assertEqual(result["error"]["code"], "archived-record")
+        self.assertIn("currentRevision", result["error"])
+        self.assertEqual(self.snapshot(), before)
+
+    def test_invariant_criterion_is_refused_with_its_revision(self):
+        payload = {
+            "criterion": "AC-GLOBAL-CARE-01", "state": "PASS", "expectRevision": "0" * 16,
+        }
+        before = self.snapshot()
+
+        code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+        self.assertEqual(code, 1)
+        self.assertEqual(result["error"]["code"], "invariant-criterion")
+        self.assertIn("inherited invariant", result["error"]["message"])
+        self.assertRegex(result["error"]["currentRevision"], r"^[0-9a-f]{16}$")
         self.assertEqual(self.snapshot(), before)
 
     def test_schema_and_dry_run(self):

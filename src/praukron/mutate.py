@@ -98,7 +98,11 @@ def load_payload(path: str | None, schema: dict) -> dict:
         payload = json.loads(text, object_pairs_hook=unique, parse_constant=invalid_constant)
     except (ValueError, OSError) as error:
         raise WriteError("invalid-json", f"cannot read JSON payload: {error}") from error
-    return validate_payload(payload, schema)
+    try:
+        return validate_payload(payload, schema)
+    except WriteError as error:
+        error.payload = payload
+        raise
 
 
 def revision(section_bytes: bytes) -> str:
