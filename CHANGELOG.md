@@ -6,6 +6,22 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Document the structured writes: a "Structured writes" section in the specification (pipeline,
+  field permissions, freeze and owner rules, revisions, results, exit codes and retry semantics),
+  copy-paste examples in the guide, a README command row for each, and the commands in the `AGENTS.md`
+  block, `praukron-work` and `praukron-checkpoint`. Agents are told to use them instead of editing
+  `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`.
+- The five write commands' `--help` states WHEN, WHEN NOT, RETURNS and EXAMPLE, and their refusals name
+  the rule and the next valid step. The `task update` evidence description no longer calls line breaks
+  wrap points.
+- Add `tests/bench_writes.py` and `docs/benchmarks.md`: bytes and estimated tokens to add a task, record a
+  criterion result, update a task and append a journal entry, by full read, targeted read and command,
+  before and after archiving.
+- Correct the specification: the resume read order starts with `INDEX.md`; `retrieve --budget` bounds
+  selected record bodies, not the whole output; `INDEX.md`'s token budget warns and does not cap.
+- Bring the product thesis up to date: the tool's small governed write set, one owner role, what
+  `HUMAN_VERIFIED` enforces, the full records table, the index, `retrieve` and served dashboard, bounded
+  cost, domains and the owner loop, CodeGraph and the local server, and the private chronicle (ADR-042).
 - Contract creation refuses IDs named by other tasks; contract attachment requires the task revision.
   An unfrozen target may resolve its own already-named missing contract without rewriting the task.
   Accept criteria without prescribed wording and empty AC sentinels; align task field order and payload schemas.

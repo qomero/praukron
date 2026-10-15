@@ -58,15 +58,28 @@ by reading files:
 Run `validate` after editing authority. Before finishing, refresh everything in
 `.praukron/compiled/`: `compile` does not redraw the graphs or the dashboard, so
 run `compile && graph && dashboard`; a stale dashboard shows people a state the
-chronicle no longer holds. The tool
-never edits a record in `.praukron/chronicle/`. It writes the generated
-`INDEX.md` there, and `praukron respond` appends the owner's responses to
-`RESPONSES.md`, validated and atomic. `praukron archive <phase>` moves a
-COMPLETE phase's closed tasks and contracts, verbatim, into
-`chronicle/archive/<phase>/`, where they remain authority; run it only when the
-owner asks. Nothing else in the chronicle is written by the tool.
+chronicle no longer holds. The tool writes only: the generated `INDEX.md`;
+`respond` (the owner's responses); `archive <phase>` (owner only: moves a
+COMPLETE phase, verbatim, into `chronicle/archive/<phase>/`, where it stays
+authority); and five validated, atomic structured writes (ADR-068). Use these
+instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 
-When you must edit a chronicle file directly, do not read the whole file. Read
+```sh
+.praukron/praukron journal append --input -   # a dated JOURNAL.md entry; a repeat is refused
+.praukron/praukron criterion set --input -    # one criterion's state and one-line evidence
+.praukron/praukron task add --input -         # a task, with its new contract in one write
+.praukron/praukron contract add --input -     # the contract of a TODO task
+.praukron/praukron task update --input -      # status, owner, claimed, evidence
+```
+
+Each takes a JSON payload (`--schema` prints it, `--dry-run` previews), prints
+one JSON line, and exits nonzero when refused. Updates need `expectRevision`; a
+stale one is refused with the current revision to retry with (send 16 zeros to
+learn it). They never set `HUMAN_VERIFIED`, close an `Authority: owner` task,
+change a `WIP` or `DONE` contract (raise an Acceptance Change Request), or touch
+`archive/`.
+
+For any other direct edit of a chronicle file, do not read the whole file. Read
 only the record you change: locate its `## <id>` heading (a search for the id),
 read that section with a ranged read, and edit it. When appending a new record,
 read only the end of the file. `.praukron/praukron retrieve <id>` returns that

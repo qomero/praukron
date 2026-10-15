@@ -45,7 +45,7 @@ def append(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                     h.decode("utf-8").strip() == anchor
                     for h in re.findall(rb"(?m)^## ([^\r\n]+)\r?$", existing.read_bytes())
                 ):
-                    raise mutate.WriteError("duplicate-heading", f"journal heading already exists: {heading}")
+                    raise mutate.WriteError("duplicate-heading", f"journal heading already exists: {heading}; the entry is already recorded, or change the title or date")
             original = path.read_bytes() if path.is_file() else b"# Journal\n"
             newline = b"\r\n" if b"\r\n" in original else b"\n"
             padding = b"" if original.endswith(newline * 2) else newline if original.endswith(newline) else newline * 2

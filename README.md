@@ -352,12 +352,22 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron domains` | How each task's execution/operations domain was decided, and which need one. |
 | `praukron retrieve "<question or id>"` | Only the chronicle records a question needs, routed by `INDEX.md`, each with its source, within a token budget (`--budget`). |
 | `praukron archive <phase> [--dry-run]` | Owner only: move a COMPLETE phase's closed tasks and contracts to `archive/<phase>/`. They stay authority; open work stays put. |
+| `praukron task add --input -` | Append a task, with its new contract in the same validated write. |
+| `praukron task update --input -` | Change one task's status, owner, claim date or evidence; `DONE` needs every criterion `PASS`. |
+| `praukron contract add --input -` | Give a `TODO` task its acceptance contract. |
+| `praukron criterion set --input -` | Record one criterion's state and one-line evidence. |
+| `praukron journal append --input -` | Append one dated journal entry; a repeat is refused. |
 | `praukron codegraph status` | Optional: whether CodeGraph is available to add code structure after the records. |
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
 | `praukron graph` | The six Mermaid views of the same state. |
 | `praukron dashboard` | The local page above, in six tabs: overview, execution, graph, governance, decisions, all tasks. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
+
+The five write commands take a JSON payload (`--schema` prints it, `--dry-run`
+previews), validate before and after, and refuse stale revisions; agents use them
+instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`. See the
+[guide](docs/GUIDE.md#writing-records-without-editing-files).
 
 ## How it works
 

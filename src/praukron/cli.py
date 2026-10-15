@@ -301,8 +301,51 @@ def cmd_archive(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def write_options(parser: argparse.ArgumentParser) -> None:
+# Agent-facing help for the structured writes: WHEN / WHEN NOT / RETURNS / EXAMPLE.
+WRITE_HELP = {
+    "journal.append": """WHEN: record a dated progress note, finding or handoff detail in JOURNAL.md.
+WHEN NOT: to change a task, criterion or decision (use task update, criterion set
+  or an ADR); the body may not hold level one or two headings.
+RETURNS: one JSON line with ok, recordId, source, revision, written. A repeated
+  title on the same date is refused as duplicate-heading, never appended twice.
+EXAMPLE: echo '{"title":"Progress","body":"Recorded the result."}' | praukron journal append --input -
+""",
+    "criterion.set": """WHEN: record that one criterion passed, failed or was not run, with its evidence.
+WHEN NOT: to change a criterion's text or class (an Acceptance Change Request),
+  or an inherited invariant criterion; a one-line evidence only.
+RETURNS: one JSON line with ok, recordId, source, revision (the contract's new
+  revision). A stale expectRevision is refused with currentRevision and the
+  current criterion line; retry with that revision.
+EXAMPLE: echo '{"criterion":"AC-T-ONE-01","state":"PASS","evidence":"unittest green","expectRevision":"<16 hex>"}' | praukron criterion set --input -
+""",
+    "task.add": """WHEN: create a task, with its new contract (contract) or an existing one (ac).
+WHEN NOT: to change an existing task (task update), or to give it a Phase (a
+  task takes its phase from its module); the id must not exist in any archive.
+RETURNS: one JSON line with ok, recordId, source, revision (use it as the first
+  expectRevision). Task and contract are written together or not at all.
+EXAMPLE: praukron task add --schema   (prints the payload schema and an example)
+""",
+    "contract.add": """WHEN: give an existing TODO task its acceptance contract before work starts.
+WHEN NOT: once the task is WIP or DONE (its contract is frozen; raise an
+  Acceptance Change Request), or to edit an existing contract.
+RETURNS: one JSON line with ok, recordId, source, revision. A stale
+  expectTaskRevision is refused with the task's current record and revision.
+EXAMPLE: praukron contract add --schema   (prints the payload schema and an example)
+""",
+    "task.update": """WHEN: claim a task, change its status or owner, or record its evidence.
+WHEN NOT: to close an Authority: owner task, set HUMAN_VERIFIED, or change
+  Module, Dependencies, AC or Authority; DONE needs every criterion PASS and evidence.
+RETURNS: one JSON line with ok, recordId, source, revision. A stale
+  expectRevision is refused with currentRevision and the current section.
+EXAMPLE: echo '{"id":"T-ONE","expectRevision":"<16 hex>","set":{"status":"WIP","owner":"me"}}' | praukron task update --input -
+""",
+}
+
+
+def write_options(parser: argparse.ArgumentParser, operation: str) -> None:
     """The common interface for structured write subcommands."""
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter
+    parser.description = WRITE_HELP[operation]
     parser.add_argument("--input", help="JSON payload file, or - for stdin")
     parser.add_argument("--dry-run", action="store_true", help="report the change without writing")
     parser.add_argument("--schema", action="store_true", help="print payload schema and a minimal example")
@@ -664,7 +707,7 @@ def build_parser() -> argparse.ArgumentParser:
     journal = subparsers.add_parser("journal", help="append governed journal entries")
     journal_commands = journal.add_subparsers(dest="journal_command", required=True)
     append_entry = journal_commands.add_parser("append", help="append one unique journal section")
-    write_options(append_entry)
+    write_options(append_entry, "journal.append")
     append_entry.set_defaults(handler=cmd_journal_append, write_operation="journal.append")
 
     from . import contract, task
@@ -672,21 +715,21 @@ def build_parser() -> argparse.ArgumentParser:
     tasks = subparsers.add_parser("task", help="structured task writes")
     task_commands = tasks.add_subparsers(dest="task_command", required=True)
     add_task = task_commands.add_parser("add", help="append a task and optionally its contract")
-    write_options(add_task)
+    write_options(add_task, "task.add")
     add_task.set_defaults(handler=task.command, write_operation="task.add")
     update_task = task_commands.add_parser("update", help="change a task's status, owner, claim or evidence")
-    write_options(update_task)
+    write_options(update_task, "task.update")
     update_task.set_defaults(handler=cmd_task_update, write_operation="task.update")
 
     contracts = subparsers.add_parser("contract", help="create unfrozen acceptance contracts")
     contract_commands = contracts.add_subparsers(dest="contract_command", required=True)
     add_contract = contract_commands.add_parser("add", help="append a contract for an existing task")
-    write_options(add_contract)
+    write_options(add_contract, "contract.add")
     add_contract.set_defaults(handler=contract.command, write_operation="contract.add")
     criterion = subparsers.add_parser("criterion", help="record governed criterion results")
     criterion_commands = criterion.add_subparsers(dest="criterion_command", required=True)
     set_criterion = criterion_commands.add_parser("set", help="set one criterion state and evidence")
-    write_options(set_criterion)
+    write_options(set_criterion, "criterion.set")
     set_criterion.set_defaults(handler=cmd_criterion_set, write_operation="criterion.set")
 
     answer = subparsers.add_parser(

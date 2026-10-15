@@ -2,8 +2,10 @@
 
 Prepare the chronicle for another person or agent:
 
-1. Update task status, validation strength, criterion state and evidence in
-   `ACCEPTANCE.md`, and governing ADRs.
+1. Update task status and evidence (`.praukron/praukron task update --input -`),
+   criterion state and evidence (`criterion set`), validation strength, and
+   governing ADRs. Use the commands instead of editing `TASKS.md` or
+   `ACCEPTANCE.md`.
 2. Reconcile every owner response that `status` or the packet shows as awaiting
    reconciliation: carry it out in the ADR, contract (through an Acceptance
    Change Request), task, document, or code it concerns, then set the
@@ -18,7 +20,8 @@ Prepare the chronicle for another person or agent:
 5. Rewrite `HANDOFF.md` with the current position, naming the active task with
    its module and phase, what is true now, what is not done, the open
    assumptions and owner-held blockers, and the next action.
-6. Append a `JOURNAL.md` entry containing work done, validation, learning,
+6. Append a journal entry (`.praukron/praukron journal append --input -`)
+   containing work done, validation, learning,
    unfinished work, and the exact next action, and any `TRACE.md` events
    not yet recorded for failures, retries, or mutations that matter.
 
