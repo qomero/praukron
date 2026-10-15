@@ -10,6 +10,7 @@ people arriving from a release page.
 - Archiving now moves a shared contract once every working task that uses it has moved.
 - Journal pointers rendered in the index resolve to their complete headings.
 - Interrupted archives are rolled back from a durable recovery record before later writes.
+- Agents are told to read only the target section (or the file's end) when editing a large chronicle file directly.
 
 ## 1.3.0 — 2026-10-13
 
