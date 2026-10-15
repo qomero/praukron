@@ -226,7 +226,8 @@ resolved, by the compiler; no status is ever derived into authority.
 `INDEX.md` is compiled into the chronicle by `praukron compile` (ADR-047). It is
 the one generated file there: never authored, never parsed as authority, and
 when it disagrees with a record the record wins. It is compact — a few
-thousand tokens at most, with a warning past 5,000 — and names the current
+thousand tokens — `validate` warns past 5,000, but nothing truncates the file,
+so the budget is a warning and not a cap — and names the current
 phase, execution work, next gate, main blocker, operations affecting
 execution, debt needing attention, the decisions that matter now, the handoff,
 and recent changes, as `key: value` markers and `file#anchor` pointers rather
@@ -241,9 +242,11 @@ operations blockers and failed events; a phase's gates, exit authority and
 blockers); and returns only those canonical sections, verbatim, each labelled
 with its source, with a count of how much of the chronicle it did not load. It
 loads them most relevant first up to a token budget (`--budget`, default 4000,
-0 for none); the first record always loads, and every record after the first
-that does not fit is listed instead, by source, size and the command that
-fetches it, so the cut is a clean prefix and nothing relevant goes unmentioned.
+0 for none). The budget bounds the selected record bodies, not the whole output:
+the first record always loads, and the labels, the omission list and any code
+section are extra. Every record after the first that does not fit is listed
+instead, by source, size and the command that fetches it, so the cut is a clean
+prefix and nothing relevant goes unmentioned.
 It writes nothing and consults no model.
 
 An agent's order is fixed: `INDEX.md`, then the records it points to, then
@@ -262,6 +265,108 @@ chronicle/      canonical project memory: WHAT, WHY, STATE, NEXT, DEBT
 CodeGraph       optional implementation intelligence: WHERE, DEPENDS-ON, BLAST RADIUS
 the agent       HOW
 ```
+
+### 2.6 Structured writes
+
+Agents write four kinds of record through commands instead of editing Markdown
+(ADR-068, ADR-069). An editing tool must read a file before changing it, so a
+direct edit costs about the size of the file; a structured write costs about the
+size of the record. The Markdown stays the only source of truth: the commands
+write the same sections a person would, and `parse.py` remains the single
+definition of the format. Direct editing stays valid for people and for any
+record these commands do not cover.
+
+| Command | Writes | Changes |
+|---|---|---|
+| `praukron journal append` | `JOURNAL.md` | appends one `## <date> — <title>` section |
+| `praukron criterion set` | `ACCEPTANCE.md` | one criterion's state and its one-line evidence |
+| `praukron task add` | `TASKS.md`, optionally `ACCEPTANCE.md` | appends a task, and its new contract in the same write |
+| `praukron contract add` | `ACCEPTANCE.md`, `TASKS.md` | appends a contract and sets the task's `AC:` |
+| `praukron task update` | `TASKS.md` | `Status`, `Owner`, `Claimed`, `Evidence` of one task |
+
+With `INDEX.md` (generated), `respond` (`RESPONSES.md`, ADR-055) and `archive`
+(ADR-067, only when the owner asks), these are the only chronicle writes the
+tool makes.
+
+**Interface.** Each command takes a JSON object from `--input FILE` or
+`--input -` (stdin); unknown fields, duplicate keys and wrong types are refused.
+`--schema` prints the payload schema with a minimal example and needs no
+project. `--dry-run` plans the write and reports `wouldWrite` without writing;
+the whole-chronicle check runs only on a real write. `--help`, and the
+`description` in `--schema`, state WHEN, WHEN NOT, RETURNS and EXAMPLE. Output is one compact JSON line.
+
+**Pipeline.** Payload schema → governance rules → the target resolved by ID → one
+section built → the shared write lock (owner-checked, never reclaimed from a live
+holder) → a durable recovery record of the original bytes → atomic replacement →
+`compile.load` and `validate` again → refresh of `INDEX.md`, the compiled views,
+the graphs and the dashboard. A write that introduces a validation error that
+was not already present is undone byte for byte and reported as
+`validation-failed`. Line endings (CRLF or LF) and UTF-8 are preserved, and
+unrelated bytes are untouched. If a process dies mid-write, the next write
+restores the recorded originals first and reports `interrupted-write`; try
+again.
+
+**Field permissions and rules.**
+
+- IDs are supplied by the caller and refused if they exist in a working file or
+  in any archive (`duplicate-id`); they are never inferred.
+- `task add` needs an existing `module`, an explicit `domain` and
+  `dependencies`; it has no `phase` field (a task's phase comes from its
+  module). Give exactly one of `contract` (a new definition, written with the
+  task) and `ac` (an existing contract). `validation` may not be
+  `HUMAN_VERIFIED`; `authority` may be `owner`.
+- A contract freezes when its task is `WIP`. `contract add` is refused for a
+  `WIP` or `DONE` task (`frozen-contract`). No command changes a criterion's
+  text or class, or an inherited invariant criterion: that is an Acceptance
+  Change Request, made by a person.
+- `criterion set` changes a criterion's state and optionally its evidence, which
+  is a single line because the parser reads one.
+- `task update` changes only `Status`, `Owner`, `Claimed` and `Evidence`. `WIP`
+  needs an owner and sets `Claimed` to today unless given. `DONE` needs every
+  mandatory criterion of the task's contract at `PASS` and recorded evidence. An
+  `Authority: owner` task is never set `DONE` (`owner-held`), and no command sets
+  `HUMAN_VERIFIED`.
+- Records under `chronicle/archive/` are immutable to every command
+  (`archived-record`).
+- `journal append` keeps its full heading unique across the working file and
+  every archive, so a retry is refused, not duplicated.
+
+**Revisions.** An update names the revision it was written against
+(`expectRevision`; `expectTaskRevision` for `contract add`): the first 16 hex
+characters of the SHA-256 of the record's section bytes with the trailing run of
+CR and LF removed (ADR-069). Appending or archiving other records never changes
+it; any change inside the record does. A criterion's revision is that of its
+contract's section. The check runs under the lock. A mismatch changes nothing
+and returns `currentRevision` with the current record, inside `error` (`section` for a
+task, `currentCriterion` for a criterion), or beside it (`current`, for
+`contract add`). Every success
+returns the record's new `revision`, so a chain of writes needs no re-read. To
+learn a revision for the first time, send sixteen zeros and read the refusal.
+
+**Results.** A success is `{"ok":true,"operation","recordId","source",
+"revision","validation":"passed","written":true,"refreshed":true}`; a dry run
+adds `dryRun` and `wouldWrite` and has `written:false`. A refusal is
+`{"ok":false,"operation","error":{"code","message","field"?,…},"written":false}`;
+the message names the rule and the next valid step (the two failures after a
+commit, `lock-release-failed` and `refresh-failed`, carry `written:true`: the write
+stands and is not repeated). The exit status is 0 for a
+success (and for `--schema`), 1 for any refusal or failure, and 2 for a usage
+error. If the write committed but the refresh failed, the result has
+`written:true`, `refreshed:false` and error `refresh-failed`: do not repeat the
+write; run `compile && graph && dashboard`.
+
+**Retry semantics.** Nothing is assumed idempotent; every retry is decidable.
+
+| Situation | Result |
+|---|---|
+| `journal append` repeated | refused: `duplicate-heading` |
+| `task add` or `contract add` repeated | refused: `duplicate-id` |
+| `task update` repeated with the revision it used before | refused: `stale-revision`; the refusal shows the record as it now is |
+| `criterion set` repeated with the old revision | refused: `stale-revision` |
+| `criterion set` repeated with the new revision and the same values | succeeds again as a no-op: `written:true` and the same `revision` |
+| `task update` with the current revision and the values already set | refused: `no-change` |
+| lock held by another writer | refused: `locked`; wait and retry |
+| an earlier write was interrupted | refused once: `interrupted-write`, after the restore; retry |
 
 ## 3. Entry modes
 
@@ -334,12 +439,12 @@ under `.praukron/upgrade/` for review (ADR-040). The Praukron block in
 
 Read, in order:
 
-1. `STATE.md`;
-2. `TASK_GRAPH.md`;
-3. the active or selected entry in `TASKS.md`;
-4. its governing entries in `ADR/`;
-5. `INTENT.md`; and
-6. only the recent journal entries needed for the handoff.
+1. `INDEX.md` (run `praukron compile` if it is missing);
+2. the task packet, `praukron context <task>`, or the active or selected entry
+   in `TASKS.md`;
+3. its contract and governing entries in `ADR/`, as the packet lists them;
+4. `INTENT.md`; and
+5. only the recent journal entries needed for the handoff.
 
 State the current goal and exact next action. Read specifications or code only
 after the chronicle points to the relevant work.
@@ -349,7 +454,9 @@ after the chronicle points to the relevant work.
 Create a task immediately when new work appears if the request has none; do not
 wait for a Praukron command. Work on one task at a time. Mark it `WIP`, record its
 owner and claim date, and overwrite `INTENT.md` with the exact execution point.
-Refresh intent after meaningful progress and before long-running work.
+Refresh intent after meaningful progress and before long-running work. Record
+tasks, criterion results, task status and journal entries with the structured
+write commands (§2.6), not by editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`.
 
 Update the chronicle whenever project truth changes. `DONE` means the acceptance
 condition is met and evidence is recorded. Validation is separate and uses one
@@ -360,7 +467,9 @@ of these values:
 - `AI_REVIEWED`
 - `HUMAN_VERIFIED`
 
-Only a named human may record `HUMAN_VERIFIED`.
+Only a named human may record `HUMAN_VERIFIED`. The tool enforces part of
+this: an `Authority: owner` task is `DONE` only with `HUMAN_VERIFIED`, and no
+structured write sets it. Who the human is stays a rule people follow.
 
 ### 4.3 Decide
 
@@ -375,7 +484,7 @@ current rule.
 Before another person or agent takes over:
 
 1. update task status, validation, evidence, and governing ADRs;
-2. synchronize `TASK_GRAPH.md` and `STATE.md`;
+2. refresh the compiled views (`compile && graph && dashboard`);
 3. update the single active intent, or clear it if the task is complete; and
 4. append a journal entry with work done, validation, learning, work left
    mid-air, and the exact next action.
@@ -412,8 +521,10 @@ The portable workflows are:
 - `/praukron-resume`
 - `/praukron-baseline` (existing repositories, on request)
 
-`praukron retrieve` and `praukron codegraph` are commands of the tool, not
-workflows; the workflows use them.
+`praukron retrieve`, `praukron codegraph` and the structured writes
+(`praukron journal append`, `praukron criterion set`, `praukron task add`,
+`praukron contract add`, `praukron task update`; §2.6) are commands of the tool,
+not workflows; the workflows use them.
 
 Claude Code and OpenCode expose these as project slash commands. Codex exposes
 the same workflows through `$praukron <mode>`. Every installation provides

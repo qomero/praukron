@@ -80,20 +80,31 @@ satisfied, its acceptance criteria and their states, the decisions that govern
 it, the handoff. A structured packet.
 
 ```text
-                    PROJECT STATE
-                          │
-             ┌────────────┴────────────┐
-             ▼                         ▼
-      Human projection          Agent projection
-      HTML dashboard            context packet, JSON
-             │                         │
-             ▼                         ▼
-          Humans                    Agents
+                         PROJECT STATE
+                              │
+             ┌────────────────┴────────────────┐
+             ▼                                 ▼
+      Human projection                  Agent projection
+      HTML dashboard                    INDEX.md        where to start
+      dashboard --serve (local)         context <task>  the packet for one task
+             │                          retrieve        only what a question needs
+             ▼                                 ▼
+          Humans ── owner answers ──►      Agents
+                    via respond
 ```
 
-**Implemented.** `praukron dashboard` writes the first. `praukron context <task>`
-writes the second. Both are computed from the same compiled project, by the same
+**Implemented.** `praukron dashboard` writes the first. An agent starts from
+`INDEX.md`, the generated routing map that says what matters now and where each
+record lives; `praukron context <task>` returns the packet for one task; and
+`praukron retrieve "<question>"` returns only the records that question needs,
+each labelled with its source, under a token budget, with a list of what it left
+out. All of them are computed from the same compiled project, by the same
 deterministic code, with no model in the loop.
+
+The human side can also answer. `praukron dashboard --serve` serves the same page
+on 127.0.0.1 with its review forms enabled, and the owner's answer reaches the
+chronicle through `praukron respond`, the one write route, which validates it and
+appends it to `RESPONSES.md`. There is no second store.
 
 **Thesis.** A project meeting and an AI coding session should not require two
 different versions of the project. When the dashboard and the packet can
@@ -103,8 +114,15 @@ real source of truth.
 ## Where governance comes in, and how little of it there is
 
 The word is worth avoiding until the mechanism is visible, because most of what
-it suggests is not here. Praukron has no roles, no approvals, no workflow engine,
-no permissions.
+it suggests is not here. Praukron has no workflow engine, no scheduler, and no
+assignment of work. It has one role, the owner, and that role is narrow and
+explicit. **Implemented:** a task marked `Authority: owner` is `DONE` only with
+`HUMAN_VERIFIED`; a choice the project's policy reserves becomes an
+owner-held task or a provisional assumption the owner must answer; the owner
+answers (CONFIRM, REVISE, REJECT, GUIDE) through `praukron respond` or the served
+dashboard, and no agent edits them; and `archive` runs only when the owner asks.
+Who may start a task, in what order, and with which tool is left to the
+participants.
 
 What it does have, once the records exist, is a small set of properties that
 together make disagreement resolvable:
@@ -149,14 +167,33 @@ whole directory, run `praukron compile`, and every file comes back byte for byte
 
 The separation is the point. A generated view can never answer a question that an
 authored document answers, so a stale summary cannot outrank the record it was
-derived from. It also means the compiler never edits authority — it reads the
-chronicle and writes only the compiled directory.
+derived from. It also means the compiler does not rewrite authority to suit
+itself: it reads the chronicle and writes `compiled/`. What the tool does write
+inside `chronicle/` is a short list, and each entry is validated and governed:
+
+- `INDEX.md`, generated, never authored and never authority (ADR-047);
+- the owner's answers, appended to `RESPONSES.md` by `respond` (ADR-055);
+- `archive <phase>`, which moves a closed phase's tasks and contracts verbatim
+  into `archive/<phase>/`, only when the owner asks (ADR-067);
+- five structured writes, `journal append`, `criterion set`, `task add`,
+  `contract add` and `task update`, which check the rules before and after,
+  refuse stale revisions, and undo themselves byte for byte on any new
+  validation error (ADR-068, ADR-069).
+
+Nothing else is written. People and agents may still edit the Markdown by hand;
+the parser stays the single definition of the format.
 
 ## A deterministic compiler, not a reasoning system
 
 **Implemented.** The compiler is standard-library Python. No dependencies, no
-network, no model provider. The same documents produce identical output every
-time.
+model provider, and it makes no network requests. The same documents produce
+identical output every time. Two things sit beside it. CodeGraph is an optional
+external integration (ADR-049): where it is installed, `retrieve --code` adds
+code structure after the records, nothing the compiler computes reads it, and
+its absence changes no result. And `dashboard --serve` binds a local server on
+127.0.0.1, run only on request, to carry the owner's answers. (The page the
+dashboard writes may fetch a diagram library when a browser opens it; offline it
+falls back to the diagram source.)
 
 This is a deliberate division of labour. Language models are good at reading a
 messy repository and proposing structure; they are bad at being the same twice.
@@ -184,6 +221,12 @@ question.
 | `INTENT.md` | What is being attempted right now? | Zero or one task, at its exact stopping point |
 | `HANDOFF.md` | What does the next participant need? | Overwritten each checkpoint |
 | `JOURNAL.md` | What happened, and what was left mid-air? | Append-only, no authority |
+| `ASSUMPTIONS.md` | What was assumed because no answer existed, and has anyone confirmed it? | Provisional choices recorded before they are relied on, with status, impact and the tasks that rest on them |
+| `RESPONSES.md` | What did the owner say? | The owner's words, append-only, written through `respond`: CONFIRM, REVISE, REJECT or GUIDE |
+| `TECH_DEBT.md` | What are we knowingly leaving behind? | Cost, trigger, exit condition, and the decision that created it |
+| `TRACE.md` | What ran, failed, or changed along the way? | Operational events: tool calls, mutations, failures, retries. Never counts as progress |
+| `INDEX.md` | Where should an agent start? | Generated, inside the chronicle; a routing map of what matters now and where each record lives. Never authority |
+| `archive/<phase>/` | Where did the finished work go? | A closed phase's tasks and contracts, moved verbatim; still authority, still resolved by their old pointers |
 
 Two of those are worth dwelling on.
 
@@ -198,10 +241,16 @@ was built. Changing a frozen contract takes an Acceptance Change Request, which
 is a visible act. A reviewer's preference is not an acceptance criterion.
 
 Completion and confidence are also kept apart. A task can be `DONE` and
-`UNTESTED`. `HUMAN_VERIFIED` can only be recorded by a named human, against
-manual evidence. Marking something finished and believing it is solid are
-different claims, and collapsing them is how a project ends up confident about
-nothing in particular.
+`UNTESTED`. Marking something finished and believing it is solid are different
+claims, and collapsing them is how a project ends up confident about nothing in
+particular. What the code enforces, and what it leaves to people:
+
+- **Implemented, enforced.** A task marked `Authority: owner` is `DONE` only with
+  `HUMAN_VERIFIED` (`validate` reports it otherwise). The structured write
+  commands never set `HUMAN_VERIFIED` and never close an owner-held task.
+- **A rule people follow, not enforced.** `HUMAN_VERIFIED` is for a named human
+  who checked manual evidence. The tool reads Markdown and cannot tell who typed
+  the word; that discipline rests on the protocol and on review.
 
 ### Decisions accumulate; they do not get rewritten
 
@@ -210,6 +259,53 @@ acted on. Changing your mind produces a new ADR that supersedes the old one, and
 the old one stays. A reader following the chain sees not just the current rule
 but the reason it replaced the previous one — which is usually the thing a
 newcomer actually needs.
+
+### Execution and operations
+
+**Implemented.** Every task has a domain. `execution` work advances the project;
+`operations` work maintains the environment it is built in (upgrading Praukron,
+CI, tooling). Progress, phases, gates and the critical path count execution only;
+an operations task shows up only as the external blocker of an execution task
+that waits on it. `TRACE.md` holds the operational events, such as tool calls,
+mutations, failures and retries, that an agent records when they could explain a
+later failure. They stay inspectable and never count as progress.
+
+### Assumptions, owner responses, reconciliation
+
+**Implemented** (1.1.0, shared memory and owner review). When a choice has no
+answer in the records, an agent follows a fixed order: authority decides it; or
+the project's policy reserves it, and the owner is asked through a task; or it is
+assumed, and the assumption is written down before anything relies on it. The
+owner answers in `RESPONSES.md`. The next agent's packet shows the unreconciled
+answers that concern its task, that task's assumptions and its open dependencies
+(`status` reports the project-wide count). The agent carries each out in the ADR,
+contract, task or code it concerns, then marks the assumption. An open assumption is never presented as decided.
+
+## Bounded cost
+
+**Implemented.** A chronicle grows for as long as a project does, so what an
+agent must read and write has to stay bounded by the question and not by the
+history. Five mechanisms do it, and none involves a model.
+
+- `INDEX.md` is compact: `validate` warns past about 5,000 estimated tokens. It
+  is a warning and not a cap.
+- `context <task>` carries one task's neighbourhood: its lineage, contract,
+  decisions and evidence, plus the tasks it depends on and the ones it unlocks,
+  and not the rest of the project.
+- `retrieve --budget` (default 4,000 estimated tokens) bounds the selected record
+  bodies, most relevant first, and lists the rest as pointers. It does not bound
+  the whole output, and the first record always loads.
+- `archive` moves a closed phase's tasks and contracts out of `TASKS.md` and
+  `ACCEPTANCE.md`. They stay authority and the compiler still reads them, so it
+  shortens files for people and tools but not compile time.
+- Structured writes cost the size of the record: a payload and a one-line result,
+  where a direct edit first reads the file it edits. Measured figures, with their
+  method and limits, are in [benchmarks](benchmarks.md).
+
+**Designed, not built.** Extending archiving past tasks and contracts, to
+assumptions, debt, trace events and journal entries, with verify and restore,
+is specified in an internal working document. `archive` today moves closed tasks
+and their contracts only.
 
 ## Making disagreement decidable
 
@@ -285,10 +381,12 @@ today.
 
 ## What this repository proves about itself
 
-**Implemented.** Praukron tracks its own development in its own chronicle, which
-is the only claim here that can be checked without installing anything. Every
-phase on record is closed and every gate is green, and the evidence behind each
-one is in the chronicle rather than in this sentence.
+**Implemented.** Praukron tracks its own development in its own chronicle. That
+chronicle is kept private by choice (ADR-042): this public repository shows the
+product, not the process, so a reader cannot open it, and what it records about
+phases, gates and evidence is the maintainers' statement. What a reader can check
+is public: the releases and the changelog, the CI runs, the test suite, and the
+templates and workflows every installation receives.
 
 **Partly proven.** Whether agent hosts maintain the chronicle across real
 multi-session work was measured rather than assumed: the continuity pilot ran in

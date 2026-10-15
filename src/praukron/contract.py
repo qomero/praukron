@@ -45,6 +45,9 @@ EXAMPLE = {
 }
 
 
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["contract.add"])
+
+
 def single_line(value: str, field: str) -> None:
     if not value.strip() or value != value.strip() or len(value.splitlines()) != 1:
         raise mutate.WriteError("invalid-value", f"{field} must be non-empty, trimmed and one line", field)
@@ -131,7 +134,7 @@ def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 raise mutate.WriteError("record-not-found", f"no task named {payload['task']}", "task")
             mutate.ensure_mutable(task.source)
             if task.status in ("WIP", "DONE"):
-                raise mutate.WriteError("frozen-contract", "a WIP or DONE task's contract is frozen", "task")
+                raise mutate.WriteError("frozen-contract", "a WIP or DONE task's contract is frozen; raise an Acceptance Change Request instead", "task")
             if task.contract and task.contract.lower() not in ("none", "—", "-") and task.contract != payload["id"]:
                 raise mutate.WriteError("different-contract", f"task already names {task.contract}", "task")
             check_new(project, definition, target=task)
@@ -143,7 +146,7 @@ def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 current = {"recordId": task.id, "source": f"{task.source.file}#{task.id}",
                            "revision": found.revision, "record": found.data.decode("utf-8")}
                 raise mutate.WriteError("stale-revision",
-                                        f"task has changed; current revision: {found.revision}", "expectTaskRevision")
+                                        f"task has changed; retry with expectTaskRevision {found.revision}", "expectTaskRevision")
             acceptance = authority / "ACCEPTANCE.md"
             changes = {acceptance: append_section(acceptance, "Acceptance", render(definition))}
             if task.contract == payload["id"]:

@@ -15,8 +15,9 @@ SCHEMA = {
     "properties": {
         "criterion": {"type": "string", "minLength": 1},
         "state": {"type": "string", "enum": CRITERION_STATES},
-        "evidence": {"type": "string"},
-        "expectRevision": {"type": "string", "minLength": 1},
+        "evidence": {"type": "string", "description": "One non-empty line; omit to keep the current evidence"},
+        "expectRevision": {"type": "string", "minLength": 1,
+                           "description": "16 hex revision of the contract section, from the last result or a stale-revision refusal"},
     },
     "required": ["criterion", "state", "expectRevision"],
 }
@@ -25,6 +26,9 @@ EXAMPLE = {
     "evidence": "python -m unittest discover -s tests",
     "expectRevision": "0123456789abcdef",
 }
+
+
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["criterion.set"])
 
 
 def _criterion_location(text: str, criterion_id: str) -> tuple[int, int, re.Match[str], re.Match[str] | None]:
@@ -208,7 +212,7 @@ def set_result(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 raise mutate.WriteError("record-not-found", f"no contract section found for {contract.id}")
             if section.revision != expected:
                 raise mutate.WriteError(
-                    "stale-revision", "criterion changed; fetch the current contract before retrying",
+                    "stale-revision", "criterion changed; retry with currentRevision (currentCriterion is the current line)",
                     "expectRevision", details={"currentCriterion": _current_line(section.data, criterion.id)},
                 )
             evidence = payload.get("evidence")

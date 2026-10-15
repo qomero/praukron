@@ -8,19 +8,25 @@ hand; its `lineage` names the task's thesis, phase, and module. If the
 requested work has no task yet, create it before implementation without
 waiting for a Praukron command, give it one `Module:` from `MODULES.md` (its
 phase comes from the module; author a module first if none fits) and a
-`Domain:` (`execution` or `operations`), and write its acceptance contract.
+`Domain:` (`execution` or `operations`), and write its acceptance contract:
+`.praukron/praukron task add --input -` writes the task and its contract in one
+validated step (`--schema` prints the payload).
 Never move a task to another module or a module to another phase as a side
 effect of implementation; that is a decision. Read that
 task, its contract, and its governing ADRs, then inspect only the specification
 and code needed for the task.
 
-Mark it `WIP`, record the owner and claim date, and set `INTENT.md` to that one
-task before implementation. Its contract freezes at that moment; change it only
+Mark it `WIP`, record the owner and claim date (`.praukron/praukron task update
+--input -`, which claims and dates it), and set `INTENT.md` to that one task
+before implementation. Its contract freezes at that moment; change it only
 through an accepted Acceptance Change Request. Keep intent at the exact execution point, especially
 before a long-running step. When a material choice is made, accepted, or acted
 on, append its ADR immediately and link affected tasks. As truth changes, update the
-task, its criterion states and evidence, the compiled views, the handoff, and the
-journal rather than postponing record keeping. Append an event to `TRACE.md`
+task (`task update`), its criterion states and evidence (`criterion set`), the
+compiled views, the handoff, and the journal (`journal append`) rather than
+postponing record keeping. Use those commands instead of editing `TASKS.md`,
+`ACCEPTANCE.md` or `JOURNAL.md`; a refused write names the rule and the next
+valid step. Append an event to `TRACE.md`
 for a tool call, command, mutation, failure, or retry that could later explain
 an execution failure, a blocked gate, or a regression, naming the task it came
 from and what it affects. Summarize; never record secrets, credentials, or

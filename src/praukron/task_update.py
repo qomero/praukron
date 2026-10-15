@@ -17,7 +17,7 @@ SCHEMA = {
     "properties": {
         "id": {"type": "string", "minLength": 1, "description": "Task id, e.g. T-EXAMPLE-01"},
         "expectRevision": {"type": "string", "minLength": 16,
-                           "description": "16 hex revision of the task section, from a prior read or refusal"},
+                           "description": "16 hex revision of the task section, from the last result or a stale-revision refusal"},
         "set": {
             "type": "object", "additionalProperties": False,
             "properties": {
@@ -25,7 +25,7 @@ SCHEMA = {
                 "owner": {"type": "string", "minLength": 1, "description": "One line"},
                 "claimed": {"type": "string", "format": "date", "description": "YYYY-MM-DD"},
                 "evidence": {"type": "string", "minLength": 1,
-                             "description": "Single spaces, no blank line, no leading or trailing em dash; line breaks are wrap points"},
+                             "description": "Single spaces, no blank line, no leading or trailing em dash; caller line breaks become spaces; the text is re-wrapped"},
             },
         },
     },
@@ -39,6 +39,9 @@ _ORDER = ["Status", "Module", "Phase", "Domain", "Authority", "Validation", "Dep
           "Owner", "Claimed", "AC", "Schedule", "Evidence", "Governed by"]
 _FIELD = re.compile(r"- ([A-Za-z][A-Za-z ]*): ?(.*)")
 _WIDTH = 100
+
+
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"])
 
 
 def _lines(name: str, value: str, single: bool) -> list[str]:
@@ -126,7 +129,7 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 stale.update(currentRevision=current.revision,
                              section=current.data.decode("utf-8").rstrip("\r\n"))
                 raise mutate.WriteError(
-                    "stale-revision", f"{task_id} changed: expected revision {expected}, current {current.revision}",
+                    "stale-revision", f"{task_id} changed: expected revision {expected}, current {current.revision}; retry with currentRevision",
                     "expectRevision")
             status = changes.get("status", task.status)
             owner = changes.get("owner", task.owner)
@@ -143,21 +146,21 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                         "evidence")
             if status == "WIP" and task.status != "WIP":
                 if not _usable(owner):
-                    raise mutate.WriteError("owner-required", "WIP needs an owner", "owner")
+                    raise mutate.WriteError("owner-required", "WIP needs an owner; include set.owner in the same update", "owner")
                 edits.setdefault("Claimed", dt.date.today().isoformat())
             if status == "DONE" and task.status != "DONE":
                 if task.owner_held:
-                    raise mutate.WriteError("owner-held", f"{task_id} is Authority: owner; only the owner closes it",
+                    raise mutate.WriteError("owner-held", f"{task_id} is Authority: owner; only the owner closes it; record evidence and leave Status for the owner",
                                             "status")
                 criteria = project.mandatory_criteria(task)
                 if not criteria:
-                    raise mutate.WriteError("unresolved-acceptance", f"{task_id} has no contract criteria", "status")
+                    raise mutate.WriteError("unresolved-acceptance", f"{task_id} has no contract criteria; add a contract with contract add while the task is TODO", "status")
                 open_ids = [c.id for c in criteria if c.state != "PASS"]
                 if open_ids:
                     raise mutate.WriteError("unresolved-acceptance",
-                                            f"criteria not PASS: {', '.join(open_ids)}", "status")
+                                            f"criteria not PASS: {', '.join(open_ids)}; record each with criterion set first", "status")
                 if not (evidence or "").strip():
-                    raise mutate.WriteError("evidence-required", "DONE needs recorded evidence", "evidence")
+                    raise mutate.WriteError("evidence-required", "DONE needs recorded evidence; include set.evidence", "evidence")
             if all(_current(task, label) == value for label, value in edits.items()):
                 raise mutate.WriteError("no-change", "the update would change nothing")
             path = root / AUTHORITY_DIR / task.source.file

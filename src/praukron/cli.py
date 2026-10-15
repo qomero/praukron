@@ -301,8 +301,15 @@ def cmd_archive(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def write_options(parser: argparse.ArgumentParser) -> None:
+def write_options(parser: argparse.ArgumentParser, operation: str) -> None:
     """The common interface for structured write subcommands."""
+    parser.formatter_class = argparse.RawDescriptionHelpFormatter
+    from . import mutate
+    import textwrap
+
+    parser.description = "\n".join(
+        textwrap.fill(part, width=88, subsequent_indent="  ", break_long_words=False, break_on_hyphens=False)
+        if not part.startswith("EXAMPLE") else part for part in mutate.GUIDANCE[operation])
     parser.add_argument("--input", help="JSON payload file, or - for stdin")
     parser.add_argument("--dry-run", action="store_true", help="report the change without writing")
     parser.add_argument("--schema", action="store_true", help="print payload schema and a minimal example")
@@ -664,7 +671,7 @@ def build_parser() -> argparse.ArgumentParser:
     journal = subparsers.add_parser("journal", help="append governed journal entries")
     journal_commands = journal.add_subparsers(dest="journal_command", required=True)
     append_entry = journal_commands.add_parser("append", help="append one unique journal section")
-    write_options(append_entry)
+    write_options(append_entry, "journal.append")
     append_entry.set_defaults(handler=cmd_journal_append, write_operation="journal.append")
 
     from . import contract, task
@@ -672,21 +679,21 @@ def build_parser() -> argparse.ArgumentParser:
     tasks = subparsers.add_parser("task", help="structured task writes")
     task_commands = tasks.add_subparsers(dest="task_command", required=True)
     add_task = task_commands.add_parser("add", help="append a task and optionally its contract")
-    write_options(add_task)
+    write_options(add_task, "task.add")
     add_task.set_defaults(handler=task.command, write_operation="task.add")
     update_task = task_commands.add_parser("update", help="change a task's status, owner, claim or evidence")
-    write_options(update_task)
+    write_options(update_task, "task.update")
     update_task.set_defaults(handler=cmd_task_update, write_operation="task.update")
 
     contracts = subparsers.add_parser("contract", help="create unfrozen acceptance contracts")
     contract_commands = contracts.add_subparsers(dest="contract_command", required=True)
     add_contract = contract_commands.add_parser("add", help="append a contract for an existing task")
-    write_options(add_contract)
+    write_options(add_contract, "contract.add")
     add_contract.set_defaults(handler=contract.command, write_operation="contract.add")
     criterion = subparsers.add_parser("criterion", help="record governed criterion results")
     criterion_commands = criterion.add_subparsers(dest="criterion_command", required=True)
     set_criterion = criterion_commands.add_parser("set", help="set one criterion state and evidence")
-    write_options(set_criterion)
+    write_options(set_criterion, "criterion.set")
     set_criterion.set_defaults(handler=cmd_criterion_set, write_operation="criterion.set")
 
     answer = subparsers.add_parser(

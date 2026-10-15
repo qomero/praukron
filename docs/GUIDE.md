@@ -153,6 +153,138 @@ an open assumption, unresolved debt or failure, or an awaiting response points
 at it; a contract stays while it holds an inherited invariant. Agents never
 run it on their own (ADR-067).
 
+### Writing records without editing files
+
+Agents record tasks, criterion results, status changes and journal entries with
+five commands. Each reads a small JSON payload and prints one JSON line, so the
+cost of a write follows the size of the record, not of `TASKS.md` or
+`ACCEPTANCE.md` ([SPEC §2.6](SPEC.md#26-structured-writes), measured in
+[benchmarks](benchmarks.md)). `--schema` prints a command's payload and an
+example, `--dry-run` shows what would be written without writing it, and
+`--help` says when to use the command and when not to.
+
+**The starting point.** The examples below form one ordered sequence. Run them
+in a scratch project whose chronicle has a thesis statement, this module in
+`MODULES.md`, and nothing else (the `Phase: P-NONE` module holds work that
+belongs to no phase):
+
+```text
+## M-FOUNDATION — Foundation
+- Phase: P-NONE
+- Outcome: The project can be built and checked.
+```
+
+and this task, written by hand at the end of `TASKS.md`. It has no contract
+yet (`- AC: none`), so `praukron validate` reports `unknown-contract` until
+step 1 adds one:
+
+```text
+## T-DOCS-02: Review the guide
+- Status: TODO
+- Module: M-FOUNDATION
+- Domain: execution
+- Validation: UNTESTED
+- Dependencies: none
+- Owner: unassigned
+- AC: none
+- Evidence: —
+- Governed by: none
+```
+
+The outputs are what the commands print for LF files; yours differ only in
+revisions (a hash of the record's bytes, so CRLF files hash differently) and
+dates. JSON output escapes non-ASCII, so `—` prints as `—`. On POSIX the
+payload is piped in with `echo '…' | praukron … --input -`; on PowerShell save
+the JSON to a file and pass `--input payload.json`.
+
+**1. Give an existing TODO task its contract.** `task add` always writes a
+contract or names an existing one, so `contract add` is for a task that was
+written by hand or is missing its contract. It needs the task's revision. If
+you have never seen one, send sixteen zeros on purpose: the refusal returns it.
+
+```console
+$ echo '{"id":"AC-T-DOCS-02","task":"T-DOCS-02","title":"Review the guide","expectTaskRevision":"0000000000000000","criteria":[{"text":"Given the guide, When a reviewer follows it, Then every example runs.","class":"RUNTIME"}]}' | praukron contract add --input -
+{"ok":false,"operation":"contract.add","error":{"code":"stale-revision","message":"task has changed; retry with expectTaskRevision 500d120c1d094409","field":"expectTaskRevision"},"written":false,"current":{"recordId":"T-DOCS-02","source":"TASKS.md#T-DOCS-02","revision":"500d120c1d094409","record":"## T-DOCS-02: Review the guide\n- Status: TODO\n- Module: M-FOUNDATION\n- Domain: execution\n- Validation: UNTESTED\n- Dependencies: none\n- Owner: unassigned\n- AC: none\n- Evidence: \u2014\n- Governed by: none\n"}}
+$ echo $?
+1
+
+$ echo '{"id":"AC-T-DOCS-02","task":"T-DOCS-02","title":"Review the guide","expectTaskRevision":"500d120c1d094409","criteria":[{"text":"Given the guide, When a reviewer follows it, Then every example runs.","class":"RUNTIME"}]}' | praukron contract add --input -
+{"ok":true,"operation":"contract.add","recordId":"AC-T-DOCS-02","source":"ACCEPTANCE.md#AC-T-DOCS-02","revision":"e004d9c19957e312","validation":"passed","written":true,"refreshed":true}
+```
+
+**2. Add a task with its contract.** One write; either both records appear or
+neither does. The `revision` in the result is what the next update of this task
+must quote.
+
+```console
+$ echo '{"id":"T-DOCS-01","title":"Write the retry guide","module":"M-FOUNDATION","domain":"execution","dependencies":[],"contract":{"id":"AC-T-DOCS-01","title":"Retry guide","criteria":[{"text":"Given a refused write, When the guide is read, Then the next step is clear.","class":"INSPECTION"}]}}' | praukron task add --input -
+{"ok":true,"operation":"task.add","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"9101852277a8233c","validation":"passed","written":true,"refreshed":true}
+```
+
+**3. Claim it.** `expectRevision` is the revision you last saw. A stale one is
+refused and the refusal returns the current revision and record.
+
+```console
+$ echo '{"id":"T-DOCS-01","expectRevision":"0000000000000000","set":{"status":"WIP","owner":"worker"}}' | praukron task update --input -
+{"ok":false,"operation":"task.update","error":{"code":"stale-revision","message":"T-DOCS-01 changed: expected revision 0000000000000000, current 9101852277a8233c; retry with currentRevision","field":"expectRevision","currentRevision":"9101852277a8233c","section":"## T-DOCS-01: Write the retry guide\n- Status: TODO\n- Module: M-FOUNDATION\n- Domain: execution\n- Validation: UNTESTED\n- Dependencies: none\n- Owner: unassigned\n- AC: AC-T-DOCS-01\n- Evidence: \u2014\n- Governed by: none"},"written":false}
+
+$ echo '{"id":"T-DOCS-01","expectRevision":"9101852277a8233c","set":{"status":"WIP","owner":"worker"}}' | praukron task update --input -
+{"ok":true,"operation":"task.update","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"864c26d8af8f1583","validation":"passed","written":true,"refreshed":true}
+```
+
+`WIP` dates the claim. The task's contract is now frozen: `contract add` for it
+is refused with `frozen-contract`, and no command changes a criterion's text or
+class. A criterion's state and evidence stay writable.
+
+**4. Record a criterion's result.** The revision is the contract's, not the
+criterion's. A stale one returns the current criterion line and revision.
+
+```console
+$ echo '{"criterion":"AC-T-DOCS-01-01","state":"PASS","evidence":"reviewed docs/GUIDE.md","expectRevision":"0000000000000000"}' | praukron criterion set --input -
+{"ok":false,"operation":"criterion.set","error":{"code":"stale-revision","message":"criterion changed; retry with currentRevision (currentCriterion is the current line)","field":"expectRevision","currentCriterion":"- `AC-T-DOCS-01-01` \u2014 Given a refused write, When the guide is read, Then the next step is clear. `INSPECTION` \u00b7 `NOT_RUN`","currentRevision":"385b53f179252d79"},"written":false}
+
+$ echo '{"criterion":"AC-T-DOCS-01-01","state":"PASS","evidence":"reviewed docs/GUIDE.md","expectRevision":"385b53f179252d79"}' | praukron criterion set --input -
+{"ok":true,"operation":"criterion.set","recordId":"AC-T-DOCS-01-01","source":"ACCEPTANCE.md#AC-T-DOCS-01","revision":"5d4e9c10edee6b33","validation":"passed","written":true,"refreshed":true}
+```
+
+Evidence is one line. Sending the same values again with the new revision is a
+successful no-op that returns the same revision:
+
+```console
+$ echo '{"criterion":"AC-T-DOCS-01-01","state":"PASS","evidence":"reviewed docs/GUIDE.md","expectRevision":"5d4e9c10edee6b33"}' | praukron criterion set --input -
+{"ok":true,"operation":"criterion.set","recordId":"AC-T-DOCS-01-01","source":"ACCEPTANCE.md#AC-T-DOCS-01","revision":"5d4e9c10edee6b33","validation":"passed","written":true,"refreshed":true}
+```
+
+**5. Close the task.** `DONE` needs every criterion `PASS` and evidence. The
+refusal names the rule and the next step.
+
+```console
+$ echo '{"id":"T-DOCS-01","expectRevision":"864c26d8af8f1583","set":{"status":"DONE"}}' | praukron task update --input -
+{"ok":false,"operation":"task.update","error":{"code":"evidence-required","message":"DONE needs recorded evidence; include set.evidence","field":"evidence"},"written":false}
+
+$ echo '{"id":"T-DOCS-01","expectRevision":"864c26d8af8f1583","set":{"status":"DONE","evidence":"Guide reviewed; AC-T-DOCS-01-01 PASS."}}' | praukron task update --input -
+{"ok":true,"operation":"task.update","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"406567c8185533f1","validation":"passed","written":true,"refreshed":true}
+```
+
+An `Authority: owner` task is never closed this way (`owner-held`), and no
+command sets `HUMAN_VERIFIED`.
+
+**6. Append a journal entry.** The heading is `## <date> — <title>`; the date
+defaults to today. Repeating the request is refused instead of duplicated.
+
+```console
+$ echo '{"date":"2026-10-15","title":"Progress","body":"Wrote the guide."}' | praukron journal append --input -
+{"ok":true,"operation":"journal.append","recordId":"2026-10-15 \u2014 Progress","source":"JOURNAL.md#2026-10-15 \u2014 Progress","revision":"d6736f9a94268793","validation":"passed","written":true,"refreshed":true}
+
+$ echo '{"date":"2026-10-15","title":"Progress","body":"Wrote the guide."}' | praukron journal append --input -
+{"ok":false,"operation":"journal.append","error":{"code":"duplicate-heading","message":"journal heading already exists: 2026-10-15 \u2014 Progress; the entry is already recorded, or change the title or date"},"written":false}
+```
+
+A refusal changes nothing and exits 1. If a write succeeds but its refresh
+fails (`"written":true,"refreshed":false`), do not repeat it; run
+`praukron compile && praukron graph && praukron dashboard`. If another writer
+holds the lock (`locked`), wait and retry.
+
 ### CodeGraph (optional)
 
 ```sh
@@ -283,7 +415,8 @@ the chronicle is missing something — that is worth fixing before the work.
 
 **Working.** Ask for what you want in plain language. You should see, before
 implementation: a task in `TASKS.md`, a contract in `ACCEPTANCE.md`, and
-`INTENT.md` naming that one task. If a material choice gets made along the way,
+`INTENT.md` naming that one task. Agents write those records with the
+commands above, so the task and contract arrive in one validated step. If a material choice gets made along the way,
 an ADR should appear without you asking for one.
 
 **Checking.** `praukron status`, or open the dashboard. Click a task to see its

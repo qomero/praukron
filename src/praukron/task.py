@@ -26,13 +26,15 @@ SCHEMA = {
         "ac": {"type": "string"},
     },
     "required": ["id", "title", "module", "domain", "dependencies"],
-    "description": "Give exactly one of contract (a new definition) and ac (an existing contract ID)",
 }
 EXAMPLE = {
     "id": "T-NEW", "title": "New work", "module": "M-FOUNDATION",
     "domain": "execution", "dependencies": [],
     "contract": {k: v for k, v in contract.EXAMPLE.items() if k in contract.DEFINITION_SCHEMA["properties"]},
 }
+
+
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.add"]) + "\nPAYLOAD: give exactly one of contract (a new definition) and ac (an existing contract ID)"
 
 
 def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
