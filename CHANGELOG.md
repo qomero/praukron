@@ -6,6 +6,8 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Add `praukron task add` and `contract add` with strict payloads, frozen-contract checks,
+  and recoverable transactions for task and contract creation.
 - Structured transactions normalize symlinked project paths before target lookup and recovery.
 - Add `praukron task update` to change a task's status, owner, claim or evidence under a revision check,
   refusing DONE without passing criteria and evidence, owner-held DONE, archived tasks and stale revisions.

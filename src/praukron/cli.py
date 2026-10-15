@@ -652,11 +652,22 @@ def build_parser() -> argparse.ArgumentParser:
     write_options(append_entry)
     append_entry.set_defaults(handler=cmd_journal_append, write_operation="journal.append")
 
-    task = subparsers.add_parser("task", help="structured task writes")
-    task_commands = task.add_subparsers(dest="task_command", required=True)
+    from . import contract, task
+
+    tasks = subparsers.add_parser("task", help="structured task writes")
+    task_commands = tasks.add_subparsers(dest="task_command", required=True)
+    add_task = task_commands.add_parser("add", help="append a task and optionally its contract")
+    write_options(add_task)
+    add_task.set_defaults(handler=task.command, write_operation="task.add")
     update_task = task_commands.add_parser("update", help="change a task's status, owner, claim or evidence")
     write_options(update_task)
     update_task.set_defaults(handler=cmd_task_update, write_operation="task.update")
+
+    contracts = subparsers.add_parser("contract", help="create unfrozen acceptance contracts")
+    contract_commands = contracts.add_subparsers(dest="contract_command", required=True)
+    add_contract = contract_commands.add_parser("add", help="append a contract for an existing task")
+    write_options(add_contract)
+    add_contract.set_defaults(handler=contract.command, write_operation="contract.add")
 
     answer = subparsers.add_parser(
         "respond", help="append the owner's response to RESPONSES.md"

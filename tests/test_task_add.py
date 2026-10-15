@@ -1,0 +1,378 @@
+"""Task and contract creation regressions (AC-T-WRITE-TASK-01)."""
+
+from __future__ import annotations
+
+import copy
+import io
+import json
+import subprocess
+import sys
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+from unittest import mock
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from praukron import cli, compile as compiler, contract, layout, mutate, task, validate
+from praukron.model import EVIDENCE_CLASSES
+from test_praukron import FixtureCase
+
+
+class CreationCase(FixtureCase):
+    def setUp(self):
+        super().setUp()
+        self.authority = self.root / layout.AUTHORITY_DIR
+        self.tasks = self.authority / "TASKS.md"
+        self.acceptance = self.authority / "ACCEPTANCE.md"
+        self.payload = copy.deepcopy(task.EXAMPLE)
+
+    def snapshot(self):
+        return {p.relative_to(self.authority): p.read_bytes()
+                for p in self.authority.rglob("*") if p.is_file()}
+
+    def run_cli(self, group="task", *options, payload=None, raw=None):
+        out, err = io.StringIO(), io.StringIO()
+        data = json.dumps(self.payload if payload is None else payload) if raw is None else raw
+        with redirect_stdout(out), redirect_stderr(err), mock.patch("sys.stdin", io.StringIO(data)):
+            code = cli.main(["-C", str(self.root), group, "add", *options])
+        self.assertEqual(err.getvalue(), "")
+        self.assertEqual(len(out.getvalue().splitlines()), 1)
+        return code, json.loads(out.getvalue())
+
+    def assert_valid(self):
+        self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+
+    def uncontracted_task(self, status="TODO", ac=None):
+        text = (f"## T-BARE: Awaiting contract\n- Status: {status}\n"
+                "- Module: M-FOUNDATION\n- Domain: execution\n- Validation: UNTESTED\n"
+                "- Dependencies: none\n- Owner: unassigned\n"
+                + (f"- AC: {ac}\n" if ac is not None else "")
+                + "- Evidence: —\n- Governed by: ADR-001\n")
+        self.tasks.write_bytes(contract.append_section(self.tasks, "Tasks", text))
+        return {**copy.deepcopy(contract.EXAMPLE), "task": "T-BARE"}
+
+
+class TestTaskAdd(CreationCase):
+    def test_embedded_contract_appends_both_and_round_trips_lf_crlf(self):
+        self.assert_valid()
+        initial = self.snapshot()
+        for task_nl, ac_nl in ((b"\n", b"\n"), (b"\r\n", b"\r\n"), (b"\r\n", b"\n"), (b"\n", b"\r\n")):
+            with self.subTest(task_newline=task_nl, contract_newline=ac_nl):
+                for p, data in initial.items():
+                    newline = task_nl if p.name == "TASKS.md" else ac_nl
+                    (self.authority / p).write_bytes(data.replace(b"\r\n", b"\n").replace(b"\n", newline))
+                before = self.snapshot()
+                self.assertFalse(mutate.id_exists(compiler.load(self.root), self.payload["id"]))
+                self.assertFalse(mutate.id_exists(compiler.load(self.root), self.payload["contract"]["id"]))
+                self.payload.update(title="Công việc: " + "rất dài " * 100 + "xong", dependencies=["T-ONE", "T-TWO"],
+                                    governedBy=["ADR-001"], files=["src/công việc.py", "src/other.py"],
+                                    symbols=["Worker.run", "other"], authority="owner", validation="AI_REVIEWED")
+                self.payload["contract"].update(title="Hợp đồng — " + "dài " * 100 + "xong", inherits=["AC-GLOBAL-CARE"],
+                    criteria=[{"text": "Given công việc, When " + "kiểm tra " * 100 + "xong, Then ổn.", "class": cls}
+                              for cls in EVIDENCE_CLASSES])
+                with mock.patch.object(mutate, "transaction", wraps=mutate.transaction) as transaction:
+                    code, result = self.run_cli("task", "--input", "-")
+                self.assertEqual(code, 0, result)
+                transaction.assert_called_once()
+                self.assertTrue(result["written"])
+                self.assertTrue(result["refreshed"])
+                self.assertEqual(result["source"], "TASKS.md#T-NEW")
+                after = self.snapshot()
+                for p, old in before.items():
+                    if p.name in ("TASKS.md", "ACCEPTANCE.md"):
+                        self.assertTrue(after[p].startswith(old))
+                        newline = task_nl if p.name == "TASKS.md" else ac_nl
+                        self.assertNotIn(b"\n", after[p][len(old):].replace(newline, b""))
+                    else:
+                        self.assertEqual(after[p], old)
+                project = compiler.load(self.root)
+                added = project.task("T-NEW")
+                for field, key in (("title", "title"), ("module", "module"), ("domain", "domain"),
+                                   ("dependencies", "dependencies"), ("decisions", "governedBy"),
+                                   ("files", "files"), ("symbols", "symbols"), ("authority", "authority"),
+                                   ("validation", "validation")):
+                    self.assertEqual(getattr(added, field), self.payload[key])
+                self.assertEqual((added.status, added.owner, added.evidence, added.phase),
+                                 ("TODO", "unassigned", None, "P1"))
+                ac = project.contracts[added.contract]
+                self.assertEqual(ac.title, self.payload["contract"]["title"])
+                self.assertEqual(ac.inherits, ["AC-GLOBAL-CARE"])
+                for i, (actual, expected) in enumerate(zip(ac.criteria, self.payload["contract"]["criteria"]), 1):
+                    self.assertEqual((actual.id, actual.text, actual.evidence_class, actual.state, actual.evidence),
+                                     (f"AC-T-NEW-{i:02d}", expected["text"], expected["class"], "NOT_RUN", None))
+                self.assertEqual(result["revision"], mutate.section(self.tasks.read_bytes(), added.id).revision)
+                self.assert_valid()
+                self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
+
+    def test_payload_and_reference_refusals_leave_every_byte(self):
+        cases = [({"phase": "P1"}, "unknown-field"), ({"Phase": "P1"}, "unknown-field"),
+                 ({"module": "M-MISSING"}, "unknown-module"), ({"domain": "other"}, "invalid-value"),
+                 ({"id": "T-TWO"}, "duplicate-id"), ({"dependencies": ["T-MISSING"]}, "unknown-dependency"),
+                 ({"governedBy": ["ADR-999"]}, "unknown-decision"),
+                 ({"validation": "HUMAN_VERIFIED"}, "invalid-value"), ({"status": "DONE"}, "unknown-field"),
+                 ({"files": [7]}, "wrong-type"), ({"symbols": ["a,b"]}, "invalid-value"),
+                 ({"title": "injected\n## T-EVIL: title"}, "invalid-value"), ({"id": "T-bad: id"}, "invalid-id"),
+                 ({"ac": "AC-T-TWO"}, "invalid-contract")]
+        for patch, expected in cases:
+            with self.subTest(patch=patch):
+                before = self.snapshot()
+                code, result = self.run_cli("task", "--input", "-", payload={**self.payload, **patch})
+                self.assertEqual(code, 1, result)
+                self.assertEqual(result["error"]["code"], expected)
+                self.assertFalse(result["written"])
+                self.assertEqual(self.snapshot(), before)
+        for missing in ("module", "domain", "dependencies", "contract"):
+            with self.subTest(missing=missing):
+                payload = {k: v for k, v in self.payload.items() if k != missing}
+                before = self.snapshot()
+                code, result = self.run_cli("task", "--input", "-", payload=payload)
+                self.assertEqual(code, 1, result)
+                self.assertEqual(self.snapshot(), before)
+
+    def test_nested_contract_refusals_and_malformed_json(self):
+        cases = [{"id": "AC-T-TWO"}, {"inherits": ["AC-UNKNOWN"]}, {"criteria": []},
+                 {"extra": 1}, {"criteria": [None]}, {"criteria": [{"text": "Given x,\nWhen y, Then z.", "class": "TEST"}]},
+                 {"criteria": [{"text": "Given x, When y, Then z.", "class": "UNKNOWN"}]},
+                 {"criteria": [{"text": "Given x, When y, Then z.", "class": "TEST", "state": "PASS"}]},
+                 {"criteria": [{"text": "Given x, When `TEST` runs, Then z.", "class": "TEST"}]},
+                 {"criteria": [{"text": "Given  x, When y, Then z.", "class": "TEST"}]},
+                 {"inherits": [None]}]
+        before = self.snapshot()
+        for patch in cases:
+            with self.subTest(patch=patch):
+                payload = {**self.payload, "contract": {**self.payload["contract"], **patch}}
+                code, result = self.run_cli("task", "--input", "-", payload=payload)
+                self.assertEqual(code, 1, result)
+                self.assertFalse(result["written"])
+                self.assertEqual(self.snapshot(), before)
+        for raw in ("{", "[]", '{"id":"T-X","id":"T-Y"}'):
+            self.assertEqual(self.run_cli("task", "--input", "-", raw=raw)[0], 1)
+            self.assertEqual(self.snapshot(), before)
+
+    def test_existing_working_contract_and_defaults(self):
+        payload = {k: v for k, v in self.payload.items() if k != "contract"}
+        payload.update(ac="AC-T-TWO", domain="operations", module="M-UPKEEP")
+        before = self.acceptance.read_bytes()
+        code, result = self.run_cli("task", "--input", "-", payload=payload)
+        self.assertEqual(code, 0, result)
+        self.assertEqual(self.acceptance.read_bytes(), before)
+        added = compiler.load(self.root).task("T-NEW")
+        self.assertEqual((added.contract, added.validation, added.phase, added.domain),
+                         ("AC-T-TWO", "UNTESTED", "P-NONE", "operations"))
+        self.assert_valid()
+        payload["id"] = "T-ANOTHER"
+        payload["ac"] = "AC-MISSING"
+        before = self.snapshot()
+        self.assertEqual(self.run_cli("task", "--input", "-", payload=payload)[0], 1)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_archived_ids_and_archived_contract_reference_are_refused(self):
+        archive = self.authority / "archive" / "P0"
+        archive.mkdir(parents=True)
+        archived_task = mutate.section(self.tasks.read_bytes(), "T-ONE").data.replace(b"T-ONE", b"T-OLD")
+        (archive / "TASKS.md").write_bytes(b"# Tasks\n\n" + archived_task)
+        archived_ac = mutate.section(self.acceptance.read_bytes(), "AC-T-ONE").data.replace(b"AC-T-ONE", b"AC-T-OLD")
+        (archive / "ACCEPTANCE.md").write_bytes(b"# Acceptance\n\n" + archived_ac)
+        payloads = [{**self.payload, "id": "T-OLD"},
+                    {**self.payload, "contract": {**self.payload["contract"], "id": "AC-T-OLD"}},
+                    {**{k: v for k, v in self.payload.items() if k != "contract"}, "ac": "AC-T-OLD"}]
+        for payload in payloads:
+            before = self.snapshot()
+            code, result = self.run_cli("task", "--input", "-", payload=payload)
+            self.assertEqual(code, 1, result)
+            self.assertEqual(self.snapshot(), before)
+
+    def test_second_replace_failure_and_new_validation_error_restore_both(self):
+        before = self.snapshot()
+        real = mutate._replace
+        calls = 0
+
+        def failing(path, data):
+            nonlocal calls
+            if path == self.acceptance:
+                calls += 1
+                if calls == 1:
+                    raise OSError("second authoritative swap failed")
+            return real(path, data)
+
+        with mock.patch.object(mutate, "_replace", failing):
+            code, result = self.run_cli("task", "--input", "-")
+        self.assertEqual(code, 1, result)
+        self.assertFalse(result["written"])
+        self.assertEqual(self.snapshot(), before)
+        real_check = validate.check
+
+        def poisoned(project):
+            findings = real_check(project)
+            if project.task("T-NEW") is not None:
+                findings.append(validate.Finding("error", "injected", "new error", "TASKS.md#T-NEW"))
+            return findings
+
+        with mock.patch.object(validate, "check", side_effect=poisoned):
+            code, result = self.run_cli("task", "--input", "-")
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["error"]["code"], "validation-failed")
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(mutate._recovery_records(self.root), [])
+
+    def test_killed_between_replaces_next_command_restores_both_byte_for_byte(self):
+        before = self.snapshot()
+        real = mutate._replace
+
+        def killed(path, data):
+            real(path, data)
+            if path == self.tasks:
+                raise SystemExit("killed after task replace")
+
+        with mock.patch.object(mutate, "_replace", killed):
+            with self.assertRaises(SystemExit):
+                task.add(self.root, self.payload)
+        self.assertNotEqual(self.tasks.read_bytes(), before[Path("TASKS.md")])
+        self.assertEqual(self.acceptance.read_bytes(), before[Path("ACCEPTANCE.md")])
+        self.assertEqual(len(mutate._recovery_records(self.root)), 1)
+        code, result = self.run_cli("task", "--input", "-")
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["error"]["code"], "interrupted-write")
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(mutate._recovery_records(self.root), [])
+        self.assertEqual(self.run_cli("task", "--input", "-")[0], 0)
+        self.assert_valid()
+
+
+class TestContractAdd(CreationCase):
+    def test_todo_contract_add_sets_missing_or_empty_ac_and_round_trips(self):
+        original = self.tasks.read_bytes()
+        acceptance = self.acceptance.read_bytes()
+        for ac in (None, "", "\t", "AC-T-NEW"):
+            for newline in (b"\n", b"\r\n"):
+                with self.subTest(ac=ac, newline=newline):
+                    self.tasks.write_bytes(original)
+                    self.acceptance.write_bytes(acceptance)
+                    payload = self.uncontracted_task(ac=ac)
+                    for path in (self.tasks, self.acceptance):
+                        path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", newline))
+                    before = self.tasks.read_bytes()
+                    old_section = mutate.section(before, "T-BARE")
+                    code, result = self.run_cli("contract", "--input", "-", payload=payload)
+                    self.assertEqual(code, 0, result)
+                    self.assertEqual(compiler.load(self.root).task("T-BARE").contract, "AC-T-NEW")
+                    self.assertEqual(result["source"], "ACCEPTANCE.md#AC-T-NEW")
+                    self.assertEqual(result["revision"], mutate.section(self.acceptance.read_bytes(), "AC-T-NEW").revision)
+                    new_section = mutate.section(self.tasks.read_bytes(), "T-BARE")
+                    self.assertEqual(self.tasks.read_bytes()[:new_section.span[0]], before[:old_section.span[0]])
+                    self.assertNotIn(b"\n", self.tasks.read_bytes().replace(newline, b""))
+                    self.assertNotIn(b"\n", self.acceptance.read_bytes().replace(newline, b""))
+                    if ac == "AC-T-NEW":
+                        self.assertEqual(self.tasks.read_bytes(), before)
+                    self.assert_valid()
+
+    def test_attachment_preserves_wrapped_fields_and_following_sections(self):
+        payload = self.uncontracted_task()
+        data = self.tasks.read_bytes().replace(b"\r\n", b"\n")
+        start = mutate.section(data, "T-BARE").span[0]
+        bare = data[start:].replace(b"- Owner: unassigned\n", b"- Owner: long name\n  continued here\n")
+        data = data[:start] + bare + b"\n## T-AFTER: Following\n- Status: TODO\n- Module: M-FOUNDATION\n- Validation: UNTESTED\n- Dependencies: none\n- AC: AC-T-TWO\n"
+        self.tasks.write_bytes(data)
+        before = compiler.load(self.root).task("T-BARE")
+        after_section = mutate.section(data, "T-AFTER").data
+        code, result = self.run_cli("contract", "--input", "-", payload=payload)
+        self.assertEqual(code, 0, result)
+        added = compiler.load(self.root).task("T-BARE")
+        self.assertEqual(added.owner, before.owner)
+        self.assertEqual(added.owner, "long name continued here")
+        self.assertEqual(mutate.section(self.tasks.read_bytes(), "T-AFTER").data, after_section)
+        self.assertTrue(self.tasks.read_bytes().startswith(data[:start]))
+        self.assert_valid()
+
+    def test_frozen_wip_done_and_different_contract_are_refused(self):
+        original = self.tasks.read_bytes()
+        for status in ("WIP", "DONE"):
+            self.tasks.write_bytes(original)
+            payload = self.uncontracted_task(status=status)
+            before = self.snapshot()
+            code, result = self.run_cli("contract", "--input", "-", payload=payload)
+            self.assertEqual(code, 1, result)
+            self.assertEqual(result["error"]["code"], "frozen-contract")
+            self.assertEqual(self.snapshot(), before)
+        self.tasks.write_bytes(original)
+        payload = self.uncontracted_task(ac="AC-T-TWO")
+        before = self.snapshot()
+        code, result = self.run_cli("contract", "--input", "-", payload=payload)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["error"]["code"], "different-contract")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_missing_archived_task_and_duplicate_contract_are_refused(self):
+        payload = self.uncontracted_task()
+        archive = self.authority / "archive" / "P0"
+        archive.mkdir(parents=True)
+        (archive / "TASKS.md").write_bytes(b"# Tasks\n\n" + mutate.section(self.tasks.read_bytes(), "T-ONE").data.replace(b"T-ONE", b"T-OLD"))
+        for patch, error in (({"task": "T-UNKNOWN"}, "record-not-found"), ({"task": "T-OLD"}, "archived-record"),
+                             ({"id": "AC-T-TWO"}, "duplicate-id")):
+            before = self.snapshot()
+            code, result = self.run_cli("contract", "--input", "-", payload={**payload, **patch})
+            self.assertEqual(code, 1, result)
+            self.assertEqual(result["error"]["code"], error)
+            self.assertEqual(self.snapshot(), before)
+
+    def test_attachment_and_contract_rollback_together(self):
+        payload = self.uncontracted_task()
+        before = self.snapshot()
+        real = validate.check
+
+        def poisoned(project):
+            findings = real(project)
+            if "AC-T-NEW" in project.contracts:
+                findings.append(validate.Finding("error", "injected", "refused", "ACCEPTANCE.md"))
+            return findings
+
+        with mock.patch.object(validate, "check", poisoned):
+            code, result = self.run_cli("contract", "--input", "-", payload=payload)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["error"]["code"], "validation-failed")
+        self.assertEqual(self.snapshot(), before)
+
+
+class TestCreationCLI(CreationCase):
+    def test_schemas_examples_dry_runs_and_file_input(self):
+        before = self.snapshot()
+        for group, schema in (("task", task.SCHEMA), ("contract", contract.SCHEMA)):
+            code, result = self.run_cli(group, "--schema")
+            self.assertEqual(code, 0)
+            self.assertEqual(result["schema"], schema)
+            mutate.validate_payload(result["example"], schema)
+            example = result["example"]
+            if group == "contract":
+                self.uncontracted_task()
+                example["task"] = "T-BARE"
+            baseline = self.snapshot()
+            code, result = self.run_cli(group, "--input", "-", "--dry-run", payload=example)
+            self.assertEqual(code, 0, result)
+            self.assertTrue(result["dryRun"])
+            self.assertFalse(result["written"])
+            self.assertEqual(len(result["wouldWrite"]), 2)
+            self.assertEqual(self.snapshot(), baseline)
+            filename = self.root / f"{group}.json"
+            filename.write_text(json.dumps(example), encoding="utf-8")
+            code, result = self.run_cli(group, "--input", str(filename))
+            self.assertEqual(code, 0, result)
+            self.assert_valid()
+            for name, data in before.items():
+                (self.authority / name).write_bytes(data)
+
+    def test_schema_without_project_missing_input_and_piped_utf8(self):
+        launcher = Path(__file__).resolve().parents[1] / ".praukron" / "praukron"
+        for group in ("task", "contract"):
+            result = subprocess.run([sys.executable, str(launcher), "-C", str(self.root / "absent"), group, "add", "--schema"],
+                                    capture_output=True, encoding="utf-8")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("example", json.loads(result.stdout))
+            self.assertEqual(self.run_cli(group)[1]["error"]["code"], "missing-input")
+        payload = copy.deepcopy(self.payload)
+        payload["title"] = "Công việc tiếng Việt"
+        result = subprocess.run([sys.executable, str(launcher), "-C", str(self.root), "task", "add", "--input", "-"],
+                                input=json.dumps(payload, ensure_ascii=False), capture_output=True, encoding="utf-8")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["ok"])
+        self.assertEqual(compiler.load(self.root).task("T-NEW").title, payload["title"])
