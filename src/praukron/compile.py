@@ -133,6 +133,11 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         responses=parse_responses(authority / "RESPONSES.md"),
     )
     domain.resolve(project)
+    # Reuse these loaded diagnostics in validate/status and structured writes;
+    # a captured authority must never be checked against later live disk.
+    from .validate import journal_findings
+    project.journal_validation = journal_findings(
+        project, authority.snapshot if isinstance(authority, SnapshotPath) else None)
     # A phase whose work is finished but whose exit has not been accepted is
     # still where the project stands. Reporting "none" would lose that.
     for status in ("ACTIVE", "EXIT_PENDING"):

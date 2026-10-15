@@ -153,6 +153,58 @@ an open assumption, unresolved debt or failure, or an awaiting response points
 at it; a contract stays while it holds an inherited invariant. Agents never
 run it on their own (ADR-067).
 
+#### Journal ordering and repair
+
+Eligible journal entries move with the records they name. The shared
+`chronicle/archive/JOURNAL.order.json` remembers the order of unique full
+headings once entries are separated across files (ADR-072). Commit it with
+the archive in Git mode. It is not a disposable compiled view or a cached
+plan: eligibility is recomputed. Never hand-edit its JSON. Journal section
+bytes, including line endings and trailing blank lines, remain unchanged.
+
+Dates are the primary placement key. An owner may reorder same-date entries
+inside one journal: the observed file order wins and the next journal move
+updates the sidecar in the same transaction. Cross-file constraints that
+cannot reconcile are held for repair. Backdated entries in a file that is
+not chronological may return in date order rather than the original file
+order; exact section bytes still match. Undated `##` sections sort before
+dated entries during placement; keep journal conventions in the preamble.
+The byte guarantee covers complete entry sections, not every preamble: when
+all entries have left, insertion trims the preamble's trailing line breaks
+to two; a headerless working journal can gain `# Journal` on restore.
+
+`praukron validate` warns about malformed/version-mismatched metadata,
+missing coverage of cross-file ties, obsolete headings, order disagreements,
+and duplicate journal headings. Warnings do not block unrelated record work.
+Archive and restore keep only the journal entries whose cross-file order is
+unknown, with a reason and repair step; other records and unrelated dates
+can move. Restore refuses a heading duplicated in any journal file.
+
+After renaming or deleting a heading, its old sidecar identity is obsolete.
+If the affected date is wholly in one journal, its observed order can rebuild
+the metadata. On a split date, a heading absent from the sidecar in the
+working journal is new and keeps its position relative to its same-date
+working neighbours, including entries naming nothing. Only when no known
+same-date working heading constrains it does it follow all known ties.
+An absent heading in an archive is lost history: that date stays
+pending. Recover matching metadata/headings from Git history or
+`.praukron/backup/<timestamp>/`; never fill arrays by guessing. Renaming a
+working heading creates a new identity under this rule; a renamed archived
+heading requires history repair. Body-only edits retain identity. A rewrite
+for another date preserves saved names of a held date, even stale names.
+
+For a deleted or unusable sidecar, first run `validate` and compare against
+trusted history. If all headings for every date are together in one
+journal, remove the broken sidecar and the next successful journal move
+rebuilds it. Otherwise recover matching ordering information from Git or the
+backups, reconciling later journal edits before retrying. The first archive's
+preimage backup records a new sidecar as absent: use its original journal to
+recover order, not a nonexistent sidecar copy. Undoing the whole archive is
+safe only when that also preserves subsequent work; metadata repair after
+later edits is a separate owner reconciliation. A coherent permutation of
+complete cross-file metadata cannot be detected from separated journals
+alone, so retain its history and backups.
+
 ### Writing records without editing files
 
 Agents record tasks, criterion results, status changes and journal entries with

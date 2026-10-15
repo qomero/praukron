@@ -25,6 +25,23 @@ people arriving from a release page.
   keeps focus visible; and in-page links keep the filters in the address. A contract shared by
   several tasks counts once while any of them passes the filters; Clear all, Escape and Show all
   keep focus visible; shares round half up in both the compiler and the page.
+- Archive journal entries with the records they name: a dated `JOURNAL.md` entry moves, as an exact byte
+  span placed by entry date, to the latest phase's archive when it names at least one archivable record and
+  all are archived or moving; entries naming nothing, only ADRs, an open or unknown record, or a duplicate
+  heading stay and are reported; a read-back check covers journal sections; `retrieve` resolves
+  `JOURNAL.md#<heading>` pointers into archives.
+- Preserve same-date journal order across phase archive and restore operations with shared
+  `archive/JOURNAL.order.json` heading metadata, written with each move and covered by plan digests,
+  backups and durable recovery; preserve journal sections verbatim and retain the exact-span parity check.
+- Validate journal ordering metadata and duplicate headings (ADR-072); hold only journal entries
+  with unknowable cross-file ties when metadata is missing or incomplete, preserve record moves,
+  and reconcile owner reorders from the journals. Document metadata recovery and date-first placement.
+- Keep unrelated journal and record moves working with undecodable ordering metadata; hold missing
+  archive history, retain stale names on held dates, and validate only journal inputs, reusing loaded
+  project diagnostics.
+- Preserve new or renamed working journal headings' same-date neighbour order on split dates;
+  follow saved ties only when no known working neighbour constrains placement, so archive and restore
+  agree with read-back even for retained entries and unrelated-date moves.
 - Redesign the dashboard to put attention first: a "Needs attention" band (blocked tasks, failing
   work, owner input, review gaps, debt at its trigger, unresolved operational failures) above progress;
   cross-filtering Status, Domain, Validation, Phase and Module charts that narrow every chart, table,

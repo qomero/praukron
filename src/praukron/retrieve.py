@@ -122,7 +122,7 @@ class Chronicle:
     def section(self, name: str, anchor: str) -> str | None:
         found = self._find(name, anchor)
         if found is None and name in ("TASKS.md", "ACCEPTANCE.md", "ASSUMPTIONS.md",
-                                      "TECH_DEBT.md", "TRACE.md"):
+                                      "TECH_DEBT.md", "TRACE.md", "JOURNAL.md"):
             # A pointer written before its phase was archived still resolves (ADR-067).
             for archived in sorted((self.authority / layout.ARCHIVE_DIR).glob(f"*/{name}")):
                 found = self._find(archived.relative_to(self.authority).as_posix(), anchor)

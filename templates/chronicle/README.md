@@ -59,7 +59,24 @@ question that an authored document answers.
 - `ADR/` is accepted decision authority, one file per ADR, append-only.
 - `INTENT.md` is overwritten and holds zero or one current task.
 - `HANDOFF.md` is overwritten and holds current implementation continuity.
-- `JOURNAL.md` is append-only history and holds no authority.
+- `JOURNAL.md` is append-only history, not product or acceptance authority.
+  Its authored bytes and observed same-date order govern the ordering sidecar.
+- `archive/JOURNAL.order.json` remembers the order of unique journal headings
+  across files (ADR-072). Commit it with the archive; never hand-edit it or
+  discard it as a compiled view. Observed same-date order in a journal wins;
+  archive/restore update the metadata in their transaction. `validate` warns
+  about drift and duplicates. Missing or incomplete cross-file ties keep only
+  affected journal entries, with repair instructions; other records can move.
+  An absent working heading is new and keeps its same-date working neighbours;
+  it follows known ties only without a known same-date working constraint.
+  An absent archived heading is lost history and holds its date. Saved names on
+  held dates survive unrelated metadata rewrites, including renamed/removed names.
+  After a heading rename or lost sidecar, recover matching headings/order from
+  Git history or `.praukron/backup/<timestamp>/`, preserving later edits. If
+  every date is wholly in one journal, remove the broken sidecar and
+  the next journal move safely rebuilds it. The first backup may contain only
+  the original journal, since its sidecar did not yet exist. See the guide's
+  “Journal ordering and repair” section for chronology and recovery limits.
 - `TRACE.md` is append-only operational evidence: tool calls, commands,
   mini-actions, mutations, failures, retries, and validation runs. It holds no
   authority and never counts as progress.

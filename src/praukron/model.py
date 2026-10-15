@@ -450,6 +450,7 @@ class Project:
     debts: list[TechDebt] = field(default_factory=list)
     assumptions: list[Assumption] = field(default_factory=list)
     responses: list[Response] = field(default_factory=list)
+    journal_validation: list[Finding] | None = field(default=None, repr=False, compare=False)
 
     @property
     def policy(self) -> Policy:

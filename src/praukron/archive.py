@@ -15,6 +15,7 @@ validation finds a new error.
 from __future__ import annotations
 
 import hashlib
+import heapq
 import json
 import re
 from contextlib import contextmanager
@@ -102,6 +103,7 @@ class Plan:
     writes: dict[Path, str] = field(default_factory=dict, repr=False, compare=False)
     changed_files: list[str] = field(default_factory=list)
     created_files: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     def as_json(self) -> dict[str, object]:
         return {
@@ -112,6 +114,7 @@ class Plan:
             "digest": self.digest, "mode": self.mode, "version": self.version,
             "changedFiles": self.changed_files, "createdFiles": self.created_files,
             "operation": self.operation, "recovery": self.recovery,
+            "warnings": self.warnings,
         }
 
     def render(self, applied: bool) -> str:
@@ -143,8 +146,11 @@ class Plan:
             lines.append("  files: " + ", ".join(self.changed_files))
         if self.created_files:
             lines.append("  created: " + ", ".join(self.created_files))
+        if any(name.casefold() == _JOURNAL_ORDER.casefold() for name in self.changed_files):
+            lines.append(f"  ordering metadata: {_JOURNAL_ORDER} (ADR-072)")
         if self.digest:
             lines.append(f"Plan: {self.digest} (mode: {self.mode}, version: {self.version})")
+        lines.extend(f"  warning: {message}" for message in self.warnings)
         lines.extend(archive_recovery.describe(self.recovery))
         return "\n".join(lines) + "\n"
 
@@ -391,8 +397,339 @@ class TraceRule(IdRule):
                             selection.destination(self.filename), why)
 
 
+_JOURNAL = re.compile(r"(\d{4}-\d{2}-\d{2} — .+)")
+_NAMED = re.compile(r"(?<![A-Za-z0-9_\-])((?:AC|ADR|TD|EV|A|T)-[A-Za-z0-9.\-]*[A-Za-z0-9])")
+_JOURNAL_ORDER = f"{ARCHIVE_DIR}/JOURNAL.order.json"
+
+
+class JournalRule:
+    """A dated entry moves with the records it names (ADR-070).
+
+    It moves when it names at least one archivable record and every one it names
+    is archived or moving in this run, to the archive of the latest phase among
+    them (PHASES.md order, P-NONE last). ADR ids never count: ADRs are not
+    archived, so an entry that names only ADRs names nothing to archive and
+    stays. An id that resolves to no record keeps the entry, as does a heading
+    that is not unique across the working file and every archive, because a
+    move would be ambiguous. Entries move as exact byte spans and are placed in
+    the archive by entry date and the persisted heading order for ties. The
+    shared archive/JOURNAL.order.json (ADR-072) records working and archived headings,
+    including entries that stay, before the first move can lose their order.
+    It is ordering metadata, never an eligibility or plan cache. An entry whose
+    last line has no line ending stays unless it lands at the end of an archive
+    whose last entry is untouched.
+    """
+
+    kind, filename, title = "journal", "JOURNAL.md", "Journal"
+    after_records = True  # plan() runs it after every other rule: it sees all their moves
+
+    def sections(self, text: str) -> dict[str, list[tuple[int, int]]]:
+        return section_locations(text)
+
+    def candidates(self, context: EligibilityContext) -> Iterable[Candidate]:
+        project, selection, snapshot = context.project, context.selection, context.snapshot
+        if snapshot is None or not snapshot.is_file(self.filename):
+            return
+        text = snapshot.text(self.filename)
+        locations = self.sections(text)
+        counts = {h: len(spans) for h, spans in locations.items()}
+        for name, other in _journal_files(snapshot).items():
+            if name != snapshot.resolve(self.filename):
+                for heading, spans in self.sections(other).items():
+                    counts[heading] = counts.get(heading, 0) + len(spans)
+        located = _locations(project)
+        moving = {c.id for c in context.result.candidates if c.moves}
+        entries: list[list] = []  # [heading, exact section, destination, reason], in working order
+        for heading, spans in locations.items():
+            if not _JOURNAL.match(heading):
+                continue
+            start, end = spans[0]
+            phases, open_records, unknown = [], [], []
+            for named in dict.fromkeys(_NAMED.findall(text[start:end])):
+                if named.startswith("ADR-"):
+                    continue
+                if named not in located:
+                    unknown.append(named)
+                    continue
+                file, owner = located[named]
+                if owner in moving or named in moving:
+                    phases.append(selection.phase)
+                elif file.startswith(f"{ARCHIVE_DIR}/"):
+                    phases.append(file.split("/")[1])
+                else:
+                    open_records.append(named)
+            reason = None
+            if counts[heading] > 1:
+                reason = "duplicate heading; it is not archived ambiguously"
+            elif unknown:
+                reason = "names id(s) that resolve to no record: " + ", ".join(unknown)
+            elif open_records:
+                reason = "names record(s) not archived: " + ", ".join(open_records)
+            elif not phases:
+                reason = "names no archivable record"
+            destination = (f"{ARCHIVE_DIR}/{latest_phase(project, phases)}/{self.filename}"
+                           if reason is None else selection.destination(self.filename))
+            entries.append([heading, text[start:end], destination, reason])
+        newline = "\r\n" if "\r\n" in text else "\n"
+        _settle(entries, snapshot, newline)
+        for heading, _, destination, reason in entries:
+            yield Candidate(heading, self.kind, self.filename, destination, reason)
+
+    def place(self, archived: str, entries: list[tuple[str, str]], newline: str,
+              order: dict[str, int]) -> str:
+        """Insert whole sections, including trailing breaks, by the captured order."""
+        for heading, section in entries:
+            try:
+                archived = _insert_entry(archived, heading, section, newline, order)
+            except _Unplaceable as problem:
+                raise ArchiveError(f"cannot place journal entry {heading}: {problem}") from problem
+        return archived
+
+
+    def restore(self, working: str, entries: list[tuple[str, str]], newline: str,
+                order: dict[str, int]) -> str:
+        """Return sections using the same stable order as archive placement."""
+        text = working if working else f"# Journal{newline}"
+        try:
+            for heading, section in entries:
+                text = _insert_entry(text, heading, section, newline, order)
+        except _Unplaceable as problem:
+            raise ArchiveError(f"cannot restore journal entry: {problem}", "restore-refused") from problem
+        return text
+
+
+def _journal_files(snapshot: Snapshot) -> dict[str, str]:
+    """The working journal and every archived one, by captured name."""
+    found = {}
+    for name in snapshot.files:
+        parts = PurePosixPath(name).parts
+        if name.casefold() == "journal.md" or (
+                len(parts) == 3 and parts[0].casefold() == ARCHIVE_DIR and parts[2].casefold() == "journal.md"):
+            found[name] = snapshot.text(name)
+    return found
+
+
+def _journal_sections(text: str) -> list[tuple[str, int, int]]:
+    return sorted(((h, s, e) for h, spans in section_locations(text).items() for s, e in spans), key=lambda e: e[1])
+
+
+def _entry_date(heading: str) -> str:
+    return heading[:10] if re.match(r"\d{4}-\d{2}-\d{2}", heading) else ""
+
+
+_ORDER_REPAIR = ("Repair: recover the matching order file and journal headings from Git history or "
+                 ".praukron/backup/<timestamp>/. After later edits, reconcile against that history; "
+                 "do not undo unrelated work. If every date is wholly in one journal, "
+                 "remove the sidecar and the next journal move rebuilds it. Never hand-edit the JSON.")
+
+
+@dataclass
+class _JournalOrderState:
+    order: dict[str, int] = field(default_factory=dict)
+    saved: list[str] = field(default_factory=list)
+    blocked: dict[str, str] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    counts: dict[str, int] = field(default_factory=dict)
+    history: list[str] = field(default_factory=list)
+    newline: str = "\n"
+
+
+def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
+    """ADR-072: files govern observed ties; metadata remembers only separated ties.
+
+    Diagnose drift without stopping unrelated moves. Incomplete metadata is
+    never evidence for a cross-file tie, even when its JSON schema is valid.
+    """
+    sidecar = snapshot.original(_JOURNAL_ORDER)
+    original = sidecar if sidecar is not None else snapshot.original("JOURNAL.md") or b""
+    state = _JournalOrderState(newline="\r\n" if b"\r\n" in original else "\n")
+    files = _journal_files(snapshot)
+    sequences = [[h for h, _, _ in _journal_sections(text)]
+                 for text in files.values()]
+    working = next((i for i, name in enumerate(files) if name == snapshot.resolve("JOURNAL.md")), None)
+    counts = state.counts
+    for sequence in sequences:
+        for heading in sequence:
+            counts[heading] = counts.get(heading, 0) + 1
+    # Duplicate headings stay and are reported by eligibility, not ordered as
+    # if they identified one entry.
+    sequences = [[h for h in sequence if counts[h] == 1] for sequence in sequences]
+    saved = []
+    if sidecar is not None:
+        try:
+            # Decode/parse once; even unusable bytes still supply line endings.
+            # Serialization must not decode metadata already rejected here.
+            data = json.loads(sidecar.decode("utf-8"))
+            if (not isinstance(data, dict) or set(data) != {"version", "headings"}
+                    or type(data["version"]) is not int or data["version"] != 1
+                    or not isinstance(data["headings"], list)
+                    or any(not isinstance(h, str) or not h or "\n" in h or "\r" in h
+                           for h in data["headings"])
+                    or len(set(data["headings"])) != len(data["headings"])):
+                raise ValueError("expected version 1 and unique full headings")
+            state.history = data["headings"]
+            stale = [h for h in state.history if h not in counts]
+            if stale:
+                state.warnings.append("order file names headings absent from every journal "
+                                      "(renamed or removed): " + ", ".join(stale) + ". " + _ORDER_REPAIR)
+            saved = [h for h in data["headings"] if counts.get(h) == 1]
+        except (ValueError, UnicodeError) as error:
+            state.warnings.append(f"invalid {_JOURNAL_ORDER}: {error}. {_ORDER_REPAIR}")
+    state.saved = saved
+    owners = {h: i for i, sequence in enumerate(sequences) for h in sequence}
+    dates: dict[str, list[str]] = {}
+    for sequence in sequences:
+        for heading in sequence:
+            dates.setdefault(_entry_date(heading), []).append(heading)
+    positions = {h: i for i, h in enumerate(saved)}
+    for date, headings in sorted(dates.items()):
+        missing = [h for h in headings if h not in positions]
+        split = date and len({owners[h] for h in headings}) > 1
+        lost = [h for h in missing if owners[h] != working]
+        if split and lost:
+            state.blocked[date] = (f"same-date journal order is unavailable across files for {date}; "
+                                   f"missing archived headings: {', '.join(lost)}. {_ORDER_REPAIR}")
+            continue
+        # The owner distinguishes new working entries from lost archive history.
+        # New working headings keep their neighbours. Only a working sequence
+        # with no saved heading on this date defaults to after all known ties.
+        appended = missing if split and not any(h in positions and owners[h] == working
+                                                for h in headings) else []
+        priority = {h: i for i, h in enumerate(dict.fromkeys([*(h for h in saved if h in headings), *headings]))}
+        following: dict[str, set[str]] = {h: set() for h in headings}
+        incoming = dict.fromkeys(headings, 0)
+
+        def edge(before, after):
+            if after not in following[before]:
+                following[before].add(after)
+                incoming[after] += 1
+
+        for sequence in sequences:
+            local = [h for h in sequence if _entry_date(h) == date]
+            for before, after in zip(local, local[1:]):
+                edge(before, after)
+            known = [h for h in local if h in positions]
+            if any(positions[before] > positions[after] for before, after in zip(known, known[1:])):
+                state.warnings.append(f"journal order for {date} differs from the sidecar; "
+                                      "the file wins and the next journal move refreshes the sidecar (ADR-072)")
+        # All cross-file relations survive; saved relations within a file yield
+        # to that file. A cycle now means separated relations cannot reconcile.
+        tied = [h for h in saved if _entry_date(h) == date]
+        for i, before in enumerate(tied):
+            for after in tied[i + 1:]:
+                if owners[before] != owners[after]:
+                    edge(before, after)
+        if appended:
+            for before in tied:
+                edge(before, appended[0])
+            for before, after in zip(appended, appended[1:]):
+                edge(before, after)
+        ready = [(priority[h], h) for h in headings if not incoming[h]]
+        heapq.heapify(ready)
+        ordered = []
+        while ready:
+            _, heading = heapq.heappop(ready)
+            ordered.append(heading)
+            for after in following[heading]:
+                incoming[after] -= 1
+                if not incoming[after]:
+                    heapq.heappush(ready, (priority[after], after))
+        if len(ordered) != len(headings):
+            state.blocked[date] = f"journal order for {date} has conflicting cross-file ties. {_ORDER_REPAIR}"
+        else:
+            for heading in ordered:
+                state.order[heading] = len(state.order)
+    state.warnings.extend(state.blocked.values())
+    return state
+
+
+def _journal_order(snapshot: Snapshot, required: Iterable[str] | None = None) -> dict[str, int]:
+    state = _journal_order_state(snapshot)
+    dates = {_entry_date(h) for h in required} if required is not None else set(state.blocked)
+    for date in dates:
+        if date in state.blocked:
+            raise ArchiveError(state.blocked[date], "invalid-journal-order")
+    return state.order
+
+
+def _journal_order_text(snapshot: Snapshot, order: dict[str, int]) -> str:
+    state = _journal_order_state(snapshot)
+    # An unrelated date can move while a broken tie stays. Preserve whatever
+    # history that tie still has, without inventing its missing headings.
+    headings = [*order, *(h for h in state.history if _entry_date(h) in state.blocked)]
+    headings.sort(key=_entry_date)
+    return (json.dumps({"version": 1, "headings": headings}, ensure_ascii=False, indent=2)
+            + "\n").replace("\n", state.newline)
+
+
+class _Unplaceable(Exception):
+    """Placing a section would alter authored bytes."""
+
+
+def _insert_entry(text: str, heading: str, section: str, newline: str, order: dict[str, int]) -> str:
+    """Insert verbatim by date and merged ties (ADR-072).
+
+    Backdated files may return in date order; only placement changes, never
+    section bytes. Observed same-date order wins over saved metadata.
+    """
+    existing = _journal_sections(text)
+    if not existing:
+        return text.rstrip("\r\n") + newline * 2 + section
+    key = lambda h: (_entry_date(h), order.get(h, -1))
+    earlier = [end for h, _, end in existing if key(h) < key(heading)]
+    point = earlier[-1] if earlier else existing[0][1]
+    if not text[:point].endswith("\n"):
+        raise _Unplaceable("the archived entry before it has no final line ending")
+    if not section.endswith("\n") and point < len(text):
+        raise _Unplaceable("its last line has no line ending, so it can only be the last entry of an archive")
+    return text[:point] + section + text[point:]
+
+
+def _settle(entries: list[list], snapshot: Snapshot, newline: str) -> None:
+    """Keep back entries whose placement would alter authored bytes."""
+    state = _journal_order_state(snapshot)
+    order = state.order
+    placed: dict[str, str] = {}
+    for entry in entries:
+        if entry[3] is not None:
+            continue
+        if _entry_date(entry[0]) in state.blocked:
+            entry[3] = state.blocked[_entry_date(entry[0])]
+            continue
+        name = entry[2]
+        if name not in placed:
+            placed[name] = (snapshot.text(name) if snapshot.is_file(name)
+                            else f"# Journal{newline}{newline}")
+        try:
+            placed[name] = _insert_entry(placed[name], entry[0], entry[1], newline, order)
+        except _Unplaceable as problem:
+            entry[3] = str(problem)
+
+
+def _journal_entries(snapshot: Snapshot) -> list[tuple[str, str]]:
+    """Every journal section in the working file and every archive, to compare around a move."""
+    found = []
+    for text in _journal_files(snapshot).values():
+        for heading, start, end in _journal_sections(text):
+            found.append((heading, text[start:end]))
+    return sorted(found)
+
+
+def _locations(project: Project) -> dict[str, tuple[str, str]]:
+    """Every archivable record id (and a contract's criteria) -> (file, owning id)."""
+    found: dict[str, tuple[str, str]] = {}
+    for group in (project.tasks, project.contracts.values(), project.debts, project.events,
+                  project.assumptions):
+        for item in group:
+            found[item.id] = (item.source.file, item.id)
+    for contract in project.contracts.values():
+        for criterion in contract.criteria:
+            found.setdefault(criterion.id, (contract.source.file, contract.id))
+    return found
+
+
 RECORD_RULES: tuple[RecordRule, ...] = (
-    TaskRule(), ContractRule(), AssumptionRule(), DebtRule(), TraceRule(),
+    TaskRule(), ContractRule(), AssumptionRule(), DebtRule(), TraceRule(), JournalRule(),
 )
 
 
@@ -431,8 +768,7 @@ def _inventory(snapshot: Snapshot, destinations: Iterable[str]) -> list[dict[str
 
 def _plan_digest(root: Path, result: Plan) -> str:
     payload = {
-        "inventory": _inventory(result.snapshot,
-                                (c.destination for c in result.candidates if c.moves)),
+        "inventory": _inventory(result.snapshot, result.changed_files),
         "selection": asdict(Selection(result.phase)), "mode": result.mode, "version": result.version,
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -447,8 +783,10 @@ def plan(project: Project, phase_id: str, root: Path | None = None, *, snapshot:
     selection = Selection(phase_id)
     selection.check(project)
     result = Plan(phase_id, snapshot=snapshot)
+    if snapshot is not None:
+        result.warnings = _journal_order_state(snapshot).warnings
     context = EligibilityContext(project, selection, root, result, snapshot)
-    for rule in RECORD_RULES:
+    for rule in sorted(RECORD_RULES, key=lambda r: getattr(r, "after_records", False)):
         locations = {}
         for candidate in rule.candidates(context):
             if snapshot is not None:
@@ -486,6 +824,8 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
     snapshot = result.snapshot
     authority = snapshot.authority
     result.moved_bytes = 0
+    journal_moves = [c.id for c in result.candidates if c.kind == "journal" and c.moves]
+    journal_order = _journal_order(snapshot, journal_moves) if journal_moves else None
     for rule in RECORD_RULES:
         groups: dict[tuple[str, str], list[str]] = {}
         for candidate in result.candidates:
@@ -501,7 +841,17 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
             phase = PurePosixPath(destination).parent.name
             header = (f"# {rule.title} · {phase} (archived)\n\n"
                       f"Moved verbatim from {source} by `praukron archive` (ADR-067). Still authority.\n")
-            _, new_archive, size = _move(text, archived_text, ids, None, header, locations=locations)
+            if hasattr(rule, "place"):
+                for record_id in ids:
+                    if len(locations.get(record_id, [])) != 1:
+                        raise ArchiveError(f"no unique '## ' section found for {record_id}")
+                newline = "\r\n" if "\r\n" in text else "\n"
+                base = archived_text if archived_text is not None else header.replace("\n", newline)
+                entries = [(i, text[slice(*locations[i][0])]) for i in ids]
+                new_archive = rule.place(base, entries, newline, journal_order)
+                size = sum(len(section.encode()) for _, section in entries)
+            else:
+                _, new_archive, size = _move(text, archived_text, ids, None, header, locations=locations)
             cuts.setdefault(source, []).extend(locations[i][0] for i in ids)
             result.moved_bytes += size
             writes[target] = new_archive
@@ -510,6 +860,8 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
         if working in writes:
             raise ArchiveError(f"a destination is also a working source: {source}", "invalid-target")
         writes[working] = _cut(snapshot.text(source), spans)[0]
+    if journal_order is not None:
+        writes[authority / snapshot.resolve(_JOURNAL_ORDER)] = _journal_order_text(snapshot, journal_order)
     return writes
 
 
@@ -544,14 +896,14 @@ def preview(root: Path, phase_id: str) -> Plan:
     try:
         with _locked(root):
             project, result = _captured_plan(root, phase_id)
-            _check_valid(project)
+            _check_valid(project, result.snapshot)
             return result
     except (ParseError, OSError, UnicodeError) as error:
         raise ArchiveError(f"cannot plan archive: {error}", "plan-failed") from error
 
 
-def _check_valid(project: Project) -> None:
-    errors = validate.errors(validate.check(project))
+def _check_valid(project: Project, snapshot: Snapshot | None = None) -> None:
+    errors = validate.errors(validate.check(project, snapshot=snapshot))
     if errors:
         raise ArchiveError(f"validate reports {len(errors)} errors; fix them before archiving",
                            "validation-failed")
@@ -624,7 +976,10 @@ def _execute(root: Path, project: Project, result: Plan, writes: dict[Path, byte
             root, originals, result.phase, result.operation, directories=created, snapshot=result.snapshot)
     else:
         result.recovery = archive_recovery.backup(root, originals)
-    before = _records(project)
+    before, journal_before = _records(project), _journal_entries(result.snapshot)
+    order_path = authority / result.snapshot.resolve(_JOURNAL_ORDER)
+    journal_moves = [c.id for c in result.candidates if c.kind == "journal" and c.moves]
+    order_before = _journal_order(result.snapshot, journal_moves) if order_path in writes else None
     recovery = _write_recovery(root, originals, directories=created)
     try:
         for directory in created:
@@ -638,7 +993,13 @@ def _execute(root: Path, project: Project, result: Plan, writes: dict[Path, byte
         after = compiler.load(root)
         if _records(after) != before:
             raise ArchiveError("the records read back differently after the move")
-        introduced = [finding for finding in validate.errors(validate.check(after))
+        read_back = Snapshot.capture(result.snapshot.authority)
+        if _journal_entries(read_back) != journal_before:
+            raise ArchiveError("the journal entries read back differently after the move")
+        if order_before is not None and (not read_back.is_file(_JOURNAL_ORDER)
+                                         or _journal_order(read_back, journal_moves) != order_before):
+            raise ArchiveError("the journal order read back differently after the move")
+        introduced = [finding for finding in validate.errors(validate.check(after, snapshot=read_back))
                       if finding.code != "interrupted-archive"]
         if introduced:
             raise ArchiveError("the move introduced validation errors: "
@@ -677,6 +1038,8 @@ def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan
         raise ArchiveError(f"no archive for {phase_id}", "unknown-archive")
     rules = {snapshot.resolve(f"{directory}/{rule.filename}"): rule for rule in _restore_rules()}
     result = Plan(phase_id, snapshot=snapshot, version=layout.version(), operation="restore")
+    order_state = _journal_order_state(snapshot)
+    result.warnings = order_state.warnings
     writes = {}
     for captured in snapshot.path(directory).iterdir():
         source = authority / captured.key
@@ -691,12 +1054,17 @@ def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan
         working_ids = set(rule.sections(working.decode("utf-8")))
         restored = []
         for record_id, spans in rule.sections(archived).items():
-            if len(spans) != 1 or record_id in working_ids:
+            if (len(spans) != 1 or record_id in working_ids
+                    or rule.kind == "journal" and order_state.counts.get(record_id, 0) != 1):
                 raise ArchiveError(f"record already exists or has duplicate sections: {record_id}", "id-collision")
             working_ids.add(record_id)
+            if rule.kind == "journal" and _entry_date(record_id) in order_state.blocked:
+                result.candidates.append(Candidate(record_id, rule.kind, captured.key, target_name,
+                                                   order_state.blocked[_entry_date(record_id)]))
+                continue
             start, end = spans[0]
             data = archived[start:end].encode("utf-8")
-            restored.append((start, data))
+            restored.append((start, data, record_id))
             result.moved_bytes += len(data)
             result.candidates.append(Candidate(record_id, rule.kind, captured.key, target_name))
             if rule.kind == "task":
@@ -709,16 +1077,25 @@ def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan
                 result.debts.append(record_id)
             elif rule.kind == "event":
                 result.events.append(record_id)
-        if restored:
+        if restored and hasattr(rule, "restore"):
+            newline = "\r\n" if b"\r\n" in (working or archived_bytes) else "\n"
+            entries = [(heading, data.decode("utf-8")) for _, data, heading in sorted(restored)]
+            order = _journal_order(snapshot, [heading for heading, _ in entries])
+            writes[target] = rule.restore(working.decode("utf-8"), entries, newline, order).encode("utf-8")
+            spans = [rule.sections(archived)[heading][0] for heading, _ in entries]
+            kept = _cut(archived, spans)[0]
+            writes[source] = kept.encode("utf-8") if rule.sections(kept) else None
+            writes[authority / snapshot.resolve(_JOURNAL_ORDER)] = _journal_order_text(snapshot, order).encode("utf-8")
+        elif restored:
             newline = b"\r\n" if b"\r\n" in (working or archived_bytes) else b"\n"
             combined = working
-            for _, data in sorted(restored):
+            for _, data, _ in sorted(restored):
                 if combined and not combined.endswith(newline * 2):
                     combined += newline if combined.endswith(newline) else newline * 2
                 combined += data.replace(b"\r\n", b"\n").replace(b"\n", newline)
             writes[target] = combined
             writes[source] = None
-    if not writes:
+    if not writes and not result.candidates:
         raise ArchiveError(f"no records in archive for {phase_id}", "unknown-archive")
     result.changed_files = sorted(p.relative_to(authority).as_posix() for p in writes)
     result.created_files = [name for name in result.changed_files if not snapshot.is_file(name)]
@@ -745,7 +1122,7 @@ def restore(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
             else:
                 files[name] = data
         proposed = replace(snapshot, files=MappingProxyType(files))
-        _check_valid(compiler.load(root, authority=proposed.path()))
+        _check_valid(compiler.load(root, authority=proposed.path()), proposed)
         if not dry_run:
             _execute(root, project, result, writes)
         return result
@@ -765,7 +1142,7 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
             raise
         if digest is not None and digest != result.digest:
             raise ArchiveError("plan no longer matches the chronicle; run archive plan again", "stale-plan")
-        _check_valid(project)
+        _check_valid(project, result.snapshot)
         if not dry_run:
             _execute(root, project, result, {p: text.encode("utf-8") for p, text in result.writes.items()})
         return result
