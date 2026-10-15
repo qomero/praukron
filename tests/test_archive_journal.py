@@ -258,10 +258,32 @@ class TestJournalApply(JournalCase):
         archived = (self.authority / "archive/P1/JOURNAL.md").read_text(encoding="utf-8")
         self.assertEqual([h for h, _, _ in archive._journal_sections(archived)], [first, second])
 
-    def test_an_earlier_entry_that_names_nothing_does_not_hold_a_later_one_back(self):
+    def test_any_earlier_entry_that_stays_holds_a_later_same_date_entry_back(self):
         a, b = "2026-01-01 — Note", "2026-01-01 — Work"
         self.write_journal(f"# Journal\n\n## {a}\nA thought.\n\n## {b}\nT-ONE.\n")
-        self.assertEqual(self.moved(archive.preview(self.root, "P1")), [b])
+        result = archive.preview(self.root, "P1")
+        self.assertEqual(self.moved(result), [])
+        self.assertIn("original order", self.stays(result, b))
+
+    def test_an_unknown_id_keeps_same_date_order_when_the_record_appears_later(self):
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                self.setUp()
+                first, second = "2026-01-01 — First", "2026-01-01 — Second"
+                self.write_journal(f"# Journal\n\n## {first}\nWaits on T-LATER.\n\n## {second}\nT-ONE.\n", newline)
+                result = archive.preview(self.root, "P1")
+                self.assertEqual(self.moved(result), [])
+                self.assertIn("resolve to no record", self.stays(result, first))
+                self.assertIn("original order", self.stays(result, second))
+                tasks = self.authority / "TASKS.md"
+                text = tasks.read_text(encoding="utf-8")
+                start, end = text.index("## T-ONE:"), text.index("## T-TWO:")
+                later = text[start:end].replace("T-ONE", "T-LATER").replace("AC: AC-T-LATER", "AC: AC-T-ONE")
+                tasks.write_text(text + "\n" + later, encoding="utf-8")
+                archive.archive(self.root, "P1")
+                archived = (self.authority / "archive/P1/JOURNAL.md").read_bytes()
+                self.assertLess(archived.index(b"First"), archived.index(b"Second"))
+                self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
 
     def test_index_and_old_pointers_resolve_through_retrieve(self):
         self.write_journal(entries())

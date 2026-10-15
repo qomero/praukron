@@ -407,8 +407,8 @@ class JournalRule:
     move would be ambiguous. Entries move as exact byte spans and are placed in
     the archive by entry date. An entry whose last line has no line ending stays
     unless it lands at the end of an archive whose last entry is untouched, and
-    an entry stays while an earlier entry of the same date is waiting on an open
-    record, so the original order of same-date entries survives every run.
+    an entry stays while an earlier entry of the same date stays, whatever the
+    reason, so the original order of same-date entries survives every run.
     """
 
     kind, filename, title = "journal", "JOURNAL.md", "Journal"
@@ -460,11 +460,10 @@ class JournalRule:
                 reason = "names no archivable record"
             destination = (f"{ARCHIVE_DIR}/{latest_phase(project, phases)}/{self.filename}"
                            if reason is None else selection.destination(self.filename))
-            entries.append([heading, text[start:end], destination, reason,
-                            bool(reason) and reason.startswith("names record(s)")])
+            entries.append([heading, text[start:end], destination, reason])
         newline = "\r\n" if "\r\n" in text else "\n"
         _settle(entries, snapshot, newline)
-        for heading, _, destination, reason, _ in entries:
+        for heading, _, destination, reason in entries:
             yield Candidate(heading, self.kind, self.filename, destination, reason)
 
     def place(self, archived: str, entries: list[tuple[str, str]], newline: str) -> str:
@@ -522,10 +521,9 @@ def _settle(entries: list[list], snapshot: Snapshot, newline: str) -> None:
         for entry in entries:
             date = _entry_date(entry[0])
             if entry[3] is not None:
-                if entry[4]:
-                    stayed.add(date)
+                stayed.add(date)
             elif date in stayed:
-                entry[3], entry[4] = f"an earlier entry dated {date} is waiting, so the original order is kept", True
+                entry[3] = f"an earlier entry dated {date} stays, so the original order is kept"
                 break
         else:
             placed: dict[str, str] = {}
@@ -539,7 +537,7 @@ def _settle(entries: list[list], snapshot: Snapshot, newline: str) -> None:
                 try:
                     placed[name] = _insert_entry(placed[name], entry[0], entry[1], newline)
                 except _Unplaceable as problem:
-                    entry[3], entry[4] = str(problem), True
+                    entry[3] = str(problem)
                     break
             else:
                 return
