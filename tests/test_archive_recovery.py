@@ -19,7 +19,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from praukron import archive, archive_recovery, cli, compile as compiler, layout, mutate, parse, validate
+from praukron import archive, archive_recovery, cli, compile as compiler, layout, mutate, validate
 from test_archive_plan import ArchivePlanCase
 
 
@@ -30,13 +30,13 @@ class RecoveryCase(ArchivePlanCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def init_git(self):
+    def init_git(self, *, autocrlf="false"):
         if not shutil.which("git"):
             self.skipTest("git is not installed")
         self.git("init")
         self.git("config", "user.name", "Archive test")
         self.git("config", "user.email", "archive@example.invalid")
-        self.git("config", "core.autocrlf", "false")
+        self.git("config", "core.autocrlf", autocrlf)
         self.git("config", "commit.gpgsign", "false")
         self.git("config", "core.hooksPath", str(self.root / "no-hooks"))
         self.git("add", "--", layout.AUTHORITY_DIR)
@@ -83,6 +83,64 @@ class RecoveryCase(ArchivePlanCase):
 
 
 class TestGitRecovery(RecoveryCase):
+    def test_autocrlf_uses_exact_backups_in_all_three_git_states(self):
+        for newline in (b"\n", b"\r\n"):
+            for state in ("unstaged", "staged", "committed"):
+                with self.subTest(newline=newline, state=state):
+                    self.setUp()
+                    for path in self.authority.rglob("*.md"):
+                        path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", newline))
+                    self.init_git(autocrlf="true")
+                    self.assertEqual(self.git("status", "--porcelain", "--", layout.AUTHORITY_DIR), "")
+                    before = self.snapshot()
+                    plan = archive.preview(self.root, "P1")
+                    self.assertEqual(plan.mode, "nogit")
+                    result = archive.archive(self.root, "P1", digest=plan.digest)
+                    self.assertTrue(Path(result.recovery["backup"]).is_dir())
+                    self.assertNotIn("unstaged", result.recovery["commands"])
+                    if state != "unstaged":
+                        self.git("add", "--", layout.AUTHORITY_DIR)
+                    if state == "committed":
+                        self.git("commit", "-m", "Archive with checkout conversion enabled")
+                    self.run_commands(result.recovery["commands"]["backup"])
+                    self.assertEqual(self.snapshot(), before)
+                    self.assertFalse((self.authority / "archive/P1/TASKS.md").exists())
+
+    def test_attribute_conversion_uses_backups_for_sources_and_prospective_destinations(self):
+        for pattern in (f"{layout.AUTHORITY_DIR}/**", f"{layout.AUTHORITY_DIR}/archive/**"):
+            for attributes in ("text eol=crlf", "text eol=lf", "filter=archive-smudge", "ident",
+                               "working-tree-encoding=UTF-8"):
+                with self.subTest(pattern=pattern, attributes=attributes):
+                    self.setUp()
+                    (self.root / ".gitattributes").write_bytes(f"{pattern} {attributes}\n".encode())
+                    self.init_git()
+                    self.git("add", ".gitattributes")
+                    self.git("commit", "-m", "Checkout attributes")
+                    before = self.snapshot()
+                    plan = archive.preview(self.root, "P1")
+                    self.assertEqual(plan.mode, "nogit")
+                    result = archive.archive(self.root, "P1", digest=plan.digest)
+                    self.run_commands(result.recovery["commands"]["backup"])
+                    self.assertEqual(self.snapshot(), before)
+
+    def test_input_conversion_and_new_configuration_invalidate_git_plan(self):
+        self.init_git()
+        plan = archive.preview(self.root, "P1")
+        self.assertEqual(plan.mode, "git")
+        self.git("config", "core.autocrlf", "input")
+        self.assertEqual(archive.preview(self.root, "P1").mode, "nogit")
+        before = self.snapshot()
+        with self.assertRaises(archive.ArchiveError) as error:
+            archive.archive(self.root, "P1", digest=plan.digest)
+        self.assertEqual(error.exception.code, "stale-plan")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_disabled_conversion_attributes_keep_git_recovery(self):
+        (self.root / ".gitattributes").write_bytes(
+            f"{layout.AUTHORITY_DIR}/** -text -filter -ident -working-tree-encoding\n".encode())
+        self.init_git()
+        self.assertEqual(archive.preview(self.root, "P1").mode, "git")
+
     def test_case_insensitive_index_lookup_uses_snapshot_aliases(self):
         probe = self.authority / "CASE-PROBE"
         probe.write_bytes(b"probe")
@@ -542,24 +600,7 @@ class TestArchiveRestore(RecoveryCase):
         response = ("# Responses\n\n## R-2: A-CLOSED CONFIRM\n- By: Owner\n"
                     "- Date: 2026-10-15\n- Via: cli\n\n> Confirmed again.\n").encode()
         (self.authority / "RESPONSES.md").write_bytes(response)
-        # The parallel records worker supplies archived-assumption loading.
-        # Bridge that extension here with the canonical parser, without
-        # bypassing validation or modifying that worker's compiler code.
-        real_load = compiler.load
-
-        def load_all_assumptions(root, **kwargs):
-            project = real_load(root, **kwargs)
-            authority = kwargs.get("authority", root / layout.AUTHORITY_DIR)
-            for phase in compiler.archived(authority, project.phases):
-                name = f"archive/{phase}/ASSUMPTIONS.md"
-                if not any(a.source.file == name for a in project.assumptions):
-                    for assumption in parse.parse_assumptions(authority / name):
-                        assumption.source = type(assumption.source)(name, assumption.id)
-                        project.assumptions.append(assumption)
-            return project
-
-        with mock.patch.object(compiler, "load", load_all_assumptions):
-            result = archive.restore(self.root, "P1")
+        result = archive.restore(self.root, "P1")
         self.assertEqual(len(result.candidates), 6)
         for filename, data in saved.items():
             self.assertIn(data, (self.authority / filename).read_bytes())

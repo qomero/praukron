@@ -10,7 +10,8 @@ people arriving from a release page.
   persistent byte-exact backups outside Git, and `archive restore <phase>` after later edits;
   apply and restore share durable rollback across all record files. Detect partial ignores and nested
   repositories, keep backups private, and print POSIX sh and PowerShell recovery procedures; restore
-  validates before writing and follows the working file's line endings.
+  validates the proposed restored snapshot before writing and follows the working file's line endings.
+  Use exact backups when Git newline or smudge conversion could change recovery bytes.
 
 - Archive eligible P-NONE tasks and closed, reconciled assumptions, technical debt and trace events;
   load and retrieve those lifecycle records from phase archives while preserving their provenance.

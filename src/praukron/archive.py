@@ -20,6 +20,7 @@ import re
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path, PurePosixPath
+from types import MappingProxyType
 from typing import Iterable, Protocol
 
 from . import analytics, archive_recovery, compile as compiler, layout, validate
@@ -733,7 +734,17 @@ def restore(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
         snapshot = Snapshot.capture(root / AUTHORITY_DIR)
         result, writes = _restore_writes(root, phase_id, snapshot)
         project = compiler.load(root, authority=snapshot.path())
-        _check_valid(project)
+        # A returned record may repair a reference the current loader cannot
+        # resolve yet. Validate the proposed state before backing up or writing.
+        files = dict(snapshot.files)
+        for path, data in writes.items():
+            name = path.relative_to(snapshot.authority).as_posix()
+            if data is None:
+                files.pop(name, None)
+            else:
+                files[name] = data
+        proposed = replace(snapshot, files=MappingProxyType(files))
+        _check_valid(compiler.load(root, authority=proposed.path()))
         if not dry_run:
             _execute(root, project, result, writes)
         return result

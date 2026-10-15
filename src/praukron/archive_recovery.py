@@ -24,7 +24,7 @@ def _git(root: Path, *args: str, input: bytes | None = None) -> subprocess.Compl
 
 
 def mode(root: Path, files: Iterable[str] | None = None, destinations: Iterable[str] = ()) -> str:
-    """Use Git only if every captured or prospective file is unignored."""
+    """Use Git only for unignored paths with no checkout conversion enabled."""
     authority = root / AUTHORITY_DIR
     try:
         tree = _git(authority, "rev-parse", "--is-inside-work-tree")
@@ -40,9 +40,27 @@ def mode(root: Path, files: Iterable[str] | None = None, destinations: Iterable[
             return "nogit"
         if ignored.returncode not in (0, 1):
             raise OSError(ignored.stderr.decode("utf-8", errors="replace"))
-        return "nogit" if ignored.returncode == 0 else "git"
+        if ignored.returncode == 0 or _checkout_converts(authority, paths):
+            return "nogit"
+        return "git"
     except FileNotFoundError:
         return "nogit"
+
+
+def _checkout_converts(authority: Path, paths: Iterable[str]) -> bool:
+    """Prefer exact backups whenever Git may clean or smudge chronicle bytes."""
+    autocrlf = _git(authority, "config", "--get", "core.autocrlf")
+    if autocrlf.returncode not in (0, 1):
+        return True
+    if autocrlf.stdout.strip().lower() not in (b"", b"false", b"no", b"off", b"0"):
+        return True
+    attributes = _git(authority, "check-attr", "-z", "--stdin", "text", "eol", "crlf",
+                      "filter", "ident", "working-tree-encoding",
+                      input=b"".join(os.fsencode(p) + b"\0" for p in paths if p != "."))
+    if attributes.returncode:
+        return True
+    fields = attributes.stdout.split(b"\0")
+    return any(value not in (b"unspecified", b"unset") for value in fields[2::3])
 
 
 def require_clean(root: Path) -> None:
