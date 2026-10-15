@@ -11,6 +11,7 @@ people arriving from a release page.
   Accept criteria without prescribed wording and empty AC sentinels; align task field order and payload schemas.
 - Add `praukron task add` and `contract add` with strict payloads, frozen-contract checks,
   and recoverable transactions for task and contract creation.
+- Add `praukron criterion set` for revision-guarded criterion results and one-line evidence.
 - Structured transactions normalize symlinked project paths before target lookup and recovery.
 - Add `praukron task update` to change a task's status, owner, claim or evidence under a revision check,
   refusing DONE without passing criteria and evidence, owner-held DONE, archived tasks and stale revisions.

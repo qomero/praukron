@@ -24,15 +24,17 @@ from .respond import RespondError, _lock, _replace
 class WriteError(Exception):
     """A structured write was refused."""
 
-    def __init__(self, code: str, message: str, field: str | None = None):
+    def __init__(self, code: str, message: str, field: str | None = None,
+                 details: dict | None = None):
         super().__init__(message)
-        self.code, self.field = code, field
+        self.code, self.field, self.details = code, field, details or {}
 
 
 def refusal(operation: str, error: WriteError) -> dict:
     detail = {"code": error.code, "message": str(error)}
     if error.field is not None:
         detail["field"] = error.field
+    detail.update(error.details)
     return {"ok": False, "operation": operation, "error": detail, "written": False}
 
 
@@ -96,7 +98,11 @@ def load_payload(path: str | None, schema: dict) -> dict:
         payload = json.loads(text, object_pairs_hook=unique, parse_constant=invalid_constant)
     except (ValueError, OSError) as error:
         raise WriteError("invalid-json", f"cannot read JSON payload: {error}") from error
-    return validate_payload(payload, schema)
+    try:
+        return validate_payload(payload, schema)
+    except WriteError as error:
+        error.payload = payload
+        raise
 
 
 def revision(section_bytes: bytes) -> str:

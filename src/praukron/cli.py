@@ -338,6 +338,21 @@ def cmd_task_update(root: Path, args: argparse.Namespace) -> int:
     return 0 if result.get("ok", args.schema) else 1
 
 
+def cmd_criterion_set(root: Path, args: argparse.Namespace) -> int:
+    from . import criterion, mutate
+
+    if args.schema:
+        result = {"schema": criterion.SCHEMA, "example": criterion.EXAMPLE}
+    else:
+        try:
+            payload = mutate.load_payload(args.input, criterion.SCHEMA)
+            result = criterion.set_result(root, payload, dry_run=args.dry_run)
+        except mutate.WriteError as error:
+            result = criterion.refuse(root, error)
+    print(json.dumps(result, separators=(",", ":")))
+    return 0 if result.get("ok", args.schema) else 1
+
+
 def cmd_respond(root: Path, args: argparse.Namespace) -> int:
     """Append the owner's response to RESPONSES.md, validated and atomic (ADR-055)."""
     from . import respond
@@ -668,6 +683,11 @@ def build_parser() -> argparse.ArgumentParser:
     add_contract = contract_commands.add_parser("add", help="append a contract for an existing task")
     write_options(add_contract)
     add_contract.set_defaults(handler=contract.command, write_operation="contract.add")
+    criterion = subparsers.add_parser("criterion", help="record governed criterion results")
+    criterion_commands = criterion.add_subparsers(dest="criterion_command", required=True)
+    set_criterion = criterion_commands.add_parser("set", help="set one criterion state and evidence")
+    write_options(set_criterion)
+    set_criterion.set_defaults(handler=cmd_criterion_set, write_operation="criterion.set")
 
     answer = subparsers.add_parser(
         "respond", help="append the owner's response to RESPONSES.md"
