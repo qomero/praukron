@@ -1,7 +1,8 @@
 """The praukron command.
 
-Every subcommand reads `.praukron/chronicle/` and writes, at most, inside
-`.praukron/compiled/`. Nothing here needs a network or a model provider.
+Read commands compile projections; governed write commands validate and persist
+only the records they are authorized to change. Nothing here needs a network
+or a model provider.
 """
 
 from __future__ import annotations
@@ -298,6 +299,28 @@ def cmd_archive(root: Path, args: argparse.Namespace) -> int:
         if applied:
             print("Compiled views refreshed.")
     return 0
+
+
+def write_options(parser: argparse.ArgumentParser) -> None:
+    """The common interface for structured write subcommands."""
+    parser.add_argument("--input", help="JSON payload file, or - for stdin")
+    parser.add_argument("--dry-run", action="store_true", help="report the change without writing")
+    parser.add_argument("--schema", action="store_true", help="print payload schema and a minimal example")
+
+
+def cmd_journal_append(root: Path, args: argparse.Namespace) -> int:
+    from . import journal, mutate
+
+    if args.schema:
+        result = {"schema": journal.SCHEMA, "example": journal.EXAMPLE}
+    else:
+        try:
+            payload = mutate.load_payload(args.input, journal.SCHEMA)
+            result = journal.append(root, payload, dry_run=args.dry_run)
+        except mutate.WriteError as error:
+            result = mutate.refusal("journal.append", error)
+    print(json.dumps(result, separators=(",", ":")))
+    return 0 if result.get("ok", args.schema) else 1
 
 
 def cmd_respond(root: Path, args: argparse.Namespace) -> int:
@@ -608,8 +631,14 @@ def build_parser() -> argparse.ArgumentParser:
     graph_tool.add_argument("--json", action="store_true")
     graph_tool.set_defaults(handler=cmd_codegraph)
 
+    journal = subparsers.add_parser("journal", help="append governed journal entries")
+    journal_commands = journal.add_subparsers(dest="journal_command", required=True)
+    append_entry = journal_commands.add_parser("append", help="append one unique journal section")
+    write_options(append_entry)
+    append_entry.set_defaults(handler=cmd_journal_append, write_operation="journal.append")
+
     answer = subparsers.add_parser(
-        "respond", help="append the owner's response to RESPONSES.md (the only write into the chronicle)"
+        "respond", help="append the owner's response to RESPONSES.md"
     )
     answer.add_argument("target", nargs="?", help="an assumption (A-…) or a task (T-…)")
     answer.add_argument("action", nargs="?", type=str.upper,
@@ -652,9 +681,17 @@ def _utf8_streams() -> None:
 def main(argv: list[str] | None = None) -> int:
     _utf8_streams()
     args = build_parser().parse_args(argv)
+    if getattr(args, "write_operation", None) and args.schema:
+        return args.handler(Path.cwd(), args)
     try:
         root = compiler.locate(Path(args.directory) if args.directory else None)
     except compiler.LayoutError as error:
+        if getattr(args, "write_operation", None):
+            from .mutate import WriteError, refusal
+
+            print(json.dumps(refusal(args.write_operation, WriteError("invalid-project", str(error))),
+                             separators=(",", ":")))
+            return 1
         return _fail(str(error))
     try:
         return args.handler(root, args)

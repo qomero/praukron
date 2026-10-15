@@ -6,6 +6,7 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Add `praukron journal append` with strict JSON payloads, dry runs, and shared recoverable write transactions.
 - Locks no longer reclaim live writers or release another writer's lock.
 - Archiving now moves a shared contract once every working task that uses it has moved.
 - Journal pointers rendered in the index resolve to their complete headings.
