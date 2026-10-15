@@ -31,6 +31,40 @@ class Snapshot:
     authority: Path | None = field(default=None, repr=False, compare=False)
 
     @classmethod
+    def capture_journals(cls, authority: Path) -> Snapshot:
+        """Only journal validation inputs; no recursive authority scan.
+
+        Without an order file or archived journal, only the working journal
+        is needed for duplicate checks. No unrelated record bytes are read.
+        Canonical file keys retain native case lookup semantics.
+        """
+        authority = authority.resolve()
+        base = authority / "archive"
+        paths = {}
+        sidecar = base / "JOURNAL.order.json"
+        if sidecar.exists() or sidecar.is_symlink():
+            paths["archive/JOURNAL.order.json"] = sidecar
+        if base.is_dir():
+            for phase in sorted(base.iterdir()):
+                if phase.is_dir():
+                    journal = phase / "JOURNAL.md"
+                    if journal.exists() or journal.is_symlink():
+                        paths[f"archive/{phase.name}/JOURNAL.md"] = journal
+        elif base.exists() or base.is_symlink():
+            raise OSError(f"{base}: expected an archive directory")
+        working = authority / "JOURNAL.md"
+        if working.exists() or working.is_symlink():
+            paths["JOURNAL.md"] = working
+        files = {}
+        for name, path in paths.items():
+            if not path.is_file():
+                kind = "broken symlink" if path.is_symlink() and not path.exists() else (
+                    "directory" if path.is_dir() else "non-file path")
+                raise OSError(f"{path}: {kind}; expected a regular file")
+            files[name] = path.read_bytes()
+        return cls(MappingProxyType(files), frozenset({""}), authority=authority)
+
+    @classmethod
     def capture(cls, authority: Path) -> Snapshot:
         """The caller holds the shared write lock throughout capture and planning."""
         authority = authority.resolve()

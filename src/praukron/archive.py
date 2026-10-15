@@ -530,6 +530,8 @@ class _JournalOrderState:
     blocked: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
+    history: list[str] = field(default_factory=list)
+    newline: str = "\n"
 
 
 def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
@@ -538,9 +540,13 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
     Diagnose drift without stopping unrelated moves. Incomplete metadata is
     never evidence for a cross-file tie, even when its JSON schema is valid.
     """
-    state = _JournalOrderState()
+    sidecar = snapshot.original(_JOURNAL_ORDER)
+    original = sidecar if sidecar is not None else snapshot.original("JOURNAL.md") or b""
+    state = _JournalOrderState(newline="\r\n" if b"\r\n" in original else "\n")
+    files = _journal_files(snapshot)
     sequences = [[h for h, _, _ in _journal_sections(text)]
-                 for text in _journal_files(snapshot).values()]
+                 for text in files.values()]
+    working = next((i for i, name in enumerate(files) if name == snapshot.resolve("JOURNAL.md")), None)
     counts = state.counts
     for sequence in sequences:
         for heading in sequence:
@@ -549,9 +555,11 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
     # if they identified one entry.
     sequences = [[h for h in sequence if counts[h] == 1] for sequence in sequences]
     saved = []
-    if snapshot.is_file(_JOURNAL_ORDER):
+    if sidecar is not None:
         try:
-            data = json.loads(snapshot.text(_JOURNAL_ORDER))
+            # Decode/parse once; even unusable bytes still supply line endings.
+            # Serialization must not decode metadata already rejected here.
+            data = json.loads(sidecar.decode("utf-8"))
             if (not isinstance(data, dict) or set(data) != {"version", "headings"}
                     or type(data["version"]) is not int or data["version"] != 1
                     or not isinstance(data["headings"], list)
@@ -559,7 +567,8 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
                            for h in data["headings"])
                     or len(set(data["headings"])) != len(data["headings"])):
                 raise ValueError("expected version 1 and unique full headings")
-            stale = [h for h in data["headings"] if h not in counts]
+            state.history = data["headings"]
+            stale = [h for h in state.history if h not in counts]
             if stale:
                 state.warnings.append("order file names headings absent from every journal "
                                       "(renamed or removed): " + ", ".join(stale) + ". " + _ORDER_REPAIR)
@@ -575,10 +584,15 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
     positions = {h: i for i, h in enumerate(saved)}
     for date, headings in sorted(dates.items()):
         missing = [h for h in headings if h not in positions]
-        if date and len({owners[h] for h in headings}) > 1 and missing:
+        split = date and len({owners[h] for h in headings}) > 1
+        lost = [h for h in missing if owners[h] != working]
+        if split and lost:
             state.blocked[date] = (f"same-date journal order is unavailable across files for {date}; "
-                                   f"missing headings: {', '.join(missing)}. {_ORDER_REPAIR}")
+                                   f"missing archived headings: {', '.join(lost)}. {_ORDER_REPAIR}")
             continue
+        # The owner distinguishes new working entries from lost archive history.
+        # On a split date, new working headings follow every recorded tie.
+        appended = missing if split else []
         priority = {h: i for i, h in enumerate(dict.fromkeys([*(h for h in saved if h in headings), *headings]))}
         following: dict[str, set[str]] = {h: set() for h in headings}
         incoming = dict.fromkeys(headings, 0)
@@ -589,7 +603,7 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
                 incoming[after] += 1
 
         for sequence in sequences:
-            local = [h for h in sequence if _entry_date(h) == date]
+            local = [h for h in sequence if _entry_date(h) == date and h not in appended]
             for before, after in zip(local, local[1:]):
                 edge(before, after)
             known = [h for h in local if h in positions]
@@ -603,6 +617,11 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
             for after in tied[i + 1:]:
                 if owners[before] != owners[after]:
                     edge(before, after)
+        if appended:
+            for before in tied:
+                edge(before, appended[0])
+            for before, after in zip(appended, appended[1:]):
+                edge(before, after)
         ready = [(priority[h], h) for h in headings if not incoming[h]]
         heapq.heapify(ready)
         ordered = []
@@ -635,13 +654,10 @@ def _journal_order_text(snapshot: Snapshot, order: dict[str, int]) -> str:
     state = _journal_order_state(snapshot)
     # An unrelated date can move while a broken tie stays. Preserve whatever
     # history that tie still has, without inventing its missing headings.
-    headings = [*order, *(h for h in state.saved if _entry_date(h) in state.blocked)]
+    headings = [*order, *(h for h in state.history if _entry_date(h) in state.blocked)]
     headings.sort(key=_entry_date)
-    original = (snapshot.text(_JOURNAL_ORDER) if snapshot.is_file(_JOURNAL_ORDER)
-                else snapshot.text("JOURNAL.md") if snapshot.is_file("JOURNAL.md") else "")
-    newline = "\r\n" if "\r\n" in original else "\n"
     return (json.dumps({"version": 1, "headings": headings}, ensure_ascii=False, indent=2)
-            + "\n").replace("\n", newline)
+            + "\n").replace("\n", state.newline)
 
 
 class _Unplaceable(Exception):

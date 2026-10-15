@@ -368,18 +368,23 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
     """
     from .archive import _JOURNAL_ORDER, _ORDER_REPAIR, _journal_order_state
 
+    if snapshot is None and project.journal_validation is not None:
+        return list(project.journal_validation)
     try:
         state = _journal_order_state(snapshot if snapshot is not None
-                                     else Snapshot.capture(Path(project.root) / AUTHORITY_DIR))
+                                     else Snapshot.capture_journals(Path(project.root) / AUTHORITY_DIR))
     except (OSError, UnicodeError) as error:
-        return [Finding("warning", "invalid-journal-order", f"cannot read journal order: {error}. {_ORDER_REPAIR}",
-                        _JOURNAL_ORDER)]
-    findings = [Finding("warning", "invalid-journal-order", message, _JOURNAL_ORDER)
-                for message in dict.fromkeys(state.warnings)]
-    findings.extend(Finding("warning", "duplicate-journal-heading",
-                            f"heading appears {count} times across working/archived journals: {heading}; "
-                            "reconcile the duplicate before restoring it", f"JOURNAL.md#{heading}")
-                    for heading, count in state.counts.items() if count > 1)
+        findings = [Finding("warning", "invalid-journal-order", f"cannot read journal input: {error}. {_ORDER_REPAIR}",
+                            _JOURNAL_ORDER)]
+    else:
+        findings = [Finding("warning", "invalid-journal-order", message, _JOURNAL_ORDER)
+                    for message in dict.fromkeys(state.warnings)]
+        findings.extend(Finding("warning", "duplicate-journal-heading",
+                                f"heading appears {count} times across working/archived journals: {heading}; "
+                                "reconcile the duplicate before restoring it", f"JOURNAL.md#{heading}")
+                        for heading, count in state.counts.items() if count > 1)
+    if snapshot is None:
+        project.journal_validation = list(findings)
     return findings
 
 

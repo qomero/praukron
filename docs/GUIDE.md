@@ -169,6 +169,9 @@ cannot reconcile are held for repair. Backdated entries in a file that is
 not chronological may return in date order rather than the original file
 order; exact section bytes still match. Undated `##` sections sort before
 dated entries during placement; keep journal conventions in the preamble.
+The byte guarantee covers complete entry sections, not every preamble: when
+all entries have left, insertion trims the preamble's trailing line breaks
+to two; a headerless working journal can gain `# Journal` on restore.
 
 `praukron validate` warns about malformed/version-mismatched metadata,
 missing coverage of cross-file ties, obsolete headings, order disagreements,
@@ -179,12 +182,14 @@ can move. Restore refuses a heading duplicated in any journal file.
 
 After renaming or deleting a heading, its old sidecar identity is obsolete.
 If the affected date is wholly in one journal, its observed order can rebuild
-the metadata. If that date spans files, recover the matching sidecar and
-headings from Git history or `.praukron/backup/<timestamp>/`; do not fill an
-empty/partial array or guess where the renamed heading belongs. Body-only
-edits do not change a heading's identity. A newly added heading also stays
-pending if its date already spans files and the sidecar does not cover it;
-the tool cannot infer historical position from an absent identity.
+the metadata. On a split date, a heading absent from the sidecar in the
+working journal is new and follows all known ties, including entries naming
+nothing. An absent heading in an archive is lost history: that date stays
+pending. Recover matching metadata/headings from Git history or
+`.praukron/backup/<timestamp>/`; never fill arrays by guessing. Renaming a
+working heading creates a new identity under this rule; a renamed archived
+heading requires history repair. Body-only edits retain identity. A rewrite
+for another date preserves saved names of a held date, even stale names.
 
 For a deleted or unusable sidecar, first run `validate` and compare against
 trusted history. If all headings for every date are together in one
