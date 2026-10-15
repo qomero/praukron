@@ -1445,10 +1445,11 @@ class TestTraceValidation(DomainCase):
                      "unknown-event-reference", "self-referencing-event"):
             self.assertIn(code, codes)
 
-    def test_reference_warnings_are_not_errors(self) -> None:
+    def test_record_references_are_errors_but_format_warnings_remain_non_blocking(self) -> None:
         self.trace("## EV-1: One\n- Type: note\n- Task: T-404\n- Affects: Gate Z\n- Time: yesterday\n")
         found = validate.check(self.project)
-        self.assertEqual(validate.errors(found), [])
+        self.assertEqual({finding.code for finding in validate.errors(found)},
+                         {"unknown-event-affects", "unknown-event-task"})
         self.assertEqual(
             sorted(f.code for f in found),
             ["invalid-event-time", "unknown-event-affects", "unknown-event-task"],

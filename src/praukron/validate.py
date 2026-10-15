@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .layout import AUTHORITY_DIR, RECOVERY_DIR
+from .layout import ARCHIVE_DIR, AUTHORITY_DIR, RECOVERY_DIR
 from .snapshot import Snapshot
 from .model import (
     ASSUMPTION_STATUSES,
@@ -168,10 +168,10 @@ def trace_findings(project: Project) -> list[Finding]:
             if reference == event.id:
                 findings.append(Finding("error", "self-referencing-event", f"{field_name} names the event itself", where))
         if event.task and event.task not in {t.id for t in project.tasks}:
-            findings.append(Finding("warning", "unknown-event-task", f"names task {event.task}, which does not exist", where))
+            findings.append(Finding("error", "unknown-event-task", f"names task {event.task}, which does not exist", where))
         for reference in event.affects:
             if reference not in known:
-                findings.append(Finding("warning", "unknown-event-affects", f"affects {reference}, which is not in the chronicle", where))
+                findings.append(Finding("error", "unknown-event-affects", f"affects {reference}, which is not in the chronicle", where))
         if event.time and not _TIME.match(event.time):
             findings.append(Finding("warning", "invalid-event-time", f"'{event.time}' is not an ISO date or time", where))
         text = " ".join(filter(None, (
@@ -366,13 +366,15 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
     Archive/restore use this same analysis to keep only the affected journal
     entries. A captured/proposed authority must never be checked against disk.
     """
-    from .archive import _JOURNAL_ORDER, _ORDER_REPAIR, _journal_order_state
+    from .archive import (_JOURNAL, _JOURNAL_ORDER, _NAMED, _ORDER_REPAIR,
+                          _journal_files, _journal_order_state, _journal_sections)
 
     if snapshot is None and project.journal_validation is not None:
         return list(project.journal_validation)
     try:
-        state = _journal_order_state(snapshot if snapshot is not None
-                                     else Snapshot.capture_journals(Path(project.root) / AUTHORITY_DIR))
+        captured = snapshot if snapshot is not None else Snapshot.capture_journals(
+            Path(project.root) / AUTHORITY_DIR)
+        state = _journal_order_state(captured)
     except (OSError, UnicodeError) as error:
         findings = [Finding("warning", "invalid-journal-order", f"cannot read journal input: {error}. {_ORDER_REPAIR}",
                             _JOURNAL_ORDER)]
@@ -383,8 +385,52 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
                                 f"heading appears {count} times across working/archived journals: {heading}; "
                                 "reconcile the duplicate before restoring it", f"JOURNAL.md#{heading}")
                         for heading, count in state.counts.items() if count > 1)
+        known = ({task.id for task in project.tasks} | set(project.contracts)
+                 | {criterion.id for contract in project.contracts.values()
+                    for criterion in contract.criteria}
+                 | {decision.id for decision in project.decisions}
+                 | {assumption.id for assumption in project.assumptions}
+                 | {debt.id for debt in project.debts}
+                 | {event.id for event in project.events})
+        for name, text in _journal_files(captured).items():
+            for heading, start, end in _journal_sections(text):
+                where = f"{name}#{heading}"
+                if name.casefold().startswith(f"{ARCHIVE_DIR}/") and not _JOURNAL.fullmatch(heading):
+                    findings.append(Finding("error", "invalid-journal-heading",
+                                            "archived journal heading must read '## YYYY-MM-DD — <title>'", where))
+                for reference in dict.fromkeys(_NAMED.findall(text[start:end])):
+                    if reference not in known:
+                        findings.append(Finding("warning", "unknown-journal-reference",
+                                                f"names {reference}, which does not exist", where))
     if snapshot is None:
         project.journal_validation = list(findings)
+    return findings
+
+
+def archive_findings(project: Project, snapshot: Snapshot | None = None) -> list[Finding]:
+    """Archive paths and placement that the normal record parsers cannot express."""
+    from .archive import RECORD_RULES
+
+    captured = snapshot or Snapshot.capture(Path(project.root) / AUTHORITY_DIR)
+    allowed = {rule.filename.casefold() for rule in RECORD_RULES}
+    findings: list[Finding] = []
+    for name in captured.files:
+        parts = name.split("/")
+        if not parts or parts[0].casefold() != ARCHIVE_DIR:
+            continue
+        if name.casefold() == f"{ARCHIVE_DIR}/journal.order.json":
+            continue
+        if len(parts) != 3 or not parts[2].casefold().endswith(".md"):
+            continue
+        if parts[2].casefold() not in allowed:
+            findings.append(Finding("error", "invalid-archive-file",
+                                    "archive files must be known record files under archive/<phase>/", name))
+    for task in project.tasks:
+        parts = task.source.file.split("/")
+        if len(parts) == 3 and parts[0].casefold() == ARCHIVE_DIR and parts[1] != task.phase:
+            findings.append(Finding("warning", "wrong-archive-phase",
+                                    f"task phase is {task.phase}, but it is stored in archive/{parts[1]}",
+                                    f"{task.source.file}#{task.id}"))
     return findings
 
 
@@ -634,6 +680,7 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
     findings.extend(assumption_findings(project))
     findings.extend(stale_references(project))
     findings.extend(journal_findings(project, snapshot))
+    findings.extend(archive_findings(project, snapshot))
     return findings
 
 

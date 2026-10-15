@@ -614,6 +614,18 @@ class TestArchiveRestore(RecoveryCase):
         self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
         self.assertEqual(len(list((self.root / ".praukron/backup").glob("*/manifest.json"))), 2)
 
+    def test_later_references_to_archived_records_stay_valid(self):
+        self.add_task("T-CLOSED", "M-FOUNDATION")
+        self.add_task("T-HELD", "M-FOUNDATION")
+        self.write_lifecycle_records()
+        archive.archive(self.root, "P1")
+        self.rewrite("TASKS.md", "- Dependencies: T-TWO", "- Dependencies: T-TWO, T-ONE")
+        response = ("\n## R-2: A-CLOSED CONFIRM\n- By: Owner\n- Date: 2026-10-16\n"
+                    "- Via: test\n\n> Confirmed again.\n")
+        path = self.authority / "RESPONSES.md"
+        path.write_text(path.read_text(encoding="utf-8") + response, encoding="utf-8")
+        self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+
     def test_collision_and_traversal_refused_without_writes(self):
         original = (self.authority / "TASKS.md").read_bytes()
         archive.archive(self.root, "P1")
