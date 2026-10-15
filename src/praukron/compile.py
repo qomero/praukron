@@ -76,6 +76,32 @@ def _tasks_and_contracts(authority: Path, phases: list, modules: list) -> tuple[
     return tasks, contracts
 
 
+def _archived_records(authority: Path | SnapshotPath, phases: list) -> tuple[list, list, list]:
+    """Read lifecycle records from archive directories and the working files."""
+    assumptions: list = []
+    debts: list = []
+    events: list = []
+    files = [f"{layout.ARCHIVE_DIR}/{d}/" for d in archived(authority, phases)] + [""]
+    for prefix in files:
+        for filename, parser, collected in (
+            ("ASSUMPTIONS.md", parse_assumptions, assumptions),
+            ("TECH_DEBT.md", parse_debt, debts),
+            ("TRACE.md", parse_trace, events),
+        ):
+            name = f"{prefix}{filename}"
+            path = authority / name
+            if path.is_file():
+                collected.extend(parser(path, name))
+    for label, records in (("assumption", assumptions), ("debt", debts), ("event", events)):
+        seen = {}
+        for record in records:
+            if record.id in seen and record.source.file != seen[record.id].source.file:
+                raise ParseError(record.source.file, record.id,
+                                 f"duplicate {label}; also in {seen[record.id].source.file}")
+            seen.setdefault(record.id, record)
+    return assumptions, debts, events
+
+
 def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project:
     """Load disk authority, or a captured read-only view through the same parsers."""
     if authority is None:
@@ -83,6 +109,7 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
     phases, gates, milestones = parse_phases(authority / "PHASES.md")
     modules = parse_modules(authority / "MODULES.md")
     tasks, contracts = _tasks_and_contracts(authority, phases, modules)
+    assumptions, debts, events = _archived_records(authority, phases)
     # A project that names itself compiles the same in every checkout. One that
     # does not falls back to its directory, which is where the name used to
     # come from always.
@@ -100,9 +127,9 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         decisions=parse_decisions(authority / "ADR"),
         intent=read_text(authority / "INTENT.md"),
         handoff=read_text(authority / "HANDOFF.md"),
-        events=parse_trace(authority / "TRACE.md"),
-        debts=parse_debt(authority / "TECH_DEBT.md"),
-        assumptions=parse_assumptions(authority / "ASSUMPTIONS.md"),
+        events=events,
+        debts=debts,
+        assumptions=assumptions,
         responses=parse_responses(authority / "RESPONSES.md"),
     )
     domain.resolve(project)

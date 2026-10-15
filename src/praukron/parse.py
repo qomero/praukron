@@ -377,12 +377,12 @@ def parse_decisions(directory: Path) -> list[Decision]:
     return decisions
 
 
-def parse_trace(path: Path) -> list[TraceEvent]:
+def parse_trace(path: Path, name: str | None = None) -> list[TraceEvent]:
     """Operational events from TRACE.md. The file is optional: a project that
     has never recorded an event simply has none."""
     if not path.is_file():
         return []
-    name = path.name
+    name = name or path.name
     events: list[TraceEvent] = []
     for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(EV-[A-Za-z0-9.\-]+): (.+)", heading)
@@ -415,11 +415,11 @@ def parse_trace(path: Path) -> list[TraceEvent]:
     return events
 
 
-def parse_debt(path: Path) -> list[TechDebt]:
+def parse_debt(path: Path, name: str | None = None) -> list[TechDebt]:
     """Technical debt from TECH_DEBT.md. Optional: no file, no debt."""
     if not path.is_file():
         return []
-    name = path.name
+    name = name or path.name
     debts: list[TechDebt] = []
     for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(TD-[A-Za-z0-9.\-]+): (.+)", heading)
@@ -451,11 +451,11 @@ def parse_debt(path: Path) -> list[TechDebt]:
     return debts
 
 
-def parse_assumptions(path: Path) -> list[Assumption]:
+def parse_assumptions(path: Path, name: str | None = None) -> list[Assumption]:
     """ASSUMPTIONS.md (ADR-054). Optional: no file, no assumptions."""
     if not path.is_file():
         return []
-    name = path.name
+    name = name or path.name
     found: list[Assumption] = []
     for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
         match = re.match(r"(A-[A-Za-z0-9.\-]+): (.+)", heading)

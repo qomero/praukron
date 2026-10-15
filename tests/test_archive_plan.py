@@ -19,7 +19,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from praukron import archive, cli, compile as compiler, layout, respond, validate  # noqa: E402
+from praukron import analytics, archive, cli, compile as compiler, layout, respond, retrieve, validate  # noqa: E402
+from praukron.parse import ParseError  # noqa: E402
 from test_praukron import FixtureCase  # noqa: E402
 
 
@@ -62,6 +63,53 @@ class ArchivePlanCase(FixtureCase):
         path = self.authority / "MODULES.md"
         path.write_text(path.read_text(encoding="utf-8") +
                         f"\n## M-{phase} — Follow-up\n- Phase: {phase}\n- Outcome: Finish.\n", encoding="utf-8")
+
+    def add_task(self, task_id, module, status="DONE", domain=None, dependencies="none"):
+        fields = [
+            f"## {task_id}: Archive fixture",
+            f"- Status: {status}",
+            f"- Module: {module}",
+            f"- Validation: {'SYNTHETIC' if status == 'DONE' else 'UNTESTED'}",
+            f"- Dependencies: {dependencies}",
+            f"- AC: AC-{task_id}",
+            f"- Evidence: {'done' if status == 'DONE' else '—'}",
+        ]
+        if domain:
+            fields.insert(3, f"- Domain: {domain}")
+        path = self.authority / "TASKS.md"
+        path.write_text(path.read_text(encoding="utf-8") + "\n" + "\n".join(fields) + "\n", encoding="utf-8")
+        path = self.authority / "ACCEPTANCE.md"
+        path.write_text(path.read_text(encoding="utf-8") +
+                        f"\n## AC-{task_id} — Archive fixture\n\n"
+                        f"- `AC-{task_id}-01` — Given archive, When checked, Then it holds. `TEST` · `{'PASS' if status == 'DONE' else 'NOT_RUN'}`\n",
+                        encoding="utf-8")
+
+    def write_lifecycle_records(self):
+        (self.authority / "ASSUMPTIONS.md").write_text(
+            "# Assumptions\n\n"
+            "## A-CLOSED: Confirmed\n- Status: CONFIRMED\n- Tasks: T-CLOSED\n"
+            "- Impact: LOW\n- Assumption: The closed task is ready.\n- Responses: R-1\n\n"
+            "## A-OPEN: Still open\n- Status: OPEN\n- Tasks: T-HELD\n"
+            "- Impact: LOW\n- Assumption: The held task needs a decision.\n",
+            encoding="utf-8")
+        (self.authority / "RESPONSES.md").write_text(
+            "# Responses\n\n## R-1: A-CLOSED CONFIRM\n"
+            "- By: owner\n- Date: 2026-10-15\n- Via: test\n\n> Confirmed.\n",
+            encoding="utf-8")
+        (self.authority / "TECH_DEBT.md").write_text(
+            "# Technical debt\n\n"
+            "## TD-CLOSED: Retired\n- Status: RESOLVED\n- Debt: Nothing remains.\n"
+            "- Exit condition: Removed.\n- Linked tasks: T-CLOSED\n- Resolution: Completed.\n\n"
+            "## TD-OPEN: Pending\n- Status: OPEN\n- Debt: Still waiting.\n"
+            "- Exit condition: Decide.\n- Linked tasks: T-HELD\n",
+            encoding="utf-8")
+        (self.authority / "TRACE.md").write_text(
+            "# Trace\n\n"
+            "## EV-CLOSED: Completed command\n- Type: command\n- Task: T-CLOSED\n- Outcome: success\n\n"
+            "## EV-FAIL: Failed command\n- Type: failure\n- Task: T-HELD\n- Outcome: failure\n\n"
+            "## EV-RETRY: Incomplete retry\n- Type: retry\n- Task: T-HELD\n"
+            "- Retry of: EV-FAIL\n- Outcome: partial\n",
+            encoding="utf-8")
 
 
 class TestArchivePlan(ArchivePlanCase):
@@ -144,16 +192,154 @@ class TestArchivePlan(ArchivePlanCase):
             writes = archive._prepare_writes(self.root, result)
             self.assertIn("## N-ONE\nPreserved.", writes[self.authority / note.destination])
 
-    def test_eligibility_uses_phase_without_inferring_domain_or_id(self):
-        self.rewrite("TASKS.md", "## T-ONE: Lay the foundation",
-                     "## T-ONE: Lay the foundation\n- Domain: operations")
-        result = archive.preview(self.root, "P1")
-        self.assertIn("T-ONE", result.tasks)
-        with self.assertRaisesRegex(archive.ArchiveError, "not a phase"):
-            archive.preview(self.root, "P-NONE")
+    def test_phase_axis_moves_every_domain_and_pnone_keeps_working_dependants(self):
+        self.add_task("T-PHASE-OPS", "M-FOUNDATION", domain="operations")
+        self.add_task("T-PNONE-EXEC", "M-UPKEEP")
+        self.add_task("T-PNONE-OPS", "M-UPKEEP", domain="operations")
+        self.add_task("T-PNONE-HELD", "M-UPKEEP")
+        self.add_task("T-PNONE-WORKER", "M-UPKEEP", status="TODO", dependencies="T-PNONE-HELD")
+        self.add_task("T-PNONE-ROOT", "M-UPKEEP")
+        self.add_task("T-PNONE-MIDDLE", "M-UPKEEP", dependencies="T-PNONE-ROOT")
+        self.add_task("T-PNONE-LEAF", "M-UPKEEP", status="TODO", dependencies="T-PNONE-MIDDLE")
+        phase = archive.preview(self.root, "P1")
+        pnone = archive.preview(self.root, "P-NONE")
+        self.assertIn("T-ONE", phase.tasks)
+        self.assertIn("T-PHASE-OPS", phase.tasks)
+        self.assertEqual({"T-PNONE-EXEC", "T-PNONE-OPS"} & set(pnone.tasks),
+                         {"T-PNONE-EXEC", "T-PNONE-OPS"})
+        held = next(c for c in pnone.candidates if c.id == "T-PNONE-HELD")
+        self.assertEqual(held.reason, "working task(s) depend on it: T-PNONE-WORKER")
+        root = next(c for c in pnone.candidates if c.id == "T-PNONE-ROOT")
+        self.assertEqual(root.reason, "working task(s) depend on it: T-PNONE-MIDDLE")
 
 
 class TestArchiveApply(ArchivePlanCase):
+    @staticmethod
+    def derived_facts(project):
+        report = analytics.report(project)
+        return {
+            "ready": set(report.ready),
+            "blocked": set(report.blocked),
+            "wip": set(report.wip),
+            "gates": {(gate.id, gate.status) for gate in project.gates},
+            "phase_progress": {(phase, progress.done, progress.total)
+                               for phase, progress in report.phase_progress.items()},
+            "unresolved_failures": set(analytics.unresolved_failures(project)),
+            "awaiting_reconciliation": {item["assumption"]
+                                         for item in analytics.awaiting_reconciliation(project)},
+            "open_debt": {debt.id for debt in project.debts if not debt.closed},
+            "open_assumptions": {assumption.id for assumption in project.assumptions if assumption.open},
+        }
+
+    def test_closed_lifecycle_records_move_with_their_tasks_and_preserve_parity(self):
+        self.add_task("T-CLOSED", "M-FOUNDATION")
+        self.add_task("T-HELD", "M-FOUNDATION")
+        self.write_lifecycle_records()
+        before_project = compiler.load(self.root)
+        before = archive._records(before_project)
+        facts = self.derived_facts(before_project)
+        plan = archive.preview(self.root, "P1")
+        candidates = {candidate.id: candidate for candidate in plan.candidates}
+        self.assertEqual(set(plan.assumptions), {"A-CLOSED"})
+        self.assertEqual(set(plan.debts), {"TD-CLOSED"})
+        self.assertEqual(set(plan.events), {"EV-CLOSED"})
+        self.assertEqual(candidates["A-OPEN"].reason, "status is OPEN")
+        self.assertEqual(candidates["TD-OPEN"].reason, "status is OPEN")
+        self.assertEqual(candidates["EV-FAIL"].reason, "part of an unresolved retry chain")
+        self.assertEqual(candidates["EV-RETRY"].reason, "part of an unresolved retry chain")
+
+        archive.archive(self.root, "P1", digest=plan.digest)
+        after = compiler.load(self.root)
+        self.assertEqual(archive._records(after), before)
+        self.assertEqual(self.derived_facts(after), facts)
+        self.assertEqual(after.assumption("A-CLOSED").source.file, "archive/P1/ASSUMPTIONS.md")
+        self.assertEqual(next(d for d in after.debts if d.id == "TD-CLOSED").source.file,
+                         "archive/P1/TECH_DEBT.md")
+        self.assertEqual(next(e for e in after.events if e.id == "EV-CLOSED").source.file,
+                         "archive/P1/TRACE.md")
+        chronicle = retrieve.Chronicle(self.root)
+        self.assertIn("## A-CLOSED", chronicle.section("ASSUMPTIONS.md", "A-CLOSED"))
+        self.assertIn("## TD-CLOSED", chronicle.section("TECH_DEBT.md", "TD-CLOSED"))
+        self.assertIn("## EV-CLOSED", chronicle.section("TRACE.md", "EV-CLOSED"))
+
+        self.add_task("T-LATER", "M-UPKEEP", status="TODO", dependencies="T-CLOSED")
+        responses = self.authority / "RESPONSES.md"
+        responses.write_text(responses.read_text(encoding="utf-8") +
+                             "\n## R-2: A-CLOSED GUIDE\n- By: owner\n- Date: 2026-10-15\n"
+                             "- Via: test\n\n> Keep the archived conclusion in mind.\n", encoding="utf-8")
+        later = compiler.load(self.root)
+        self.assertEqual(validate.errors(validate.check(later)), [])
+
+    def test_lifecycle_candidates_report_every_reason_to_stay(self):
+        self.add_task("T-CLOSED", "M-FOUNDATION")
+        self.add_task("T-HELD", "M-FOUNDATION")
+        self.write_lifecycle_records()
+        assumptions = self.authority / "ASSUMPTIONS.md"
+        assumptions.write_text(assumptions.read_text(encoding="utf-8") +
+                               "\n## A-WAIT: Awaiting reconciliation\n- Status: CONFIRMED\n"
+                               "- Tasks: T-HELD\n- Impact: LOW\n- Assumption: The response must land.\n"
+                               "- Responses: R-2, R-3\n\n"
+                               "## A-WORKING: Working task\n- Status: CONFIRMED\n"
+                               "- Tasks: T-HELD\n- Impact: LOW\n- Assumption: The task remains.\n"
+                               "- Responses: R-4\n", encoding="utf-8")
+        responses = self.authority / "RESPONSES.md"
+        responses.write_text(responses.read_text(encoding="utf-8") +
+                             "\n## R-2: A-WAIT CONFIRM\n- By: owner\n- Date: 2026-10-15\n- Via: test\n\n> Yes.\n"
+                             "\n## R-3: A-WAIT REJECT\n- By: owner\n- Date: 2026-10-15\n- Via: test\n\n> No.\n"
+                             "\n## R-4: A-WORKING CONFIRM\n- By: owner\n- Date: 2026-10-15\n- Via: test\n\n> Yes.\n",
+                             encoding="utf-8")
+        debt = self.authority / "TECH_DEBT.md"
+        debt.write_text(debt.read_text(encoding="utf-8") +
+                        "\n## TD-WORKING: Closed but still linked\n- Status: INVALIDATED\n"
+                        "- Debt: No longer applies.\n- Exit condition: Removed.\n"
+                        "- Linked tasks: T-HELD\n- Resolution: Invalidated.\n", encoding="utf-8")
+        trace = self.authority / "TRACE.md"
+        trace.write_text(trace.read_text(encoding="utf-8") +
+                         "\n## EV-WORKING: Successful but task remains\n- Type: command\n"
+                         "- Task: T-HELD\n- Outcome: success\n", encoding="utf-8")
+        candidates = {candidate.id: candidate for candidate in archive.preview(self.root, "P1").candidates}
+        self.assertEqual(candidates["A-OPEN"].reason, "status is OPEN")
+        self.assertEqual(candidates["A-WAIT"].reason, "a response awaits reconciliation")
+        self.assertEqual(candidates["A-WORKING"].reason, "task T-HELD is still working")
+        self.assertEqual(candidates["TD-OPEN"].reason, "status is OPEN")
+        self.assertEqual(candidates["TD-WORKING"].reason, "task T-HELD is still working")
+        self.assertEqual(candidates["EV-FAIL"].reason, "part of an unresolved retry chain")
+        self.assertEqual(candidates["EV-RETRY"].reason, "part of an unresolved retry chain")
+        self.assertEqual(candidates["EV-WORKING"].reason, "task T-HELD is still working")
+
+    def test_lifecycle_records_preserve_lf_and_crlf(self):
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                self.setUp()
+                self.add_task("T-CLOSED", "M-FOUNDATION")
+                self.add_task("T-HELD", "M-FOUNDATION")
+                self.write_lifecycle_records()
+                for name in ("ASSUMPTIONS.md", "TECH_DEBT.md", "TRACE.md"):
+                    path = self.authority / name
+                    path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", newline))
+                plan = archive.preview(self.root, "P1")
+                archive.archive(self.root, "P1", digest=plan.digest)
+                for name in ("ASSUMPTIONS.md", "TECH_DEBT.md", "TRACE.md"):
+                    for path in (self.authority / name, self.authority / "archive/P1" / name):
+                        data = path.read_bytes()
+                        self.assertIn(newline, data)
+                        if newline == b"\n":
+                            self.assertNotIn(b"\r\n", data)
+                        else:
+                            self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+
+    def test_lifecycle_loader_refuses_duplicate_archive_ids(self):
+        self.add_task("T-CLOSED", "M-FOUNDATION")
+        self.write_lifecycle_records()
+        duplicate = self.authority / "archive/P1"
+        duplicate.mkdir(parents=True)
+        (duplicate / "ASSUMPTIONS.md").write_text(
+            "# Assumptions · P1 (archived)\n\n## A-CLOSED: Duplicate\n- Status: CONFIRMED\n"
+            "- Tasks: T-CLOSED\n- Impact: LOW\n- Assumption: Duplicate.\n- Responses: R-1\n",
+            encoding="utf-8")
+        with self.assertRaisesRegex(ParseError, "duplicate assumption"):
+            compiler.load(self.root)
+
     def test_invalid_invocations_return_coded_json(self):
         before = self.snapshot(self.root)
         for options, expected in [(("plan",), "invalid-selection"),
