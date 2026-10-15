@@ -355,7 +355,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron archive apply <phase> --plan <digest>` | Owner only: move exactly that plan. They stay authority; open work stays put; a stale plan is refused. |
 | `praukron archive restore <phase>` | Owner only: return an archive's records to the working files. |
 | `praukron task add --input -` | Append a task, with its new contract in the same validated write. |
-| `praukron task update --input -` | Change one task's status, owner, claim date or evidence; `DONE` needs every criterion `PASS`. |
+| `praukron task update --input -` | Change one task's status, owner, claim date, evidence or validation (never `HUMAN_VERIFIED`), or add governing ADRs (ADR-074); `DONE` needs every criterion `PASS`. |
 | `praukron contract add --input -` | Give a `TODO` task its acceptance contract. |
 | `praukron criterion set --input -` | Record one criterion's state and one-line evidence. |
 | `praukron journal append --input -` | Append one dated journal entry; a repeat is refused. |

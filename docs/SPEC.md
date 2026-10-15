@@ -284,7 +284,7 @@ record these commands do not cover.
 | `praukron criterion set` | `ACCEPTANCE.md` | one criterion's state and its one-line evidence |
 | `praukron task add` | `TASKS.md`, optionally `ACCEPTANCE.md` | appends a task, and its new contract in the same write |
 | `praukron contract add` | `ACCEPTANCE.md`, `TASKS.md` | appends a contract and sets the task's `AC:` |
-| `praukron task update` | `TASKS.md` | `Status`, `Owner`, `Claimed`, `Evidence` of one task |
+| `praukron task update` | `TASKS.md` | `Status`, `Owner`, `Claimed`, `Evidence`, `Validation` of one task; appends to `Governed by` (ADR-068, ADR-074) |
 
 With `INDEX.md` (generated), `respond` (`RESPONSES.md`, ADR-055) and `archive`
 (ADR-067, only when the owner asks), these are the only chronicle writes the
@@ -323,7 +323,12 @@ again.
   Change Request, made by a person.
 - `criterion set` changes a criterion's state and optionally its evidence, which
   is a single line because the parser reads one.
-- `task update` changes only `Status`, `Owner`, `Claimed` and `Evidence`. `WIP`
+- `task update` changes only `Status`, `Owner`, `Claimed` and `Evidence` (ADR-068),
+  and, as ADR-074 amended that rule, `Validation`; it also appends existing ADR ids to `Governed by` (`addGovernedBy`;
+  ids already listed are skipped and reported in `alreadyGoverned`, entries are
+  never removed or reordered, an unknown id is refused as `unknown-decision`).
+  `set.validation` takes `UNTESTED`, `SYNTHETIC` or `AI_REVIEWED`; `HUMAN_VERIFIED`
+  is refused. `WIP`
   needs an owner and sets `Claimed` to today unless given. `DONE` needs every
   mandatory criterion of the task's contract at `PASS` and recorded evidence. An
   `Authority: owner` task is never set `DONE` (`owner-held`), and no command sets
@@ -366,7 +371,7 @@ write; run `compile && graph && dashboard`.
 | `task update` repeated with the revision it used before | refused: `stale-revision`; the refusal shows the record as it now is |
 | `criterion set` repeated with the old revision | refused: `stale-revision` |
 | `criterion set` repeated with the new revision and the same values | succeeds again as a no-op: `written:true` and the same `revision` |
-| `task update` with the current revision and the values already set | refused: `no-change` |
+| `task update` with the current revision and the values already set | refused: `no-change` (with `alreadyGoverned` when ADR ids were already listed) |
 | lock held by another writer | refused: `locked`; wait and retry |
 | an earlier write was interrupted | refused once: `interrupted-write`, after the restore; retry |
 
