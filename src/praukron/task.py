@@ -12,27 +12,26 @@ from .model import DOMAINS, TASK_AUTHORITIES, VALIDATIONS, Project
 SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
-        "id": {"type": "string", "pattern": r"^T-[A-Za-z0-9.\-]+$"},
+        "id": {"type": "string", "description": "T- identifier"},
         "title": {"type": "string", "minLength": 1},
         "module": {"type": "string"},
         "domain": {"type": "string", "enum": list(DOMAINS)},
-        "dependencies": {"type": "array", "items": {"type": "string"}},
+        "dependencies": {"type": "array", "description": "Task IDs"},
         "validation": {"type": "string", "enum": [v for v in VALIDATIONS if v != "HUMAN_VERIFIED"]},
-        "governedBy": {"type": "array", "items": {"type": "string"}},
-        "files": {"type": "array", "items": {"type": "string"}},
-        "symbols": {"type": "array", "items": {"type": "string"}},
+        "governedBy": {"type": "array", "description": "ADR IDs"},
+        "files": {"type": "array", "description": "File paths"},
+        "symbols": {"type": "array", "description": "Symbol names"},
         "authority": {"type": "string", "enum": list(TASK_AUTHORITIES)},
         "contract": contract.DEFINITION_SCHEMA,
         "ac": {"type": "string"},
     },
     "required": ["id", "title", "module", "domain", "dependencies"],
-    "oneOf": [{"required": ["contract"], "not": {"required": ["ac"]}},
-              {"required": ["ac"], "not": {"required": ["contract"]}}],
+    "description": "Give exactly one of contract (a new definition) and ac (an existing contract ID)",
 }
 EXAMPLE = {
     "id": "T-NEW", "title": "New work", "module": "M-FOUNDATION",
     "domain": "execution", "dependencies": [],
-    "contract": {k: v for k, v in contract.EXAMPLE.items() if k != "task"},
+    "contract": {k: v for k, v in contract.EXAMPLE.items() if k in contract.DEFINITION_SCHEMA["properties"]},
 }
 
 
@@ -78,14 +77,16 @@ def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                     raise mutate.WriteError("unknown-contract", f"no contract named {ac}", "ac")
                 mutate.ensure_mutable(project.contracts[ac].source)
             lines = [f"## {payload['id']}: {payload['title']}", "- Status: TODO",
-                     f"- Module: {payload['module']}", f"- Domain: {payload['domain']}",
-                     f"- Validation: {payload.get('validation', 'UNTESTED')}",
+                     f"- Module: {payload['module']}", f"- Domain: {payload['domain']}"]
+            if "authority" in payload:
+                lines.append(f"- Authority: {payload['authority']}")
+            lines += [f"- Validation: {payload.get('validation', 'UNTESTED')}",
                      "- Dependencies: " + (", ".join(payload["dependencies"]) or "none"),
                      "- Owner: unassigned", f"- AC: {ac}", "- Evidence: —",
                      "- Governed by: " + (", ".join(payload.get("governedBy", [])) or "none")]
-            for field, key in (("Files", "files"), ("Symbols", "symbols"), ("Authority", "authority")):
+            for field, key in (("Files", "files"), ("Symbols", "symbols")):
                 if key in payload:
-                    value = payload[key] if key == "authority" else (", ".join(payload[key]) or "none")
+                    value = ", ".join(payload[key]) or "none"
                     lines.append(f"- {field}: {value}")
             path = authority / "TASKS.md"
             changes = {path: contract.append_section(path, "Tasks", "\n".join(lines) + "\n"), **changes}

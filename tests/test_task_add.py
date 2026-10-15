@@ -50,7 +50,8 @@ class CreationCase(FixtureCase):
                 + (f"- AC: {ac}\n" if ac is not None else "")
                 + "- Evidence: —\n- Governed by: ADR-001\n")
         self.tasks.write_bytes(contract.append_section(self.tasks, "Tasks", text))
-        return {**copy.deepcopy(contract.EXAMPLE), "task": "T-BARE"}
+        return {**copy.deepcopy(contract.EXAMPLE), "task": "T-BARE",
+                "expectTaskRevision": mutate.section(self.tasks.read_bytes(), "T-BARE").revision}
 
 
 class TestTaskAdd(CreationCase):
@@ -79,6 +80,8 @@ class TestTaskAdd(CreationCase):
                 self.assertTrue(result["refreshed"])
                 self.assertEqual(result["source"], "TASKS.md#T-NEW")
                 after = self.snapshot()
+                self.assertIn(b"- Domain: execution" + task_nl + b"- Authority: owner" + task_nl,
+                              self.tasks.read_bytes())
                 for p, old in before.items():
                     if p.name in ("TASKS.md", "ACCEPTANCE.md"):
                         self.assertTrue(after[p].startswith(old))
@@ -241,10 +244,118 @@ class TestTaskAdd(CreationCase):
 
 
 class TestContractAdd(CreationCase):
+    def test_referenced_missing_contract_is_refused_from_both_commands(self):
+        original = self.tasks.read_bytes()
+        archive = self.authority / "archive" / "P0" / "TASKS.md"
+        for archived in (False, True):
+            for status in ("TODO", "WIP", "DONE", "BLOCKED"):
+                with self.subTest(archived=archived, status=status):
+                    self.tasks.write_bytes(original)
+                    archive.unlink(missing_ok=True)
+                    payload = self.uncontracted_task()
+                    reference = mutate.section(self.tasks.read_bytes(), "T-BARE").data.replace(b"\r\n", b"\n")
+                    reference = reference.replace(b"T-BARE", b"T-REF").replace(b"- Status: TODO", f"- Status: {status}".encode())
+                    reference += b"- AC: AC-T-NEW\n"
+                    if archived:
+                        archive.parent.mkdir(parents=True, exist_ok=True)
+                        archive.write_bytes(b"# Tasks\n\n" + reference)
+                    else:
+                        self.tasks.write_bytes(contract.append_section(self.tasks, "Tasks", reference.decode("utf-8")))
+                    project = compiler.load(self.root)
+                    self.assertNotIn("AC-T-NEW", project.contracts)
+                    self.assertEqual(project.task("T-REF").contract, "AC-T-NEW")
+                    before = self.snapshot()
+                    for group, request in (("task", self.payload), ("contract", payload)):
+                        code, result = self.run_cli(group, "--input", "-", payload=request)
+                        self.assertEqual(code, 1, result)
+                        self.assertEqual(result["error"]["code"], "referenced-contract")
+                        self.assertIn("T-REF", result["error"]["message"])
+                        self.assertEqual(self.snapshot(), before)
+
+    def test_task_already_naming_missing_contract_cannot_define_it(self):
+        payload = self.uncontracted_task(ac="AC-T-NEW")
+        before = self.snapshot()
+        code, result = self.run_cli("contract", "--input", "-", payload=payload)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["error"]["code"], "referenced-contract")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_attachment_requires_current_task_revision_and_returns_current(self):
+        original = self.tasks.read_bytes()
+        acceptance = self.acceptance.read_bytes()
+        for change in ("owner", "evidence", "aba"):
+            with self.subTest(change=change):
+                self.tasks.write_bytes(original)
+                self.acceptance.write_bytes(acceptance)
+                payload = self.uncontracted_task()
+                original_section = mutate.section(self.tasks.read_bytes(), "T-BARE")
+                changed = original_section.data
+                if change == "owner":
+                    changed = changed.replace(b"- Owner: unassigned", b"- Owner: another-worker")
+                elif change == "evidence":
+                    changed = changed.replace("- Evidence: —".encode(), b"- Evidence: New observation")
+                else:
+                    changed = changed.replace(b"- Status: TODO", b"- Status: WIP")
+                    changed = changed.replace(b"- Owner: unassigned", b"- Owner: worker\n- Claimed: 2026-10-15")
+                    self.tasks.write_bytes(self.tasks.read_bytes()[:original_section.span[0]] + changed)
+                    self.assertEqual(compiler.load(self.root).task("T-BARE").status, "WIP")
+                    changed = changed.replace(b"- Status: WIP", b"- Status: TODO")
+                self.tasks.write_bytes(self.tasks.read_bytes()[:original_section.span[0]] + changed)
+                self.assertEqual(compiler.load(self.root).task("T-BARE").status, "TODO")
+                current = mutate.section(self.tasks.read_bytes(), "T-BARE")
+                before = self.snapshot()
+                for options in ((), ("--dry-run",)):
+                    code, result = self.run_cli("contract", "--input", "-", *options, payload=payload)
+                    self.assertEqual(code, 1, result)
+                    self.assertEqual(result["error"]["code"], "stale-revision")
+                    self.assertEqual(result["error"]["field"], "expectTaskRevision")
+                    self.assertIn(current.revision, result["error"]["message"])
+                    self.assertEqual(result["current"], {"recordId": "T-BARE", "source": "TASKS.md#T-BARE",
+                                                        "revision": current.revision, "record": current.data.decode("utf-8")})
+                    self.assertEqual(self.snapshot(), before)
+                payload["expectTaskRevision"] = current.revision
+                code, result = self.run_cli("contract", "--input", "-", payload=payload)
+                self.assertEqual(code, 0, result)
+                self.assertEqual(compiler.load(self.root).task("T-BARE").contract, "AC-T-NEW")
+                self.assert_valid()
+
+    def test_attachment_revision_is_checked_after_lock_acquisition(self):
+        payload = self.uncontracted_task()
+        real_lock = mutate._lock
+        raced = None
+
+        def lock_and_race(root):
+            nonlocal raced
+            held = real_lock(root)
+            found = mutate.section(self.tasks.read_bytes(), "T-BARE")
+            self.tasks.write_bytes(self.tasks.read_bytes()[:found.span[0]]
+                                   + found.data.replace(b"- Owner: unassigned", b"- Owner: changed-under-lock"))
+            raced = self.snapshot()
+            return held
+
+        with mock.patch.object(mutate, "_lock", side_effect=lock_and_race):
+            code, result = self.run_cli("contract", "--input", "-", payload=payload)
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["error"]["code"], "stale-revision")
+        self.assertEqual(result["current"]["revision"], mutate.section(self.tasks.read_bytes(), "T-BARE").revision)
+        self.assertEqual(self.snapshot(), raced)
+
+    def test_attachment_requires_well_formed_expect_task_revision(self):
+        payload = self.uncontracted_task()
+        before = self.snapshot()
+        missing = {k: v for k, v in payload.items() if k != "expectTaskRevision"}
+        for request, error in ((missing, "missing-field"), ({**payload, "expectTaskRevision": "bad"}, "invalid-value"),
+                               ({**payload, "expectTaskRevision": 1}, "wrong-type")):
+            code, result = self.run_cli("contract", "--input", "-", payload=request)
+            self.assertEqual(code, 1, result)
+            self.assertEqual(result["error"]["code"], error)
+            self.assertEqual(result["error"]["field"], "expectTaskRevision")
+            self.assertEqual(self.snapshot(), before)
+
     def test_todo_contract_add_sets_missing_or_empty_ac_and_round_trips(self):
         original = self.tasks.read_bytes()
         acceptance = self.acceptance.read_bytes()
-        for ac in (None, "", "\t", "AC-T-NEW"):
+        for ac in (None, "", "\t", "none", "NONE", "—", "-", " \tNoNe\t "):
             for newline in (b"\n", b"\r\n"):
                 with self.subTest(ac=ac, newline=newline):
                     self.tasks.write_bytes(original)
@@ -254,6 +365,7 @@ class TestContractAdd(CreationCase):
                         path.write_bytes(path.read_bytes().replace(b"\r\n", b"\n").replace(b"\n", newline))
                     before = self.tasks.read_bytes()
                     old_section = mutate.section(before, "T-BARE")
+                    payload["expectTaskRevision"] = old_section.revision
                     code, result = self.run_cli("contract", "--input", "-", payload=payload)
                     self.assertEqual(code, 0, result)
                     self.assertEqual(compiler.load(self.root).task("T-BARE").contract, "AC-T-NEW")
@@ -263,8 +375,6 @@ class TestContractAdd(CreationCase):
                     self.assertEqual(self.tasks.read_bytes()[:new_section.span[0]], before[:old_section.span[0]])
                     self.assertNotIn(b"\n", self.tasks.read_bytes().replace(newline, b""))
                     self.assertNotIn(b"\n", self.acceptance.read_bytes().replace(newline, b""))
-                    if ac == "AC-T-NEW":
-                        self.assertEqual(self.tasks.read_bytes(), before)
                     self.assert_valid()
 
     def test_attachment_preserves_wrapped_fields_and_following_sections(self):
@@ -274,6 +384,7 @@ class TestContractAdd(CreationCase):
         bare = data[start:].replace(b"- Owner: unassigned\n", b"- Owner: long name\n  continued here\n")
         data = data[:start] + bare + b"\n## T-AFTER: Following\n- Status: TODO\n- Module: M-FOUNDATION\n- Validation: UNTESTED\n- Dependencies: none\n- AC: AC-T-TWO\n"
         self.tasks.write_bytes(data)
+        payload["expectTaskRevision"] = mutate.section(data, "T-BARE").revision
         before = compiler.load(self.root).task("T-BARE")
         after_section = mutate.section(data, "T-AFTER").data
         code, result = self.run_cli("contract", "--input", "-", payload=payload)
@@ -335,6 +446,38 @@ class TestContractAdd(CreationCase):
 
 
 class TestCreationCLI(CreationCase):
+    def test_criteria_need_no_prescribed_wording(self):
+        original = self.tasks.read_bytes()
+        acceptance = self.acceptance.read_bytes()
+        criteria = [{"text": "All file replacements succeed or the originals are restored.", "class": "TEST"},
+                    {"text": "Dữ liệu được giữ nguyên.", "class": "INSPECTION"}]
+        for group in ("task", "contract"):
+            with self.subTest(group=group):
+                self.tasks.write_bytes(original)
+                self.acceptance.write_bytes(acceptance)
+                if group == "task":
+                    payload = copy.deepcopy(self.payload)
+                    payload["contract"]["criteria"] = criteria
+                else:
+                    payload = self.uncontracted_task()
+                    payload["criteria"] = criteria
+                code, result = self.run_cli(group, "--input", "-", payload=payload)
+                self.assertEqual(code, 0, result)
+                actual = compiler.load(self.root).contracts["AC-T-NEW"].criteria
+                self.assertEqual([(c.text, c.evidence_class) for c in actual], [(c["text"], c["class"]) for c in criteria])
+                self.assert_valid()
+
+    def test_published_schemas_only_use_supported_validation_keywords(self):
+        supported = {"type", "properties", "additionalProperties", "required", "enum", "minLength", "description"}
+
+        def check(schema):
+            self.assertLessEqual(set(schema), supported)
+            for child in schema.get("properties", {}).values():
+                check(child)
+
+        for schema in (task.SCHEMA, contract.SCHEMA, contract.CRITERION_SCHEMA):
+            check(schema)
+
     def test_schemas_examples_dry_runs_and_file_input(self):
         before = self.snapshot()
         for group, schema in (("task", task.SCHEMA), ("contract", contract.SCHEMA)):
@@ -344,7 +487,7 @@ class TestCreationCLI(CreationCase):
             mutate.validate_payload(result["example"], schema)
             example = result["example"]
             if group == "contract":
-                self.uncontracted_task()
+                example["expectTaskRevision"] = self.uncontracted_task()["expectTaskRevision"]
                 example["task"] = "T-BARE"
             baseline = self.snapshot()
             code, result = self.run_cli(group, "--input", "-", "--dry-run", payload=example)

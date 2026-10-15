@@ -6,6 +6,8 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Contract creation refuses IDs already named by tasks; contract attachment requires the task revision.
+  Accept criteria without prescribed wording and empty AC sentinels; align task field order and payload schemas.
 - Add `praukron task add` and `contract add` with strict payloads, frozen-contract checks,
   and recoverable transactions for task and contract creation.
 - Structured transactions normalize symlinked project paths before target lookup and recovery.
