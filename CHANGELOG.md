@@ -14,6 +14,15 @@ people arriving from a release page.
   that falls as cards are answered; a System / Light / Dark control; WCAG AA contrast tokens for both
   themes, checked by a test; and reduced-motion support. The page stays one deterministic,
   self-contained, read-only file.
+- Add `archive plan <phase>` with per-record move/stay reasons and a SHA-256 plan digest,
+  and `archive apply <phase> --plan <digest>` with stale-plan refusal under the shared lock;
+  preserve legacy archive/dry-run, shared-contract eligibility and durable recovery. Plans,
+  writes and recovery originals share one captured byte inventory; split destinations,
+  full-heading section locators and directory recovery support later lifecycle rules.
+  Preserve native filesystem case aliases in captured lookups, and record exact replacement
+  staging paths so recovery also handles a kill after the temporary file is flushed.
+  Resolve the project and captured authority roots consistently for symlinked temp paths.
+
 - Document the structured writes: a "Structured writes" section in the specification (pipeline,
   field permissions, freeze and owner rules, revisions, results, exit codes and retry semantics),
   copy-paste examples in the guide, a README command row for each, and the commands in the `AGENTS.md`

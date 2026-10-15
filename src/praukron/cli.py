@@ -285,15 +285,42 @@ def cmd_context(root: Path, args: argparse.Namespace) -> int:
 def cmd_archive(root: Path, args: argparse.Namespace) -> int:
     from . import archive, respond
 
+    action = args.phase if args.phase in ("plan", "apply") else "archive"
+    phase = args.selection if action != "archive" else args.phase
+
+    def refused(code: str, message: str, *, written: bool = False) -> int:
+        if args.json:
+            detail = {**plan.as_json(), "applied": True} if written else {}
+            print(json.dumps({**detail, "ok": False, "error": {"code": code, "message": message},
+                              "written": written, "refreshed": False}, separators=(",", ":")))
+            return 1
+        if written:
+            print(plan.render(True), end="")
+        return _fail(f"{code}: {message}")
+
+    if not phase or (action == "archive" and args.selection):
+        return refused("invalid-selection", "use archive [plan|apply] <phase>")
+    if action == "apply" and not args.plan_digest:
+        return refused("missing-plan", "archive apply requires --plan <digest>; run archive plan first")
+    if action != "apply" and args.plan_digest is not None:
+        return refused("invalid-option", "--plan requires archive apply <phase>")
     try:
-        plan = archive.archive(root, args.phase, dry_run=args.dry_run)
+        plan = (archive.preview(root, phase) if action == "plan" else
+                archive.archive(root, phase, dry_run=args.dry_run, digest=args.plan_digest))
     except archive.ArchiveError as error:
-        return _fail(str(error))
-    applied = bool(plan.tasks) and not args.dry_run
+        return refused(error.code, str(error))
+    except (ParseError, OSError, UnicodeError, respond.RespondError) as error:
+        return refused("archive-failed", str(error))
+    applied = any(c.moves for c in plan.candidates) and action != "plan" and not args.dry_run
     if applied:
-        respond.refresh(root)
+        try:
+            respond.refresh(root)
+        except Exception as error:
+            return refused("refresh-failed", f"archive was written; re-run only compile, graph and dashboard: {error}",
+                           written=True)
     if args.json:
-        print(json.dumps({**plan.as_json(), "applied": applied}, indent=2))
+        print(json.dumps({**plan.as_json(), "ok": True, "applied": applied,
+                          "written": applied, "refreshed": applied}, separators=(",", ":")))
     else:
         print(plan.render(applied), end="")
         if applied:
@@ -713,7 +740,10 @@ def build_parser() -> argparse.ArgumentParser:
         "archive",
         help="owner only: move a COMPLETE phase's DONE tasks and contracts to archive/<phase>/ (ADR-067)",
     )
-    shelve.add_argument("phase", help="a COMPLETE phase, e.g. P3")
+    shelve.add_argument("phase", help="a COMPLETE phase, or plan/apply followed by a phase")
+    shelve.add_argument("selection", nargs="?", help="phase for archive plan/apply, e.g. P3")
+    shelve.add_argument("--plan", dest="plan_digest", metavar="DIGEST",
+                        help="apply only if the locked chronicle matches this plan digest")
     shelve.add_argument("--dry-run", action="store_true", help="show what would move; write nothing")
     shelve.add_argument("--json", action="store_true")
     shelve.set_defaults(handler=cmd_archive)
@@ -743,8 +773,21 @@ def main(argv: list[str] | None = None) -> int:
     if getattr(args, "write_operation", None) and args.schema:
         return args.handler(Path.cwd(), args)
     try:
-        root = compiler.locate(Path(args.directory) if args.directory else None)
+        start = (Path(args.directory) if args.directory else Path.cwd()).resolve()
+        if args.command == "archive":
+            # A stale apply must reach the locked check even if TASKS.md was removed.
+            root = next((p for p in (start, *start.parents) if (p / layout.AUTHORITY_DIR).is_dir()), None)
+            if root is None:
+                root = compiler.locate(start)
+        else:
+            root = compiler.locate(start)
     except compiler.LayoutError as error:
+        if args.command == "archive":
+            if args.json:
+                print(json.dumps({"ok": False, "error": {"code": "invalid-project", "message": str(error)},
+                                  "written": False, "refreshed": False}, separators=(",", ":")))
+                return 1
+            return _fail(f"invalid-project: {error}")
         if getattr(args, "write_operation", None):
             from .mutate import WriteError, refusal
 

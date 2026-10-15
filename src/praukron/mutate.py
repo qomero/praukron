@@ -9,6 +9,7 @@ import json
 import re
 import sys
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable
@@ -18,7 +19,7 @@ from .layout import ARCHIVE_DIR, AUTHORITY_DIR, COMPILED_DIR, RECOVERY_DIR
 from .model import Project, Source
 # Keep the low-level primitives at their existing import and inspection surface.
 # respond's public writers delegate recovery and refresh here through lazy imports.
-from .respond import RespondError, _lock, _replace
+from .respond import RespondError, _lock, _replace, _staging_paths
 
 
 class WriteError(Exception):
@@ -248,6 +249,26 @@ def _recovery_records(root: Path) -> list[Path]:
     return sorted([*directory.glob("archive-*.json"), *directory.glob("write-*.json")])
 
 
+def _replacement_paths(root: Path, payload: dict) -> dict[Path, Path]:
+    paths = {}
+    for entry in payload["files"]:
+        if "temporary" not in entry:
+            continue
+        target, temporary = (root / entry["path"]).resolve(), (root / entry["temporary"]).resolve()
+        if (root not in target.parents or temporary.parent != target.parent
+                or not temporary.name.startswith(".respond-")):
+            raise ValueError("invalid recovery staging path")
+        paths[target] = temporary
+    return paths
+
+
+@contextmanager
+def staged_replacements(root: Path, record: Path):
+    payload = json.loads(record.read_text(encoding="utf-8"))
+    with _staging_paths(_replacement_paths(root.resolve(), payload)):
+        yield
+
+
 def recover_write(root: Path) -> bool:
     """Restore any interrupted mutation before another writer proceeds."""
     root = root.resolve()
@@ -256,16 +277,28 @@ def recover_write(root: Path) -> bool:
         return False
     for record in records:
         try:
-            entries = json.loads(record.read_text(encoding="utf-8"))["files"]
-            for entry in entries:
-                path = (root / entry["path"]).resolve()
+            payload = json.loads(record.read_text(encoding="utf-8"))
+            staging = _replacement_paths(root, payload)
+            for temporary in staging.values():
+                temporary.unlink(missing_ok=True)
+            with _staging_paths(staging):
+                for entry in payload["files"]:
+                    path = (root / entry["path"]).resolve()
+                    if root not in path.parents:
+                        raise ValueError("recovery path is outside the project")
+                    if entry.get("absent"):
+                        path.unlink(missing_ok=True)
+                    else:
+                        path.parent.mkdir(parents=True, exist_ok=True)
+                        _replace(path, base64.b64decode(entry["bytes"], validate=True))
+            directories = sorted(payload.get("directories", []), key=lambda name: (len(Path(name).parts), name),
+                                 reverse=True)
+            for name in directories:
+                path = (root / name).resolve()
                 if root not in path.parents:
-                    raise ValueError("recovery path is outside the project")
-                if entry.get("absent"):
-                    path.unlink(missing_ok=True)
-                else:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    _replace(path, base64.b64decode(entry["bytes"], validate=True))
+                    raise ValueError("recovery directory is outside the project")
+                if path.is_dir() and not any(path.iterdir()):
+                    path.rmdir()
         except (KeyError, TypeError, ValueError, OSError) as failure:
             raise RespondError(f"cannot restore interrupted write: {failure}") from failure
         record.unlink()
@@ -275,7 +308,8 @@ def recover_write(root: Path) -> bool:
 recover_archive = recover_write
 
 
-def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str = "archive") -> Path:
+def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str = "archive", *,
+                    directories: list[Path] | tuple[Path, ...] = ()) -> Path:
     """Persist originals before replacing any authoritative file."""
     root = root.resolve()
     directory = root / RECOVERY_DIR
@@ -285,14 +319,19 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
         ignore.write_text("*\n", encoding="utf-8")
     record = directory / f"{prefix}-{time.time_ns()}.json"
     files = []
-    for path, original in originals.items():
-        item = {"path": path.resolve().relative_to(root).as_posix()}
+    for number, (path, original) in enumerate(originals.items()):
+        temporary = path.parent / f".respond-{record.stem}-{number}"
+        item = {"path": path.resolve().relative_to(root).as_posix(),
+                "temporary": temporary.resolve().relative_to(root).as_posix()}
         if original is None:
             item["absent"] = True
         else:
             item["bytes"] = base64.b64encode(original).decode("ascii")
         files.append(item)
-    _replace(record, json.dumps({"files": files}, separators=(",", ":")).encode("utf-8"))
+    payload = {"files": files}
+    if directories:
+        payload["directories"] = [path.resolve().relative_to(root).as_posix() for path in directories]
+    _replace(record, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     return record
 
 
@@ -370,8 +409,9 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
             originals = {p: p.read_bytes() if p.is_file() else None for p in changes}
             recovery = _write_recovery(root, originals, prefix="write")
             try:
-                for path, data in changes.items():
-                    _replace(path, data)
+                with staged_replacements(root, recovery):
+                    for path, data in changes.items():
+                        _replace(path, data)
                 introduced = _errors(compiler.load(root), recovery) - before
                 if introduced:
                     detail = "; ".join(f"{code}: {message}" for code, _, message in sorted(introduced))
