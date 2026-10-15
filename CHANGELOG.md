@@ -4,6 +4,13 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## Unreleased
+
+- Locks no longer reclaim live writers or release another writer's lock.
+- Archiving now moves a shared contract once every working task that uses it has moved.
+- Journal pointers rendered in the index resolve to their complete headings.
+- Interrupted archives are rolled back from a durable recovery record before later writes.
+
 ## 1.3.0 — 2026-10-13
 
 - Windows: the command prints as UTF-8. Piped, as agents run it, stdout

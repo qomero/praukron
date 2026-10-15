@@ -8,4 +8,5 @@ next_plan/
 # published (ADR-042). The chronicle template ships in templates/chronicle/.
 .praukron/chronicle/
 .praukron/compiled/
+.praukron/recovery/
 .praukron/upgrade/

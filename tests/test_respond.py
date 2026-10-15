@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
 import io
 import json
+import os
 import sys
+import time
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -30,6 +33,44 @@ class RespondCase(AssumptionCase):
 
 
 class TestRespond(RespondCase):
+    def test_locks_keep_live_owners_reclaim_dead_ones_and_release_by_token(self) -> None:
+        path = self.dir / layout.COMPILED_DIR / "respond.lock"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{os.getpid()} live\n", encoding="utf-8")
+        old = time.time() - respond._STALE_SECONDS - 1
+        os.utime(path, (old, old))
+        with mock.patch.object(respond.time, "monotonic", side_effect=(0, 11)):
+            with self.assertRaisesRegex(respond.RespondError, "try again"):
+                respond._lock(self.dir)
+        self.assertTrue(path.exists())
+
+        path.write_text("12345 dead\n", encoding="utf-8")
+        with mock.patch.object(respond, "_pid_alive", return_value=False):
+            lock = respond._lock(self.dir)
+        self.assertNotEqual(path.read_text(encoding="utf-8"), "12345 dead\n")
+        lock.release()
+
+        lock = respond._lock(self.dir)
+        path.write_text(f"{os.getpid()} another-writer\n", encoding="utf-8")
+        lock.release()
+        self.assertTrue(path.exists())
+        path.unlink()
+
+    def test_response_rolls_back_an_interrupted_archive_before_writing(self) -> None:
+        responses = self.authority / "RESPONSES.md"
+        original = responses.read_bytes()
+        responses.write_text("# Broken response\n", encoding="utf-8")
+        recovery = self.dir / layout.RECOVERY_DIR
+        recovery.mkdir(parents=True)
+        (recovery / "archive-test.json").write_text(json.dumps({"files": [{
+            "path": f"{layout.AUTHORITY_DIR}/RESPONSES.md",
+            "bytes": base64.b64encode(original).decode("ascii"),
+        }]}), encoding="utf-8")
+        with self.assertRaisesRegex(respond.RespondError, "interrupted archive was rolled back"):
+            respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], "Thien", recompile=False)
+        self.assertEqual(responses.read_bytes(), original)
+        self.assertEqual(list(recovery.glob("archive-*.json")), [])
+
     def test_one_response_is_appended_verbatim_and_nothing_else_changes(self) -> None:
         """AC-T-RESPOND-01-01."""
         before = self.snapshot()

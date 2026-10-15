@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .layout import AUTHORITY_DIR
+from .layout import AUTHORITY_DIR, RECOVERY_DIR
 from .model import (
     ASSUMPTION_STATUSES,
     CRITERION_STATES,
@@ -361,6 +361,14 @@ def assumption_findings(project: Project) -> list[Finding]:
 
 def check(project: Project) -> list[Finding]:
     findings: list[Finding] = []
+
+    recovery = Path(project.root) / RECOVERY_DIR
+    for record in sorted(recovery.glob("archive-*.json")):
+        findings.append(Finding(
+            "error", "interrupted-archive",
+            "an interrupted archive recovery record remains; run archive or respond to roll it back",
+            record.relative_to(project.root).as_posix(),
+        ))
 
     def error(code: str, message: str, where: str) -> None:
         findings.append(Finding("error", code, message, where))

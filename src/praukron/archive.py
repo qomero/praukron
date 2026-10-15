@@ -13,14 +13,18 @@ validation finds a new error.
 
 from __future__ import annotations
 
+import base64
+import json
+import os
 import re
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from . import analytics, compile as compiler, validate
-from .layout import ARCHIVE_DIR, AUTHORITY_DIR
+from .layout import ARCHIVE_DIR, AUTHORITY_DIR, RECOVERY_DIR
 from .model import DEBT_CLOSED, Project
-from .respond import RespondError, _lock, _replace
+from .respond import RespondError, _lock, _replace, recover_archive
 
 _TASK = re.compile(r"(T-[A-Za-z0-9.\-]+): ")
 _CONTRACT = re.compile(r"(AC-[A-Za-z0-9.\-]+)(?: — |$)")
@@ -105,7 +109,7 @@ def plan(project: Project, phase_id: str, root: Path | None = None) -> Plan:
         else:
             result.tasks.append(task.id)
     moving = set(result.tasks)
-    staying = [t for t in project.tasks if t.id not in moving]
+    staying = [t for t in project.tasks if t.source.file == "TASKS.md" and t.id not in moving]
     # A contract section that holds an inherited invariant (`### AC-…`) stays,
     # so no invariant is ever filed away with one task's contract.
     nested: set[str] = set()
@@ -161,6 +165,26 @@ def _records(project: Project) -> dict[str, object]:
     }
 
 
+def _write_recovery(root: Path, originals: dict[Path, bytes | None]) -> Path:
+    """Persist originals before an archive starts replacing them."""
+    directory = root / RECOVERY_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    record = directory / f"archive-{time.time_ns()}.json"
+    files = []
+    for path, original in originals.items():
+        item = {"path": path.relative_to(root).as_posix()}
+        if original is None:
+            item["absent"] = True
+        else:
+            item["bytes"] = base64.b64encode(original).decode("ascii")
+        files.append(item)
+    with record.open("x", encoding="utf-8", newline="") as out:
+        out.write(json.dumps({"files": files}, separators=(",", ":")))
+        out.flush()
+        os.fsync(out.fileno())
+    return record
+
+
 def archive(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
     authority = root / AUTHORITY_DIR
     try:
@@ -168,6 +192,8 @@ def archive(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
     except RespondError as busy:
         raise ArchiveError(str(busy)) from busy
     try:
+        if recover_archive(root):
+            raise ArchiveError("an interrupted archive was rolled back; try again")
         project = compiler.load(root)
         errors = validate.errors(validate.check(project))
         if errors:
@@ -182,7 +208,6 @@ def archive(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
             "ACCEPTANCE.md": (result.contracts, _CONTRACT, f"# Acceptance · {phase_id} (archived)\n\n"
                               "Moved verbatim from ACCEPTANCE.md by `praukron archive` (ADR-067). Still authority.\n"),
         }
-        originals: dict[Path, bytes | None] = {}
         writes: dict[Path, str] = {}
         for name, (ids, pattern, header) in files.items():
             if not ids:
@@ -196,34 +221,33 @@ def archive(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
         if dry_run:
             return result
         before = _records(project)
+        originals = {path: path.read_bytes() if path.is_file() else None for path in writes}
         created = [d for d in (directory.parent, directory) if not d.exists()]
+        recovery = _write_recovery(root, originals)
         directory.mkdir(parents=True, exist_ok=True)
         try:
             for path, text in writes.items():
-                originals[path] = path.read_bytes() if path.is_file() else None
                 _replace(path, text.encode("utf-8"))
             after = compiler.load(root)
             if _records(after) != before:
                 raise ArchiveError("the records read back differently after the move")
-            introduced = validate.errors(validate.check(after))
+            introduced = [finding for finding in validate.errors(validate.check(after))
+                          if finding.code != "interrupted-archive"]
             if introduced:
                 raise ArchiveError("the move introduced validation errors: "
                                    + "; ".join(f"{f.code}: {f.message}" for f in introduced))
-        except BaseException as failure:
-            for path, original in originals.items():
-                if original is None:
-                    path.unlink(missing_ok=True)
-                else:
-                    _replace(path, original)
+        except Exception as failure:
+            recover_archive(root)
             for made in reversed(created):
                 if made.is_dir() and not any(made.iterdir()):
                     made.rmdir()
             if isinstance(failure, ArchiveError):
                 raise ArchiveError(f"nothing was moved: {failure}") from failure
             raise
+        recovery.unlink()
         return result
     finally:
-        lock.unlink(missing_ok=True)
+        lock.release()
 
 
 __all__ = ["ArchiveError", "Plan", "archive", "plan"]
