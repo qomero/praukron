@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from .layout import AUTHORITY_DIR, RECOVERY_DIR
+from .snapshot import Snapshot
 from .model import (
     ASSUMPTION_STATUSES,
     CRITERION_STATES,
@@ -76,7 +77,7 @@ def stale_references(project: Project) -> list[Finding]:
 
     Handoff and intent are prose, so nothing else resolves what they point at;
     the continuity pilot found a handoff sending agents to a moved path. This
-    is the one check that reads the filesystem, and it only warns.
+    This prose-path check reads the filesystem and only warns.
     """
     root = Path(project.root)
     authority = root / AUTHORITY_DIR
@@ -359,7 +360,30 @@ def assumption_findings(project: Project) -> list[Finding]:
     return findings
 
 
-def check(project: Project) -> list[Finding]:
+def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list[Finding]:
+    """ADR-072 diagnostics warn without blocking unrelated record writes.
+
+    Archive/restore use this same analysis to keep only the affected journal
+    entries. A captured/proposed authority must never be checked against disk.
+    """
+    from .archive import _JOURNAL_ORDER, _ORDER_REPAIR, _journal_order_state
+
+    try:
+        state = _journal_order_state(snapshot if snapshot is not None
+                                     else Snapshot.capture(Path(project.root) / AUTHORITY_DIR))
+    except (OSError, UnicodeError) as error:
+        return [Finding("warning", "invalid-journal-order", f"cannot read journal order: {error}. {_ORDER_REPAIR}",
+                        _JOURNAL_ORDER)]
+    findings = [Finding("warning", "invalid-journal-order", message, _JOURNAL_ORDER)
+                for message in dict.fromkeys(state.warnings)]
+    findings.extend(Finding("warning", "duplicate-journal-heading",
+                            f"heading appears {count} times across working/archived journals: {heading}; "
+                            "reconcile the duplicate before restoring it", f"JOURNAL.md#{heading}")
+                    for heading, count in state.counts.items() if count > 1)
+    return findings
+
+
+def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding]:
     findings: list[Finding] = []
 
     recovery = Path(project.root) / RECOVERY_DIR
@@ -604,6 +628,7 @@ def check(project: Project) -> list[Finding]:
     findings.extend(debt_findings(project))
     findings.extend(assumption_findings(project))
     findings.extend(stale_references(project))
+    findings.extend(journal_findings(project, snapshot))
     return findings
 
 

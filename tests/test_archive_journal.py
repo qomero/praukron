@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from unittest import mock  # noqa: E402
 
-from praukron import archive, compile as compiler, journal, layout, retrieve, validate  # noqa: E402
+from praukron import archive, cli, compile as compiler, journal, layout, retrieve, validate  # noqa: E402
 from test_archive_plan import ArchivePlanCase  # noqa: E402
 from test_archive_recovery import RecoveryCase  # noqa: E402
 
@@ -393,7 +393,9 @@ class TestJournalOrder(JournalCase):
                     for text in archive._journal_files(snapshot).values():
                         headings = [h for h, _, _ in archive._journal_sections(text)]
                         self.assertEqual(headings, sorted(headings, key=original_order.__getitem__))
-                    self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+                    findings = validate.check(compiler.load(self.root), snapshot=snapshot)
+                    self.assertEqual(validate.errors(findings), [])
+                    self.assertFalse(any(f.code == "invalid-journal-order" for f in findings))
                 self.assertEqual((self.authority / "JOURNAL.md").read_bytes(), original)
                 self.assertFalse(list((self.authority / "archive").glob("*/JOURNAL.md")))
 
@@ -403,7 +405,7 @@ class TestJournalOrder(JournalCase):
     def test_three_phase_round_trips_in_all_archive_restore_orders(self):
         self.round_trips_in_every_order(3)
 
-    def test_new_same_date_entry_and_repeated_cycles_use_saved_order(self):
+    def test_new_entry_on_an_unambiguous_date_and_repeated_cycles_use_saved_order(self):
         for newline in (b"\n", b"\r\n"):
             with self.subTest(newline=newline):
                 self.setUp()
@@ -416,7 +418,7 @@ class TestJournalOrder(JournalCase):
                 original = self.write_journal(text, newline).read_bytes()
                 for phase in ("P1", "P2", "P3"):
                     archive.archive(self.root, phase)
-                new_entry = "## 2026-01-01 — Beta\nT-ONE — café."
+                new_entry = "## 2026-01-02 — Beta\nT-ONE — café."
                 self.write_journal("# Journal\n\n" + new_entry, newline)
                 archive.archive(self.root, "P1")
                 expected = original + new_entry.encode().replace(b"\n", newline)
@@ -456,23 +458,21 @@ class TestJournalOrder(JournalCase):
         self.assertEqual(error.exception.code, "stale-plan")
         self.assertEqual(self.snapshot(), before)
 
-    def test_invalid_or_conflicting_metadata_refuses_without_writes(self):
-        self.write_journal(f"# Journal\n\n## {DONE}\nT-ONE.\n"
-                           "## 2026-01-01 — Second\nAC-T-ONE.\n")
-        archive.archive(self.root, "P1")
-        path = self.authority / "archive/JOURNAL.order.json"
-        data = json.loads(path.read_bytes())
-        reversed_headings = list(reversed(data["headings"]))
+    def test_unusable_metadata_is_rebuilt_when_order_is_wholly_observed(self):
+        original = f"# Journal\n\n## {DONE}\nT-ONE.\n## 2026-01-01 — Second\nAC-T-ONE.\n"
         for invalid in (b"{", b'{"version":2,"headings":[]}',
                         json.dumps({"version": 1, "headings": [DONE, DONE]}).encode(),
-                        json.dumps({"version": 1, "headings": reversed_headings}).encode()):
+                        json.dumps({"version": 1, "headings": ["2026-01-01 — Second", DONE]}).encode()):
             with self.subTest(invalid=invalid):
+                self.setUp()
+                self.write_journal(original)
+                archive.archive(self.root, "P1")
+                path = self.authority / "archive/JOURNAL.order.json"
                 path.write_bytes(invalid)
-                before = self.snapshot()
-                with self.assertRaises(archive.ArchiveError) as error:
-                    archive.restore(self.root, "P1")
-                self.assertEqual(error.exception.code, "invalid-journal-order")
-                self.assertEqual(self.snapshot(), before)
+                self.assertTrue(validate.journal_findings(compiler.load(self.root)))
+                archive.restore(self.root, "P1")
+                self.assertEqual((self.authority / "JOURNAL.md").read_bytes(), original.encode())
+                self.assertEqual(validate.journal_findings(compiler.load(self.root)), [])
 
     def test_missing_legacy_metadata_never_guesses_cross_file_ties(self):
         self.add_phase("P2")
@@ -482,11 +482,11 @@ class TestJournalOrder(JournalCase):
         archive.archive(self.root, "P1")
         archive.archive(self.root, "P2")
         (self.authority / "archive/JOURNAL.order.json").unlink()
-        before = self.snapshot()
-        with self.assertRaises(archive.ArchiveError) as error:
-            archive.restore(self.root, "P1")
-        self.assertEqual(error.exception.code, "invalid-journal-order")
-        self.assertEqual(self.snapshot(), before)
+        before = archive._journal_entries(archive.Snapshot.capture(self.authority))
+        result = archive.restore(self.root, "P1")
+        self.assertEqual(self.moved(result), [])
+        self.assertIn("Repair:", next(c.reason for c in result.candidates if c.kind == "journal"))
+        self.assertEqual(archive._journal_entries(archive.Snapshot.capture(self.authority)), before)
 
     def test_restore_parity_rejects_added_final_newline_and_rolls_back_metadata(self):
         for newline in (b"\n", b"\r\n"):
@@ -521,6 +521,206 @@ class TestJournalOrder(JournalCase):
             archive.restore(self.root, "P1")
         self.assertIn("journal order", str(error.exception))
         self.assertEqual(self.snapshot(), before)
+
+
+class TestJournalDiagnostics(JournalCase):
+    def split_tie(self, newline=b"\n", later=False):
+        first, second = "2026-01-01 — First", "2026-01-01 — Second"
+        text = f"# Journal\n\n## {first}\nT-TWO — café.\n## {second}\nT-ONE.\n"
+        if later:
+            text += "## 2026-01-02 — Later\nT-ONE.\n"
+        self.write_journal(text, newline)
+        archive.archive(self.root, "P1")
+        return first, second
+
+    def journal_snapshot(self):
+        return {name: data for name, data in self.snapshot().items()
+                if name.endswith(("JOURNAL.md", "JOURNAL.order.json"))}
+
+    def test_empty_partial_and_missing_metadata_keep_only_affected_entries(self):
+        for newline, operation, coverage in itertools.product((b"\n", b"\r\n"),
+                                                              ("archive", "restore"),
+                                                              ("empty", "first", "second", "missing")):
+            with self.subTest(newline=newline, operation=operation, coverage=coverage):
+                self.setUp()
+                first, second = self.split_tie(newline)
+                path = self.authority / "archive/JOURNAL.order.json"
+                if coverage == "missing":
+                    path.unlink()
+                else:
+                    headings = [] if coverage == "empty" else [first if coverage == "first" else second]
+                    path.write_bytes(json.dumps({"version": 1, "headings": headings}).encode())
+                before = self.journal_snapshot()
+                if operation == "archive":
+                    TestJournalApply.finish_t_two(self)
+                result = getattr(archive, operation)(self.root, "P1")
+                self.assertTrue(result.tasks)  # Records move despite the journal hold.
+                self.assertEqual(self.moved(result), [])
+                candidate = next(c for c in result.candidates if c.kind == "journal")
+                self.assertIn("same-date journal order is unavailable", candidate.reason)
+                self.assertIn("Git history", candidate.reason)
+                self.assertIn(".praukron/backup/<timestamp>", candidate.reason)
+                self.assertEqual(self.journal_snapshot(), before)
+                self.assertTrue(any(f.code == "invalid-journal-order"
+                                    for f in validate.check(compiler.load(self.root))))
+
+    def test_unrelated_journal_dates_move_without_guessing_the_broken_tie(self):
+        for operation, partial in itertools.product(("archive", "restore"), (False, True)):
+            with self.subTest(operation=operation, partial=partial):
+                self.setUp()
+                first, second = self.split_tie(later=operation == "restore")
+                path = self.authority / "archive/JOURNAL.order.json"
+                path.write_bytes(json.dumps({"version": 1, "headings": [second]}).encode() if partial else b"{bad")
+                if operation == "archive":
+                    current = (self.authority / "JOURNAL.md").read_text(encoding="utf-8")
+                    self.write_journal(current + "## 2026-01-02 — Later\nT-ONE.\n")
+                    TestJournalApply.finish_t_two(self)
+                before = archive._journal_entries(archive.Snapshot.capture(self.authority))
+                result = getattr(archive, operation)(self.root, "P1")
+                self.assertEqual(self.moved(result), ["2026-01-02 — Later"])
+                self.assertTrue(result.tasks)
+                self.assertEqual(archive._journal_entries(archive.Snapshot.capture(self.authority)), before)
+                headings = json.loads(path.read_bytes())["headings"]
+                self.assertNotIn(first, headings)
+                self.assertEqual(second in headings, partial)
+                # A rewrite for another date must not bless the lost tie.
+                state = archive._journal_order_state(archive.Snapshot.capture(self.authority))
+                self.assertIn("2026-01-01", state.blocked)
+
+    def test_unrelated_phase_archive_and_restore_ignore_unusable_metadata(self):
+        self.split_tie()
+        path = self.authority / "archive/JOURNAL.order.json"
+        path.write_bytes(b"{bad")
+        self.add_phase("P2")
+        self.add_task("T-P2", "M-P2")
+        before = self.journal_snapshot()
+        for operation in ("archive", "restore"):
+            result = getattr(archive, operation)(self.root, "P2")
+            self.assertEqual(result.tasks, ["T-P2"])
+            self.assertEqual(self.moved(result), [])
+            self.assertTrue(result.warnings)
+            self.assertEqual(self.journal_snapshot(), before)
+
+    def test_observed_owner_reorder_wins_and_is_persisted_with_the_move(self):
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                self.setUp()
+                a, b, c = (f"2026-01-01 — {name}" for name in ("A", "B", "C"))
+                self.write_journal(f"# Journal\n\n## {a}\nT-TWO.\n## {b}\nT-TWO.\n## {c}\nT-ONE.\n", newline)
+                archive.archive(self.root, "P1")
+                self.write_journal(f"# Journal\n\n## {b}\nT-TWO.\n## {a}\nT-TWO.\n", newline)
+                warnings = validate.journal_findings(compiler.load(self.root))
+                self.assertTrue(any("file wins" in f.message for f in warnings))
+                TestJournalApply.finish_t_two(self)
+                before = archive._journal_entries(archive.Snapshot.capture(self.authority))
+                result = archive.archive(self.root, "P1")
+                self.assertIn("ordering metadata:", result.render(True))
+                self.assertEqual(json.loads((self.authority / "archive/JOURNAL.order.json").read_bytes())["headings"],
+                                 [b, a, c])
+                archive.restore(self.root, "P1")
+                self.assertEqual(archive._journal_entries(archive.Snapshot.capture(self.authority)), before)
+                text = (self.authority / "JOURNAL.md").read_bytes().decode()
+                self.assertEqual([h for h, _, _ in archive._journal_sections(text)], [b, a, c])
+                self.assertEqual(validate.journal_findings(compiler.load(self.root)), [])
+                added = "2026-01-01 — New"
+                self.write_journal(f"# Journal\n\n## {a}\nT-ONE.\n## {added}\nT-ONE.\n"
+                                   f"## {b}\nT-ONE.\n## {c}\nT-ONE.\n", newline)
+                self.assertTrue(any("file wins" in f.message
+                                    for f in validate.journal_findings(compiler.load(self.root))))
+                archive.archive(self.root, "P1")
+                self.assertEqual(json.loads((self.authority / "archive/JOURNAL.order.json").read_bytes())["headings"],
+                                 [a, added, b, c])
+
+    def test_validate_warns_about_structure_stale_headings_and_missing_tie_coverage(self):
+        for payload in (b"{", b'{"version":2,"headings":[]}', b'{"version":1,"headings":[]}',
+                        b'{"version":1,"headings":["gone"]}', None):
+            with self.subTest(payload=payload):
+                self.setUp()
+                self.split_tie()
+                path = self.authority / "archive/JOURNAL.order.json"
+                if payload is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(payload)
+                findings = validate.check(compiler.load(self.root))
+                issues = [f for f in findings if f.code == "invalid-journal-order"]
+                self.assertTrue(issues)
+                self.assertTrue(all(f.severity == "warning" for f in issues))
+                if payload and b"gone" in payload:
+                    self.assertTrue(any("absent from every journal" in f.message for f in issues))
+                self.assertEqual(validate.errors(findings), [])
+
+    def test_validate_command_reports_the_metadata_warning(self):
+        self.split_tie()
+        (self.authority / "archive/JOURNAL.order.json").write_bytes(b"{bad")
+        with mock.patch.object(cli, "_report_findings") as reported, mock.patch("builtins.print"):
+            code = cli.main(["-C", str(self.root), "validate"])
+        self.assertEqual(code, 0)
+        findings = [f for call in reported.call_args_list for f in call.args[0]]
+        self.assertTrue(any(f.code == "invalid-journal-order" for f in findings))
+
+    def test_cross_file_cycle_is_reported_and_held_but_records_still_move(self):
+        a, b, c = (f"2026-01-01 — {name}" for name in ("A", "B", "C"))
+        self.write_journal(f"# Journal\n\n## {a}\nT-TWO.\n## {b}\nT-ONE.\n## {c}\nT-TWO.\n")
+        archive.archive(self.root, "P1")
+        self.write_journal(f"# Journal\n\n## {c}\nT-TWO.\n## {a}\nT-TWO.\n")
+        self.assertTrue(any("conflicting cross-file ties" in f.message
+                            for f in validate.journal_findings(compiler.load(self.root))))
+        TestJournalApply.finish_t_two(self)
+        before = self.journal_snapshot()
+        result = archive.archive(self.root, "P1")
+        self.assertTrue(result.tasks)
+        self.assertEqual(self.moved(result), [])
+        self.assertEqual(self.journal_snapshot(), before)
+
+    def test_restore_collisions_include_every_archive_and_the_working_journal(self):
+        for target in ("JOURNAL.md", "archive/P2/JOURNAL.md"):
+            with self.subTest(target=target):
+                self.setUp()
+                first, second = self.split_tie()
+                path = self.authority / target
+                path.parent.mkdir(parents=True, exist_ok=True)
+                current = path.read_text(encoding="utf-8") if path.exists() else "# Journal\n\n"
+                path.write_bytes((current + f"## {second}\nDuplicate.\n").encode())
+                findings = validate.check(compiler.load(self.root))
+                self.assertTrue(any(f.code == "duplicate-journal-heading" for f in findings))
+                before = self.snapshot()
+                with self.assertRaises(archive.ArchiveError) as error:
+                    archive.restore(self.root, "P1")
+                self.assertEqual(error.exception.code, "id-collision")
+                self.assertEqual(self.snapshot(), before)
+
+    def test_renamed_heading_is_reported_without_guessing_its_cross_file_position(self):
+        first, _ = self.split_tie()
+        self.rewrite("JOURNAL.md", first, first + " corrected")
+        before = self.journal_snapshot()
+        findings = validate.journal_findings(compiler.load(self.root))
+        self.assertTrue(any("renamed or removed" in f.message for f in findings))
+        result = archive.restore(self.root, "P1")
+        self.assertEqual(self.moved(result), [])
+        self.assertEqual(self.journal_snapshot(), before)
+
+    def test_validation_of_a_capture_does_not_read_later_metadata_from_disk(self):
+        self.split_tie()
+        snapshot = archive.Snapshot.capture(self.authority)
+        (self.authority / "archive/JOURNAL.order.json").write_bytes(b"{bad")
+        captured = compiler.load(self.root, authority=snapshot.path())
+        self.assertEqual(validate.journal_findings(captured, snapshot), [])
+        self.assertTrue(validate.journal_findings(compiler.load(self.root)))
+
+    def test_nonchronological_journal_follows_documented_date_first_placement(self):
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                self.setUp()
+                later = "## 2026-01-05 — Later\nT-ONE — café.\n"
+                earlier = "## 2026-01-01 — Earlier\nAC-T-ONE.\n\n"
+                self.write_journal("# Journal\n\n" + later + earlier, newline)
+                before = archive._journal_entries(archive.Snapshot.capture(self.authority))
+                archive.archive(self.root, "P1")
+                archive.restore(self.root, "P1")
+                self.assertEqual((self.authority / "JOURNAL.md").read_bytes(),
+                                 ("# Journal\n\n" + earlier + later).encode().replace(b"\n", newline))
+                self.assertEqual(archive._journal_entries(archive.Snapshot.capture(self.authority)), before)
 
 
 class TestJournalOrderRecovery(RecoveryCase):
