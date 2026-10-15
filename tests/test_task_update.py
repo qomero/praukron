@@ -165,7 +165,8 @@ class TestTaskUpdate(UpdateCase):
         self.assertEqual(result["error"]["code"], "archived-record")
         self.assertEqual(self.snapshot(), before)
 
-    def test_stale_revision_including_a_b_a_is_refused_with_current_section(self):
+    def test_a_b_a_that_changes_the_record_bytes_is_refused_with_current_section(self):
+        # Revisions are content hashes: an A->B->A whose bytes differ from what the caller saw is stale.
         r0 = self.revision()
         # WIP claims the task, so returning to TODO still leaves a changed section.
         self.assertEqual(self.update({"status": "WIP", "owner": "Rhea"})[0], 0)
@@ -178,6 +179,42 @@ class TestTaskUpdate(UpdateCase):
         self.assertEqual(result["error"]["currentRevision"], self.revision())
         self.assertIn("## T-TWO: Build on it", result["error"]["section"])
         self.assertEqual(self.snapshot(), before)
+
+    def test_byte_identical_a_b_a_is_not_a_lost_update(self):
+        # The section equals what the caller saw, so its revision still matches and the update applies.
+        self.assertEqual(self.update({"status": "BLOCKED"})[0], 0)
+        r0 = self.revision()
+        self.assertEqual(self.update({"status": "TODO"})[0], 0)
+        self.assertEqual(self.update({"status": "BLOCKED"})[0], 0)
+        self.assertEqual(self.revision(), r0)
+        code, result = self.update({"owner": "Rhea"}, "T-TWO", r0)
+        self.assertEqual(code, 0, result)
+
+    def test_evidence_the_parser_would_alter_is_refused(self):
+        for newline in (b"\n", b"\r\n"):
+            self.convert(newline)
+            for value in ("—Đã hoàn thành—", "Done —", "— Done", "—"):
+                with self.subTest(newline=newline, value=value):
+                    before = self.snapshot()
+                    code, result = self.update({"evidence": value})
+                    self.assertEqual(code, 1)
+                    self.assertEqual(result["error"]["code"], "invalid-value")
+                    self.assertEqual(self.snapshot(), before)
+        self.convert(b"\n")
+        text = "Đã xong — kiểm tra lại"
+        self.assertEqual(self.update({"evidence": text})[0], 0)
+        self.assertEqual(compiler.load(self.root).task("T-TWO").evidence, text)
+
+    def test_done_rules_apply_only_to_the_transition_into_done(self):
+        self.rewrite("TASKS.md", "- Owner: unassigned\n- AC: AC-T-TWO",
+                     "- Owner: unassigned\n- Authority: owner\n- AC: AC-T-TWO")
+        self.rewrite("TASKS.md", "## T-TWO: Build on it\n- Status: TODO", "## T-TWO: Build on it\n- Status: DONE")
+        for changes in ({"evidence": "Reworded."}, {"owner": "Rhea"}):
+            with self.subTest(changes=changes):
+                code, result = self.update(changes)
+                self.assertEqual(code, 0, result)
+        task = compiler.load(self.root).task("T-TWO")
+        self.assertEqual((task.status, task.owner, task.evidence), ("DONE", "Rhea", "Reworded."))
 
     def test_dry_run_writes_nothing_and_schema_prints(self):
         before = self.snapshot()

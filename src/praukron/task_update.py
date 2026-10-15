@@ -25,7 +25,7 @@ SCHEMA = {
                 "owner": {"type": "string", "minLength": 1, "description": "One line"},
                 "claimed": {"type": "string", "format": "date", "description": "YYYY-MM-DD"},
                 "evidence": {"type": "string", "minLength": 1,
-                             "description": "Single spaces, no blank line; line breaks are wrap points"},
+                             "description": "Single spaces, no blank line, no leading or trailing em dash; line breaks are wrap points"},
             },
         },
     },
@@ -137,13 +137,15 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                     edits[_LABELS[key]] = _lines(key, changes[key], True)[0]
             if "evidence" in changes:
                 edits["Evidence"] = " ".join(_lines("evidence", changes["evidence"], False))
-                if not edits["Evidence"].strip("—").strip():
-                    raise mutate.WriteError("invalid-value", "evidence may not be a placeholder", "evidence")
+                if edits["Evidence"].strip("—").strip() != edits["Evidence"]:
+                    raise mutate.WriteError(
+                        "invalid-value", "evidence may not start or end with an em dash (the parser strips it)",
+                        "evidence")
             if status == "WIP" and task.status != "WIP":
                 if not _usable(owner):
                     raise mutate.WriteError("owner-required", "WIP needs an owner", "owner")
                 edits.setdefault("Claimed", dt.date.today().isoformat())
-            if status == "DONE":
+            if status == "DONE" and task.status != "DONE":
                 if task.owner_held:
                     raise mutate.WriteError("owner-held", f"{task_id} is Authority: owner; only the owner closes it",
                                             "status")
