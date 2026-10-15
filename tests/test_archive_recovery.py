@@ -111,7 +111,7 @@ class TestGitRecovery(RecoveryCase):
     def test_attribute_conversion_uses_backups_for_sources_and_prospective_destinations(self):
         for pattern in (f"{layout.AUTHORITY_DIR}/**", f"{layout.AUTHORITY_DIR}/archive/**"):
             for attributes in ("text eol=crlf", "text eol=lf", "filter=archive-smudge", "ident",
-                               "working-tree-encoding=UTF-8"):
+                               "working-tree-encoding=UTF-8", "filter=unspecified", "filter=unset", "-filter"):
                 with self.subTest(pattern=pattern, attributes=attributes):
                     self.setUp()
                     (self.root / ".gitattributes").write_bytes(f"{pattern} {attributes}\n".encode())
@@ -139,7 +139,7 @@ class TestGitRecovery(RecoveryCase):
 
     def test_disabled_conversion_attributes_keep_git_recovery(self):
         (self.root / ".gitattributes").write_bytes(
-            f"{layout.AUTHORITY_DIR}/** -text -filter -ident -working-tree-encoding\n".encode())
+            f"{layout.AUTHORITY_DIR}/** -text -ident -eol -crlf\n".encode())
         self.init_git()
         self.assertEqual(archive.preview(self.root, "P1").mode, "git")
 

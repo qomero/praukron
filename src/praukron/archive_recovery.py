@@ -54,13 +54,20 @@ def _checkout_converts(authority: Path, paths: Iterable[str]) -> bool:
         return True
     if autocrlf.stdout.strip().lower() not in (b"", b"false", b"no", b"off", b"0"):
         return True
-    attributes = _git(authority, "check-attr", "-z", "--stdin", "text", "eol", "crlf",
-                      "filter", "ident", "working-tree-encoding",
+    attributes = _git(authority, "check-attr", "--all", "-z", "--stdin",
                       input=b"".join(os.fsencode(p) + b"\0" for p in paths if p != "."))
     if attributes.returncode:
         return True
     fields = attributes.stdout.split(b"\0")
-    return any(value not in (b"unspecified", b"unset") for value in fields[2::3])
+    for attribute, value in zip(fields[1::3], fields[2::3]):
+        # --all omits absent attributes, so a driver literally named
+        # "unspecified" cannot be mistaken for an absent filter. Treat even
+        # disabled filters/encodings conservatively: "unset" is ambiguous.
+        if attribute in (b"filter", b"working-tree-encoding"):
+            return True
+        if attribute in (b"text", b"eol", b"crlf", b"ident") and value != b"unset":
+            return True
+    return False
 
 
 def require_clean(root: Path) -> None:
