@@ -15,6 +15,7 @@ from typing import Iterable
 from . import layout
 from .layout import AUTHORITY_DIR
 from .mutate import _replace
+from .snapshot import Snapshot
 
 
 def _git(root: Path, *args: str, input: bytes | None = None) -> subprocess.CompletedProcess:
@@ -94,19 +95,21 @@ def backup(root: Path, originals: dict[Path, bytes | None]) -> dict:
         "backup": [[sys.executable, "-c", script, str(directory), str(root.resolve())]]}}
 
 
-def instructions(root: Path, originals: dict[Path, bytes | None], phase: str, operation: str, *, directories=()) -> dict:
-    authority = root / AUTHORITY_DIR
+def instructions(root: Path, originals: dict[Path, bytes | None], phase: str, operation: str, *,
+                 directories=(), snapshot: Snapshot | None = None) -> dict:
+    authority = snapshot.authority if snapshot is not None else (root / AUTHORITY_DIR).resolve()
     result = _git(authority, "ls-files", "--cached", "-z", "--", ".")
     if result.returncode:
         raise OSError(result.stderr.decode("utf-8", errors="replace"))
     indexed = {os.fsdecode(name) for name in result.stdout.split(b"\0") if name}
+    index_names = {(snapshot.resolve(name) if snapshot is not None else name): name for name in indexed}
     tracked_paths = [p for p, data in originals.items() if data is not None
-                     and p.relative_to(authority).as_posix() in indexed]
+                     and p.relative_to(authority).as_posix() in index_names]
     if len(tracked_paths) != sum(data is not None for data in originals.values()):
         from .archive import ArchiveError
         raise ArchiveError("chronicle tracking changed; run archive plan again", "dirty-chronicle")
     tracked = [p.relative_to(root).as_posix() for p in tracked_paths]
-    pathspecs = [p.relative_to(authority).as_posix() for p in tracked_paths]
+    pathspecs = [index_names[p.relative_to(authority).as_posix()] for p in tracked_paths]
     created = [p.relative_to(root).as_posix() for p, data in originals.items() if data is None]
     git = ["git", "-C", str(authority.resolve())]
     unstaged = [git + ["restore", "--source=HEAD", "--worktree", "--", *pathspecs]] if tracked else []

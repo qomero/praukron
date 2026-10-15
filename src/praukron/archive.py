@@ -619,7 +619,8 @@ def _execute(root: Path, project: Project, result: Plan, writes: dict[Path, byte
             directory = directory.parent
     created = sorted(created, key=lambda p: (len(p.parts), p.as_posix()))
     if result.mode == "git":
-        result.recovery = archive_recovery.instructions(root, originals, result.phase, result.operation, directories=created)
+        result.recovery = archive_recovery.instructions(
+            root, originals, result.phase, result.operation, directories=created, snapshot=result.snapshot)
     else:
         result.recovery = archive_recovery.backup(root, originals)
     before = _records(project)
@@ -632,7 +633,6 @@ def _execute(root: Path, project: Project, result: Plan, writes: dict[Path, byte
                 if data is None:
                     path.unlink()
                 else:
-                    path.parent.mkdir(parents=True, exist_ok=True)
                     _replace(path, data)
         after = compiler.load(root)
         if _records(after) != before:
@@ -650,50 +650,67 @@ def _execute(root: Path, project: Project, result: Plan, writes: dict[Path, byte
         raise
 
 
+@dataclass(frozen=True)
+class _RestoreLocator:
+    filename: str
+    kind: str
+    pattern: re.Pattern[str] | None = None
+
+    def sections(self, text: str) -> dict[str, list[tuple[int, int]]]:
+        return section_locations(text, self.pattern)
+
+
+def _restore_rules() -> list:
+    # The parallel record rules can override these locators without restore
+    # duplicating their section format or their apply-only eligibility logic.
+    defaults = (TaskRule(), ContractRule(),
+                _RestoreLocator("ASSUMPTIONS.md", "assumption", re.compile(r"(A-[A-Za-z0-9.\-]+): ")),
+                _RestoreLocator("TECH_DEBT.md", "debt", re.compile(r"(TD-[A-Za-z0-9.\-]+): ")),
+                _RestoreLocator("TRACE.md", "event", re.compile(r"(EV-[A-Za-z0-9.\-]+): ")),
+                _RestoreLocator("JOURNAL.md", "journal"))
+    rules = {rule.filename: rule for rule in (*defaults, *RECORD_RULES)}
+    return list(rules.values())
+
+
 def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan, dict[Path, bytes | None]]:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-]*", phase_id) or ".." in phase_id:
         raise ArchiveError("invalid archive phase", "invalid-selection")
-    authority = root / AUTHORITY_DIR
-    directory = authority / ARCHIVE_DIR / phase_id
-    if f"{ARCHIVE_DIR}/{phase_id}" not in snapshot.directories:
+    authority = snapshot.authority
+    directory = f"{ARCHIVE_DIR}/{phase_id}"
+    if not snapshot.is_dir(directory):
         raise ArchiveError(f"no archive for {phase_id}", "unknown-archive")
-    # Independent of eligibility rules: closed history may gain new references.
-    names = {"TASKS.md": "task", "ACCEPTANCE.md": "contract", "ASSUMPTIONS.md": "assumption",
-             "TECH_DEBT.md": "debt", "TRACE.md": "event", "JOURNAL.md": "journal"}
+    rules = {snapshot.resolve(f"{directory}/{rule.filename}"): rule for rule in _restore_rules()}
     result = Plan(phase_id, snapshot=snapshot, version=layout.version(), operation="restore")
     writes = {}
-    for captured in snapshot.path(f"{ARCHIVE_DIR}/{phase_id}").iterdir():
+    for captured in snapshot.path(directory).iterdir():
         source = authority / captured.key
-        if source.name not in names or not captured.is_file():
+        rule = rules.get(captured.key)
+        if rule is None or not captured.is_file():
             raise ArchiveError(f"unsupported archive path: {source.name}", "invalid-archive")
-        target = authority / source.name
-        archived = captured.read_bytes()
-        working = snapshot.files.get(source.name, b"")
-        sections = list(re.finditer(rb"(?m)^## ([^\r\n]+)\r?$", archived))
-        working_ids = {_restore_id(m.group(1), source.name) for m in
-                       re.finditer(rb"(?m)^## ([^\r\n]+)\r?$", working)}
+        target_name = snapshot.resolve(rule.filename)
+        target = authority / target_name
+        archived_bytes = captured.read_bytes()
+        archived = archived_bytes.decode("utf-8")
+        working = snapshot.original(rule.filename) or b""
+        working_ids = set(rule.sections(working.decode("utf-8")))
         restored = []
-        for heading in sections:
-            record_id = _restore_id(heading.group(1), source.name)
-            if record_id in working_ids:
-                raise ArchiveError(f"record already exists: {record_id}", "id-collision")
+        for record_id, spans in rule.sections(archived).items():
+            if len(spans) != 1 or record_id in working_ids:
+                raise ArchiveError(f"record already exists or has duplicate sections: {record_id}", "id-collision")
             working_ids.add(record_id)
-            following = re.search(rb"(?m)^#{1,2} ", archived[heading.end():])
-            end = heading.end() + following.start() if following else len(archived)
-            data = archived[heading.start():end]
-            restored.append(data)
+            start, end = spans[0]
+            data = archived[start:end].encode("utf-8")
+            restored.append((start, data))
             result.moved_bytes += len(data)
-            kind = names[source.name]
-            result.candidates.append(Candidate(record_id, kind,
-                source.relative_to(authority).as_posix(), source.name))
-            if kind == "task":
+            result.candidates.append(Candidate(record_id, rule.kind, captured.key, target_name))
+            if rule.kind == "task":
                 result.tasks.append(record_id)
-            elif kind == "contract":
+            elif rule.kind == "contract":
                 result.contracts.append(record_id)
         if restored:
-            newline = b"\r\n" if b"\r\n" in (working or archived) else b"\n"
+            newline = b"\r\n" if b"\r\n" in (working or archived_bytes) else b"\n"
             combined = working
-            for data in restored:
+            for _, data in sorted(restored):
                 if combined and not combined.endswith(newline * 2):
                     combined += newline if combined.endswith(newline) else newline * 2
                 combined += data.replace(b"\r\n", b"\n").replace(b"\n", newline)
@@ -702,14 +719,9 @@ def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan
     if not writes:
         raise ArchiveError(f"no records in archive for {phase_id}", "unknown-archive")
     result.changed_files = sorted(p.relative_to(authority).as_posix() for p in writes)
-    result.created_files = [name for name in result.changed_files if name not in snapshot.files]
+    result.created_files = [name for name in result.changed_files if not snapshot.is_file(name)]
     result.mode = archive_mode(root, snapshot, result.changed_files)
     return result, writes
-
-
-def _restore_id(heading: bytes, filename: str) -> str:
-    text = heading.decode("utf-8")
-    return text if filename == "JOURNAL.md" else re.split(r": | — ", text, maxsplit=1)[0]
 
 
 def restore(root: Path, phase_id: str, dry_run: bool = False) -> Plan:

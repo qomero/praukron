@@ -83,6 +83,27 @@ class RecoveryCase(ArchivePlanCase):
 
 
 class TestGitRecovery(RecoveryCase):
+    def test_case_insensitive_index_lookup_uses_snapshot_aliases(self):
+        probe = self.authority / "CASE-PROBE"
+        probe.write_bytes(b"probe")
+        insensitive = probe.with_name("case-probe").exists()
+        probe.unlink()
+        if not insensitive:
+            self.skipTest("case-sensitive filesystem")
+        self.init_git()
+        self.git("config", "core.ignorecase", "true")
+        original = (self.authority / "TASKS.md").read_bytes()
+        path = self.authority / "TASKS.md"
+        temporary = path.with_name("case-rename.tmp")
+        path.rename(temporary)
+        temporary.rename(path.with_name("tasks.md"))
+        self.assertEqual(self.git("status", "--porcelain", "--", layout.AUTHORITY_DIR), "")
+        result = archive.archive(self.root, "P1")
+        self.assertEqual(result.mode, "git")
+        self.run_commands(result.recovery["commands"]["unstaged"])
+        self.assertEqual((self.authority / "TASKS.md").read_bytes(), original)
+        self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+
     def test_partial_ignores_select_backup_and_restore_every_byte(self):
         for ignored in ("TASKS.md", "archive/", "opaque.txt"):
             with self.subTest(ignored=ignored):
@@ -386,6 +407,79 @@ class TestBackupRecovery(RecoveryCase):
 
 
 class TestArchiveRestore(RecoveryCase):
+    def test_restore_uses_registered_full_heading_locator_without_eligibility(self):
+        archive.archive(self.root, "P1")
+        heading = "2026-10-15 — Closed work — extra detail"
+        journal = self.authority / "archive/P1/JOURNAL.md"
+        journal.write_bytes(f"# Journal\n\n## {heading}\nT-ONE finished.\n".encode())
+
+        class JournalRule:
+            filename, kind = "JOURNAL.md", "journal"
+
+            def sections(self, text):
+                return archive.section_locations(text)
+
+            def candidates(self, context):
+                raise AssertionError("restore must not recheck eligibility")
+
+        rule = JournalRule()
+        with mock.patch.object(archive, "RECORD_RULES", (*archive.RECORD_RULES, rule)), \
+                mock.patch.object(rule, "sections", wraps=rule.sections) as located:
+            result = archive.restore(self.root, "P1")
+        self.assertEqual(located.call_count, 2)
+        self.assertIn(heading, [c.id for c in result.candidates])
+        self.assertIn(f"## {heading}".encode(), (self.authority / "JOURNAL.md").read_bytes())
+
+    def test_duplicate_journal_locator_refused_without_writes(self):
+        archive.archive(self.root, "P1")
+        journal = self.authority / "archive/P1/JOURNAL.md"
+        journal.write_bytes(b"# Journal\n\n## 2026-10-15 - Same\nFirst.\n\n## 2026-10-15 - Same\nSecond.\n")
+        before = self.snapshot()
+        with self.assertRaises(archive.ArchiveError) as error:
+            archive.restore(self.root, "P1")
+        self.assertEqual(error.exception.code, "id-collision")
+        self.assertEqual(self.snapshot(), before)
+
+    def test_case_insensitive_restore_reuses_captured_file_and_directory_spellings(self):
+        probe = self.authority / "CASE-PROBE"
+        probe.write_bytes(b"probe")
+        insensitive = probe.with_name("case-probe").exists()
+        probe.unlink()
+        if not insensitive:
+            self.skipTest("case-sensitive filesystem")
+        archive.archive(self.root, "P1")
+        for directory in (self.authority, self.authority / "archive/P1"):
+            for name in ("TASKS.md", "ACCEPTANCE.md"):
+                path = directory / name
+                intermediate = path.with_name("case-rename.tmp")
+                path.rename(intermediate)
+                intermediate.rename(path.with_name(name.lower()))
+        directory = self.authority / "archive/P1"
+        directory.rename(directory.with_name("phase-rename"))
+        directory.with_name("phase-rename").rename(directory.with_name("p1"))
+        before = self.snapshot()
+        result = archive.restore(self.root, "P1")
+        self.assertEqual(result.created_files, [])
+        self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+        manifest = json.loads((Path(result.recovery["backup"]) / "manifest.json").read_bytes())
+        self.assertTrue(all(not entry["absent"] for entry in manifest["files"]))
+        self.run_commands(result.recovery["commands"]["backup"])
+        self.assertEqual(self.snapshot(), before)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX symlinked restore root")
+    def test_restore_through_symlink_uses_resolved_snapshot_identity(self):
+        archive.archive(self.root, "P1")
+        alias = self.root.parent / (self.root.name + "-alias")
+        alias.symlink_to(self.root, target_is_directory=True)
+        self.addCleanup(alias.unlink)
+        before = self.snapshot()
+        result = archive.restore(alias, "P1")
+        self.assertEqual(result.snapshot.authority, self.authority.resolve())
+        self.assertEqual(result.created_files, [])
+        self.assertEqual(validate.errors(validate.check(compiler.load(alias))), [])
+        self.run_commands(result.recovery["commands"]["backup"])
+        self.assertEqual(self.snapshot(), before)
+
     def test_restore_uses_converted_working_file_line_endings(self):
         for archived_newline, working_newline in ((b"\n", b"\r\n"), (b"\r\n", b"\n")):
             with self.subTest(working_newline=working_newline):
