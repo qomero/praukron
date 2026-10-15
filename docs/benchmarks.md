@@ -236,7 +236,9 @@ Reads are UTF-8 bytes of what an agent must read to edit the file: the whole fil
   five were listed; a synthetic case showed it (`EV-X7…X11` became `EV-X3, X5, X7, X9,
   X11`) and this review found it. Events are now ordered when the project is loaded
   by their own time, then the number in their id, then the id, so where an event lives
-  cannot decide and every view that takes the last N agrees. `tests/test_archive_parity.py`
+  cannot decide and every view that takes the last N agrees (context, retrieve,
+  analytics and the dashboard, checked by `tests/test_archive_views.py`, including ids
+  that cross 9 and 10 and tied times). `tests/test_archive_parity.py`
   checks the list before archiving, after it and after restore, and the parity check on
   the real copy compares `context` exactly.
 - Not measured: real agent sessions; a chronicle much larger than this one; how

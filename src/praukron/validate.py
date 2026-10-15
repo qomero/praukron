@@ -423,7 +423,17 @@ def archive_findings(project: Project, snapshot: Snapshot | None = None) -> list
                  if len(name.split("/")) == 3
                  and name.split("/")[0].casefold() == ARCHIVE_DIR
                  and name.split("/")[2].casefold().endswith(".md")]
+        # Anything else inside archive/<phase>/ is refused by restore: other
+        # extensions, nested files and empty directories. Names only, no bytes.
+        refused = {"/".join(name.split("/")[:3]) for name in [*snapshot.files, *snapshot.directories]
+                   if len(name.split("/")) > 3 and name.split("/")[0].casefold() == ARCHIVE_DIR}
+        refused |= {name for name in snapshot.files
+                    if len(name.split("/")) == 3 and name.split("/")[0].casefold() == ARCHIVE_DIR
+                    and not name.split("/")[2].casefold().endswith(".md")}
+        refused |= {name for name in snapshot.directories
+                    if len(name.split("/")) == 3 and name.split("/")[0].casefold() == ARCHIVE_DIR}
     else:
+        refused = set()
         names = []
         archive_root = Path(project.root) / AUTHORITY_DIR / ARCHIVE_DIR
         try:
@@ -445,9 +455,10 @@ def archive_findings(project: Project, snapshot: Snapshot | None = None) -> list
                                         f"cannot inspect archive inputs: {error}", where))
                 continue
             for record in records:
-                if record.suffix.casefold() != ".md":
-                    continue
                 try:
+                    if record.suffix.casefold() != ".md" or record.is_dir():
+                        refused.add(record.relative_to(archive_root.parent).as_posix())
+                        continue
                     if record.is_file():
                         expected = phase / allowed.get(record.name.casefold(), "")
                         names.append((record.relative_to(archive_root.parent).as_posix(),
@@ -456,6 +467,10 @@ def archive_findings(project: Project, snapshot: Snapshot | None = None) -> list
                     where = record.relative_to(archive_root.parent).as_posix()
                     findings.append(Finding("error", "invalid-archive-input",
                                             f"cannot inspect archive inputs: {error}", where))
+    for name in sorted(refused):
+        findings.append(Finding("warning", "unsupported-archive-path",
+                                "restore refuses this path (unsupported archive path); remove it or move it "
+                                "out of archive/ before relying on restore", name))
     for name, parsed in names:
         parts = name.split("/")
         expected = allowed.get(parts[2].casefold())

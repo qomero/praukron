@@ -8,13 +8,12 @@ compiled directory and running again reproduces it exactly.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from . import analytics, domain, index, views
 from . import layout
 from .layout import AUTHORITY_DIR, COMPILED_DIR
-from .model import Project
+from .model import Project, event_order
 from .snapshot import SnapshotPath
 from .parse import (
     ParseError,
@@ -111,11 +110,7 @@ def _chronological(events: list) -> list:
     unique, so the order is total and file order never decides. An event without a
     time sorts before every timed one.
     """
-    def key(event):
-        number = re.search(r"(\d+)$", event.id)
-        return (event.time or "", int(number.group(1)) if number else -1, event.id)
-
-    return sorted(events, key=key)
+    return sorted(events, key=lambda event: event_order(event.id, event.time))
 
 
 def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project:

@@ -6,6 +6,10 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Fixed: the dashboard sorted events and chose an operation's latest event lexically (`Extra 9` after
+  `Extra 11`); every view now uses one event order (`model.event_order`), checked across context, retrieve,
+  analytics and the dashboard before archive, after archive and after restore. `validate` now warns
+  (`unsupported-archive-path`) about any path in `archive/<phase>/` that `restore` would refuse.
 - Validate permanent archive invariants: archive paths and records, task phase placement, journal headings,
   and journal-named references now validate across working and archived files; archive apply and restore both
   report a committed authoritative move when any projection refresh step fails.

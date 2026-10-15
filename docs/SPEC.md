@@ -431,9 +431,11 @@ result carries the command that restores it.
 
 **Permanent invariants (`validate`).** Archives are checked for what must always
 hold, never for eligibility, and there is no separate `archive verify`. Across the
-working files and every archive: archive files are known record files
-(`invalid-archive-file`, `invalid-archive-input` errors; `case-mismatched-archive-filename`
-warning); records parse; ids are unique (`duplicate-task`, `duplicate-event`,
+working files and every archive: Markdown files directly in `archive/<phase>/` are
+known record files (`invalid-archive-file`, `invalid-archive-input` errors;
+`case-mismatched-archive-filename` warning); any other path there (another extension,
+a nested path, a directory) is an `unsupported-archive-path` warning because restore
+refuses it, found from directory listings alone; records parse; ids are unique (`duplicate-task`, `duplicate-event`,
 `duplicate-assumption`, `duplicate-debt`; a duplicate contract fails the load);
 references resolve (`unknown-dependency`, `unknown-contract`, `unknown-decision`,
 `unknown-assumption-reference`, `unknown-debt-reference` errors; an event's missing

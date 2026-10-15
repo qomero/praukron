@@ -267,7 +267,8 @@ files and every `archive/<phase>/` together.
 
 | Invariant | Finding |
 |---|---|
-| every file in `archive/<phase>/` is a known record file | error `invalid-archive-file`; an archive input that cannot be read: error `invalid-archive-input` |
+| every Markdown file directly in `archive/<phase>/` is a known record file | error `invalid-archive-file`; an archive input that cannot be read: error `invalid-archive-input` |
+| nothing else sits in `archive/<phase>/` | warning `unsupported-archive-path` for any other extension, nested path or directory, naming that `restore` refuses it. Only directory listings are read, never file bytes; `archive/JOURNAL.order.json` is the one file outside the phase folders and is checked separately |
 | the loader will read the file (right letter case) | warning `case-mismatched-archive-filename` (the file is ignored) |
 | every record parses | the load fails with the file and record named |
 | no id exists twice across working files and archives | errors `duplicate-task`, `duplicate-event`, `duplicate-assumption`, `duplicate-debt` (a duplicate contract fails the load) |

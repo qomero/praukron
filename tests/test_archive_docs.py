@@ -113,7 +113,7 @@ class ArchiveDocs(unittest.TestCase):
                       "case-mismatched-archive-filename": "warning", "invalid-journal-heading": "error",
                       "duplicate-journal-heading": "warning", "unknown-journal-reference": "warning",
                       "invalid-journal-order": "warning", "interrupted-archive": "error",
-                      "wrong-archive-phase": "warning", "unknown-event-task": "warning",
+                      "wrong-archive-phase": "warning", "unsupported-archive-path": "warning", "unknown-event-task": "warning",
                       "unknown-event-affects": "warning"}
         for name, severity in severities.items():
             self.assertTrue(f"`{name}`" in text, name)
