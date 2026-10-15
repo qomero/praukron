@@ -7,6 +7,8 @@ people arriving from a release page.
 ## Unreleased
 
 - Structured transactions normalize symlinked project paths before target lookup and recovery.
+- Add `praukron task update` to change a task's status, owner, claim or evidence under a revision check,
+  refusing DONE without passing criteria and evidence, owner-held DONE, archived tasks and stale revisions.
 - Structured writes now preserve committed results on lock-release failure, resolve full journal headings exactly,
   keep revisions stable across appends, and accept UTF-8 BOM payloads.
 - Add `praukron journal append` with strict JSON payloads, dry runs, and shared recoverable write transactions.
