@@ -6,6 +6,43 @@ people arriving from a release page.
 
 ## Unreleased
 
+## 2.0.0 — 2026-10-16
+
+### Upgrading to 2.0
+
+2.0 is the largest Praukron release so far. It adds structured writes for agents and a full archive lifecycle,
+and it redesigns the dashboard. Most of it is additive, but these changes can affect an existing 1.x chronicle
+or script:
+
+- **`validate` reports new errors.** `invalid-journal-heading`, `invalid-archive-input` and
+  `invalid-archive-file` are errors. New warnings cover the journal order file, duplicate journal headings
+  across files, unresolved journal references, records in the wrong phase archive, and paths under `archive/`
+  that `restore` would refuse. A chronicle that validated under 1.3 can fail now. Run `praukron validate`
+  after upgrading and fix what it names.
+- **`archive` moves more.** `archive <phase>` and the new `archive plan` / `archive apply --plan <digest>`
+  cover more than a COMPLETE phase's tasks and contracts:
+  - `P-NONE` tasks;
+  - closed assumptions, debt and trace events;
+  - journal entries whose named records are all archived.
+
+  The first journal move creates `archive/JOURNAL.order.json`. Commit it with the archive and never edit it by
+  hand.
+- **Git-tracked chronicles must be clean to archive.** In Git mode, `archive apply` and `restore` refuse a
+  dirty or partly untracked chronicle. Commit or stash first. Chronicles outside Git, or ones where Git would
+  convert newlines, get byte-exact backups instead.
+- **stdin is strict UTF-8.** `respond` and every `--input -` command read stdin as UTF-8 bytes, with an
+  optional BOM, whatever the console code page is. Input that is not valid UTF-8 is refused instead of being
+  decoded with the locale.
+- **Dashboard links changed.** The location hash is `#tab?dim=v1,v2`. Old `#tab` links still open the tab. The
+  Overview opens on the attention band.
+
+Agents should use the five structured write commands instead of editing `TASKS.md`, `ACCEPTANCE.md` or
+`JOURNAL.md`: `journal append`, `criterion set`, `task add`, `contract add` and `task update`. To install 2.0,
+run the install command again. It updates the `AGENTS.md` block and the workflows; anything you edited is
+staged under `.praukron/upgrade/` for you to merge, so agents learn the new commands.
+
+### Changes
+
 - Fixed: the dashboard sorted events and chose an operation's latest event lexically (`Extra 9` after
   `Extra 11`); every view now uses one event order (`model.event_order`), checked across context, retrieve,
   analytics and the dashboard before archive, after archive and after restore. `validate` now warns
