@@ -175,6 +175,7 @@ _CRITERION = re.compile(
     r"(?:\s*·\s*`(?P<state>PASS|FAIL|NOT_RUN)`)?",
     re.S,
 )
+_EVIDENCE = re.compile(r"[^\r\n]*\s*\n\s+- Evidence: (?P<value>.+)")
 
 
 def parse_acceptance(path: Path, name: str | None = None) -> dict[str, Contract]:
@@ -216,16 +217,14 @@ def parse_acceptance(path: Path, name: str | None = None) -> dict[str, Contract]
             if criterion_id in seen:
                 raise ParseError(name, criterion_id, "duplicate criterion")
             seen.add(criterion_id)
-            evidence = re.match(
-                r"\s*\n\s+- Evidence: (.+)", bullet[found.end() :]
-            )
+            evidence = _EVIDENCE.match(bullet[found.end() :])
             criteria.append(
                 Criterion(
                     id=criterion_id,
                     text=" ".join(found.group("text").split()),
                     evidence_class=found.group("cls"),
                     state=found.group("state") or "NOT_RUN",
-                    evidence=evidence.group(1).strip() if evidence else None,
+                    evidence=evidence.group("value").strip() if evidence else None,
                     source=Source(name, criterion_id),
                 )
             )

@@ -473,6 +473,27 @@ class TestCriterionWrite(CriterionCase):
                 parsed = compiler.load(self.root).contracts["AC-T-THREE"].criteria[0]
                 self.assertEqual((parsed.state, parsed.evidence), ("PASS", "new evidence"))
 
+    def test_missing_state_without_evidence_round_trips(self):
+        original = (self.authority / "ACCEPTANCE.md").read_bytes()
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                acceptance = self.authority / "ACCEPTANCE.md"
+                old = b"  `TEST` \xc2\xb7 `NOT_RUN`"
+                acceptance.write_bytes(original.replace(b"\r\n", b"\n").replace(b"\n", newline).replace(
+                    old, b"  `TEST`", 1))
+                payload = self.payload_for(expectRevision=self.revision())
+                del payload["evidence"]
+
+                code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+                self.assertEqual(code, 0, result)
+                contract = mutate.section(acceptance.read_bytes(), "AC-T-TWO").data
+                self.assertEqual(sum(contract.count(token) for token in
+                                     (b"`PASS`", b"`FAIL`", b"`NOT_RUN`")), 1)
+                self.assertNotIn(b"- Evidence: ", contract)
+                parsed = compiler.load(self.root).contracts["AC-T-TWO"].criteria[0]
+                self.assertEqual((parsed.state, parsed.evidence), ("PASS", None))
+
     def test_parser_valid_state_and_evidence_layouts_round_trip(self):
         original = (self.authority / "ACCEPTANCE.md").read_bytes()
         layouts = {
@@ -485,6 +506,7 @@ class TestCriterionWrite(CriterionCase):
                     acceptance = self.authority / "ACCEPTANCE.md"
                     old = b"  `TEST` \xc2\xb7 `NOT_RUN`"
                     replacement = layout.replace(b"\n", newline)
+                    replacement += newline + b"    - Evidence: old evidence"
                     acceptance.write_bytes(original.replace(b"\r\n", b"\n").replace(b"\n", newline).replace(
                         old, replacement, 1))
                     payload = self.payload_for(expectRevision=self.revision())
@@ -494,8 +516,62 @@ class TestCriterionWrite(CriterionCase):
                     self.assertEqual(code, 0, result)
                     contract = mutate.section(acceptance.read_bytes(), "AC-T-TWO").data
                     self.assertEqual(contract.count(b"`PASS`"), 1)
+                    self.assertEqual(sum(contract.count(token) for token in
+                                         (b"`PASS`", b"`FAIL`", b"`NOT_RUN`")), 1)
+                    self.assertNotIn(b"`NOT_RUN`", contract)
+                    self.assertEqual(contract.count(b"- Evidence: "), 1)
+                    self.assertNotIn(b"old evidence", contract)
                     parsed = compiler.load(self.root).contracts["AC-T-TWO"].criteria[0]
                     self.assertEqual((parsed.state, parsed.evidence), ("PASS", payload["evidence"]))
+
+    def test_parser_valid_trailing_text_after_state_is_preserved(self):
+        original = (self.authority / "ACCEPTANCE.md").read_bytes()
+        suffix = b" <!-- keep (pending) -->"
+        layouts = {
+            "explicit-state": b"  `TEST` \xc2\xb7 `NOT_RUN`" + suffix,
+            "missing-state": b"  `TEST`" + suffix,
+        }
+        for newline in (b"\n", b"\r\n"):
+            for name, layout in layouts.items():
+                with self.subTest(newline=newline, layout=name):
+                    acceptance = self.authority / "ACCEPTANCE.md"
+                    old = b"  `TEST` \xc2\xb7 `NOT_RUN`"
+                    acceptance.write_bytes(original.replace(b"\r\n", b"\n").replace(b"\n", newline).replace(
+                        old, layout, 1))
+                    payload = self.payload_for(expectRevision=self.revision())
+
+                    code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+                    self.assertEqual(code, 0, result)
+                    contract = mutate.section(acceptance.read_bytes(), "AC-T-TWO").data
+                    expected = b"  `TEST` \xc2\xb7 `PASS`" + suffix + newline
+                    self.assertIn(expected + b"  - Evidence: " + payload["evidence"].encode("utf-8"), contract)
+                    self.assertEqual(sum(contract.count(token) for token in
+                                         (b"`PASS`", b"`FAIL`", b"`NOT_RUN`")), 1)
+                    self.assertNotIn(b"`NOT_RUN`", contract)
+                    self.assertEqual(contract.count(b"- Evidence: "), 1)
+                    parsed = compiler.load(self.root).contracts["AC-T-TWO"].criteria[0]
+                    self.assertEqual((parsed.state, parsed.evidence), ("PASS", payload["evidence"]))
+
+    def test_non_direct_evidence_line_is_refused_as_ambiguous(self):
+        original = (self.authority / "ACCEPTANCE.md").read_bytes()
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                acceptance = self.authority / "ACCEPTANCE.md"
+                marker = b"  `TEST` \xc2\xb7 `NOT_RUN`" + newline
+                replacement = marker + b"  - Note: keep" + newline + b"    - Evidence: old evidence" + newline
+                acceptance.write_bytes(original.replace(b"\r\n", b"\n").replace(b"\n", newline).replace(
+                    marker, replacement, 1))
+                before = acceptance.read_bytes()
+                payload = self.payload_for(expectRevision=self.revision())
+
+                code, result = self.run_criterion_cli("--input", "-", payload=payload)
+
+                self.assertEqual(code, 1)
+                self.assertEqual(result["error"]["code"], "ambiguous-evidence")
+                self.assertIn("- Evidence: old evidence", result["error"]["message"])
+                self.assertEqual(result["error"]["currentRevision"], payload["expectRevision"])
+                self.assertEqual(acceptance.read_bytes(), before)
 
     def test_parser_valid_evidence_layouts_are_replaced_once(self):
         original = (self.authority / "ACCEPTANCE.md").read_bytes()
