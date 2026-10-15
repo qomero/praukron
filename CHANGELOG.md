@@ -25,6 +25,11 @@ people arriving from a release page.
   keeps focus visible; and in-page links keep the filters in the address. A contract shared by
   several tasks counts once while any of them passes the filters; Clear all, Escape and Show all
   keep focus visible; shares round half up in both the compiler and the page.
+- Archive journal entries with the records they name: a dated `JOURNAL.md` entry moves, as an exact byte
+  span placed by entry date, to the latest phase's archive when it names at least one archivable record and
+  all are archived or moving; entries naming nothing, only ADRs, an open or unknown record, or a duplicate
+  heading stay and are reported; a read-back check covers journal sections; `retrieve` resolves
+  `JOURNAL.md#<heading>` pointers into archives.
 - Redesign the dashboard to put attention first: a "Needs attention" band (blocked tasks, failing
   work, owner input, review gaps, debt at its trigger, unresolved operational failures) above progress;
   cross-filtering Status, Domain, Validation, Phase and Module charts that narrow every chart, table,
