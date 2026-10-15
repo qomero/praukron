@@ -165,6 +165,17 @@ def validate_payload(payload: object, schema: dict) -> dict:
     return payload
 
 
+def read_stdin_text() -> str:
+    """Read stdin as strict UTF-8 (optional BOM) whatever the console code page."""
+    stream = getattr(sys.stdin, "buffer", None)
+    if stream is None:
+        return sys.stdin.read().removeprefix("\ufeff")
+    try:
+        return stream.read().decode("utf-8-sig")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"stdin is not valid UTF-8: {error}") from error
+
+
 def load_payload(path: str | None, schema: dict) -> dict:
     if path is None:
         raise WriteError("missing-input", "give --input FILE or --input -")
@@ -182,8 +193,7 @@ def load_payload(path: str | None, schema: dict) -> dict:
 
     try:
         if path == "-":
-            stream = getattr(sys.stdin, "buffer", None)
-            text = stream.read().decode("utf-8-sig") if stream is not None else sys.stdin.read().removeprefix("\ufeff")
+            text = read_stdin_text()
         else:
             text = Path(path).read_text(encoding="utf-8-sig")
         payload = json.loads(text, object_pairs_hook=unique, parse_constant=invalid_constant)

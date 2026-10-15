@@ -390,7 +390,7 @@ def cmd_criterion_set(root: Path, args: argparse.Namespace) -> int:
 
 def cmd_respond(root: Path, args: argparse.Namespace) -> int:
     """Append the owner's response to RESPONSES.md, validated and atomic (ADR-055)."""
-    from . import respond
+    from . import mutate, respond
 
     if args.batch:
         try:
@@ -401,7 +401,10 @@ def cmd_respond(root: Path, args: argparse.Namespace) -> int:
     else:
         if not args.target or not args.action:
             return _fail("give a target and an action, or --batch FILE")
-        text = Path(args.text_file).read_text(encoding="utf-8") if args.text_file else sys.stdin.read()
+        try:
+            text = Path(args.text_file).read_text(encoding="utf-8") if args.text_file else mutate.read_stdin_text()
+        except (OSError, ValueError) as error:
+            return _fail(f"cannot read the response text: {error}")
         items = [respond.Item(args.target, args.action, text)]
     try:
         ids = respond.append(root, items, args.by or "", via=args.via, date=args.date)

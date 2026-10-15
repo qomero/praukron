@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import os
+import subprocess
 import sys
 import time
 import unittest
@@ -95,6 +96,38 @@ class TestRespond(RespondCase):
         self.assertEqual(code, 0)
         self.load()
         self.assertEqual((self.project.responses[-1].id, self.project.responses[-1].text), ("R-4", "Use the staging copy."))
+
+    def cli_process(self, *args: str, stdin: bytes) -> subprocess.CompletedProcess:
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+        return subprocess.run([sys.executable, str(Path(cli.__file__).resolve().parents[2] / ".praukron/praukron"),
+                               "-C", str(self.dir), *args], input=stdin, capture_output=True, env=env)
+
+    def test_stdin_is_read_as_utf8_whatever_the_console_encoding(self) -> None:
+        """AC-T-RESPOND-STDIN-01-01."""
+        text = "Đồng ý, giữ 7 ngày — tiếp tục"
+        for label, raw in (("plain", text.encode("utf-8")), ("bom", text.encode("utf-8-sig"))):
+            with self.subTest(label=label):
+                result = self.cli_process("respond", "A-2", "confirm", "--by", "Thien", "--date", "2026-10-03",
+                                          stdin=raw)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.load()
+                self.assertEqual(self.project.responses[-1].text, text)
+        out, err = io.StringIO(), io.StringIO()
+        with io.TextIOWrapper(io.BytesIO(text.encode("utf-8")), encoding="cp1252", errors="surrogateescape") as stdin:
+            with redirect_stdout(out), redirect_stderr(err), mock.patch("sys.stdin", stdin):
+                code = cli.main(["-C", str(self.dir), "respond", "A-2", "confirm", "--by", "Thien"])
+        self.assertEqual(code, 0, err.getvalue())
+        self.load()
+        self.assertEqual(self.project.responses[-1].text, text)
+
+    def test_invalid_utf8_stdin_is_refused_without_writing(self) -> None:
+        """AC-T-RESPOND-STDIN-01-02."""
+        before = self.snapshot()
+        result = self.cli_process("respond", "A-2", "confirm", "--by", "Thien", stdin=b"caf\xe9")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("not valid UTF-8", result.stderr.decode("utf-8", "replace"))
+        self.assertNotIn(b"Traceback", result.stderr)
+        self.assertEqual(self.snapshot(), before)
 
     def test_refusals_leave_the_file_byte_identical(self) -> None:
         """AC-T-RESPOND-01-02."""
