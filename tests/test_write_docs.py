@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import json
+import re
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -10,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from praukron import cli
+from praukron import cli, mutate
 
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = (
@@ -52,6 +54,52 @@ class AgentText(unittest.TestCase):
         for command in COMMANDS:
             example = next(line for line in help_text(*command).splitlines() if line.startswith("EXAMPLE:"))
             self.assertIn("praukron " + " ".join(command), example)
+
+
+def schema_output(*command: str) -> dict:
+    out = io.StringIO()
+    with redirect_stdout(out):
+        cli.main([*command, "--schema"])
+    return json.loads(out.getvalue())
+
+
+# Codes whose message already names the next step where it is raised.
+INLINE_STEP = {"stale-revision", "frozen-contract", "owner-held", "owner-required", "unresolved-acceptance",
+               "evidence-required", "duplicate-heading", "locked", "interrupted-write", "missing-input"}
+
+
+class RefusalText(unittest.TestCase):
+    def test_schema_descriptions_follow_the_same_standard(self):
+        for command in COMMANDS:
+            description = schema_output(*command)["schema"]["description"]
+            positions = [description.find(part) for part in PARTS]
+            self.assertNotIn(-1, positions, f"{' '.join(command)}: {positions}")
+            self.assertEqual(positions, sorted(positions), " ".join(command))
+            self.assertNotIn("blocked", description.lower(), " ".join(command))
+
+    def test_task_add_schema_keeps_its_payload_rule(self):
+        self.assertIn("exactly one of contract", schema_output("task", "add")["schema"]["description"])
+
+    def test_every_refusal_code_has_a_next_step(self):
+        codes = set()
+        for name in ("mutate", "journal", "criterion", "task", "contract", "task_update", "cli"):
+            source = (ROOT / "src" / "praukron" / f"{name}.py").read_text(encoding="utf-8")
+            codes |= set(re.findall(r'WriteError\(\s*"([a-z-]+)"', source))
+        missing = codes - set(mutate.NEXT_STEP) - INLINE_STEP
+        self.assertEqual(missing, set())
+
+    def test_refusal_message_ends_with_the_step(self):
+        for code, step in mutate.NEXT_STEP.items():
+            message = mutate.refusal("x.y", mutate.WriteError(code, "the rule"))["error"]["message"]
+            self.assertEqual(message, f"the rule; {step}", code)
+
+    def test_invariant_criterion_names_the_authorized_route(self):
+        message = mutate.refusal("criterion.set", mutate.WriteError("invariant-criterion", "no"))["error"]["message"]
+        self.assertIn("Acceptance Change Request", message)
+
+    def test_inline_steps_really_are_inline(self):
+        for code in INLINE_STEP - {"missing-input"}:
+            self.assertNotIn(code, mutate.NEXT_STEP)
 
 
 class Documented(unittest.TestCase):

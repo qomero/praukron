@@ -11,8 +11,8 @@ people arriving from a release page.
   copy-paste examples in the guide, a README command row for each, and the commands in the `AGENTS.md`
   block, `praukron-work` and `praukron-checkpoint`. Agents are told to use them instead of editing
   `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`.
-- The five write commands' `--help` states WHEN, WHEN NOT, RETURNS and EXAMPLE, and their refusals name
-  the rule and the next valid step. The `task update` evidence description no longer calls line breaks
+- The five write commands' `--help` and `--schema` descriptions state WHEN, WHEN NOT, RETURNS and EXAMPLE,
+  and every refusal names the rule and the next valid step. The `task update` evidence description no longer calls line breaks
   wrap points.
 - Add `tests/bench_writes.py` and `docs/benchmarks.md`: bytes and estimated tokens to add a task, record a
   criterion result, update a task and append a journal entry, by full read, targeted read and command,

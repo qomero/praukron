@@ -30,8 +30,98 @@ class WriteError(Exception):
         self.code, self.field, self.details = code, field, details or {}
 
 
+# Agent-facing guidance for the five write commands: WHEN / WHEN NOT / RETURNS / EXAMPLE.
+# Shown by `--help` and carried in each `--schema` output.
+GUIDANCE = {
+    "journal.append": (
+        "WHEN: record a dated progress note, finding or handoff detail in JOURNAL.md.",
+        "WHEN NOT: to change a task, criterion or decision (use task update, criterion set or an ADR); "
+        "the body may not hold level one or two headings.",
+        "RETURNS: one JSON line with ok, recordId, source, revision, written. A repeated title on the same "
+        "date is refused as duplicate-heading, never appended twice.",
+        "EXAMPLE: echo '{\"title\":\"Progress\",\"body\":\"Recorded the result.\"}' | praukron journal append --input -",
+    ),
+    "criterion.set": (
+        "WHEN: record that one criterion passed, failed or was not run, with its one-line evidence; "
+        "allowed on any task, WIP included.",
+        "WHEN NOT: to change a criterion's text or class (an Acceptance Change Request), or an inherited "
+        "invariant criterion.",
+        "RETURNS: one JSON line with ok, recordId, source, revision (the contract's new revision). A stale "
+        "expectRevision is refused with currentRevision and the current criterion line; retry with that revision.",
+        "EXAMPLE: echo '{\"criterion\":\"AC-T-ONE-01\",\"state\":\"PASS\",\"evidence\":\"unittest green\","
+        "\"expectRevision\":\"<16 hex>\"}' | praukron criterion set --input -",
+    ),
+    "task.add": (
+        "WHEN: create a task, with its new contract (contract) or an existing one (ac).",
+        "WHEN NOT: to change an existing task (task update), or to give it a Phase (a task takes its phase "
+        "from its module); the id must not exist in any archive.",
+        "RETURNS: one JSON line with ok, recordId, source, revision (use it as the first expectRevision). "
+        "Task and contract are written together or not at all.",
+        "EXAMPLE: praukron task add --schema   (prints the payload schema and an example)",
+    ),
+    "contract.add": (
+        "WHEN: give an existing TODO task its acceptance contract before work starts; "
+        "needs expectTaskRevision.",
+        "WHEN NOT: once the task is WIP or DONE (its contract is frozen; raise an Acceptance Change "
+        "Request), or to edit an existing contract.",
+        "RETURNS: one JSON line with ok, recordId, source, revision. A stale expectTaskRevision is refused "
+        "with the task's current record and revision.",
+        "EXAMPLE: praukron contract add --schema   (prints the payload schema and an example)",
+    ),
+    "task.update": (
+        "WHEN: claim a task, change its status or owner, or record its evidence.",
+        "WHEN NOT: to close an Authority: owner task, set HUMAN_VERIFIED, or change Module, Dependencies, "
+        "AC or Authority; DONE needs every criterion PASS and evidence.",
+        "RETURNS: one JSON line with ok, recordId, source, revision. A stale expectRevision is refused with "
+        "currentRevision and the current section.",
+        "EXAMPLE: echo '{\"id\":\"T-ONE\",\"expectRevision\":\"<16 hex>\",\"set\":{\"status\":\"WIP\","
+        "\"owner\":\"me\"}}' | praukron task update --input -",
+    ),
+}
+
+# The next valid step for refusals whose message does not already carry one.
+NEXT_STEP = {
+    "wrong-type": "send a JSON object whose fields have the types `--schema` shows",
+    "unknown-field": "remove it; `--schema` lists the supported fields",
+    "missing-field": "add it; `--schema` lists the required fields",
+    "invalid-value": "correct the named field (see `--schema`) and retry",
+    "invalid-date": "use a real date written YYYY-MM-DD",
+    "invalid-json": "send one valid JSON object without duplicate keys",
+    "invalid-project": "run it inside a Praukron project, or pass -C <project>",
+    "record-not-found": "check the id with `praukron retrieve <id>`",
+    "archived-record": "archived records are immutable; record the change in a new record instead",
+    "invalid-target": "report this as a bug; nothing was written",
+    "duplicate-target": "report this as a bug; nothing was written",
+    "validation-failed": "fix what `praukron validate` reports, then retry",
+    "write-failed": "run `praukron validate`, fix what it reports, then retry",
+    "invalid-title": "give a non-empty one-line title",
+    "invalid-body": "remove the level one and two headings; level three and below are allowed",
+    "criterion-not-found": "check the id with `praukron retrieve <contract id>`",
+    "ambiguous-evidence": "tidy the criterion's Evidence lines by hand, then retry",
+    "round-trip-failed": "nothing was written; edit the criterion by hand and retry",
+    "invariant-criterion": "an inherited invariant changes only through an Acceptance Change Request, made by a person",
+    "invalid-revision": "use the 16 hex revision from the last result or from a stale-revision refusal",
+    "invalid-evidence": "give one non-empty line without line breaks",
+    "invalid-id": "use an identifier with the required prefix",
+    "invalid-contract": "give contract (a new definition) or ac (an existing contract id), not both and not neither",
+    "duplicate-id": "choose an id no record or archive uses",
+    "unknown-module": "use a module from MODULES.md, or author the module first",
+    "unknown-dependency": "name an existing task id",
+    "unknown-decision": "name an existing ADR id",
+    "unknown-contract": "name an existing contract id, or give contract to write a new one",
+    "referenced-contract": "choose a contract id no other task names",
+    "unknown-inheritance": "inherit an existing contract id",
+    "different-contract": "the task already names a contract; change it through an Acceptance Change Request",
+    "mixed-newlines": "fix the task section's line endings by hand, then retry",
+    "duplicate-field": "remove the repeated field from the task by hand, then retry",
+    "empty-set": "set at least one of status, owner, claimed or evidence",
+    "no-change": "nothing to do; the record already has these values",
+}
+
+
 def refusal(operation: str, error: WriteError) -> dict:
-    detail = {"code": error.code, "message": str(error)}
+    step = NEXT_STEP.get(error.code)
+    detail = {"code": error.code, "message": f"{error}; {step}" if step else str(error)}
     if error.field is not None:
         detail["field"] = error.field
     detail.update(error.details)
@@ -302,5 +392,7 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
     try:
         refresh(root)
     except Exception as error:
-        return {**result, "ok": False, "error": {"code": "refresh-failed", "message": str(error)}}
+        return {**result, "ok": False, "error": {
+            "code": "refresh-failed",
+            "message": f"{error}; the write is committed, run compile, graph and dashboard instead of repeating it"}}
     return {**result, "refreshed": True}

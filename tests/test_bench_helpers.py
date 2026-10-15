@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import io
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -36,6 +40,59 @@ class Helpers(unittest.TestCase):
 
     def test_token_estimate_rounds_up(self):
         self.assertEqual([bench.tokens(n) for n in (0, 1, 4, 5)], [0, 1, 1, 2])
+
+
+class FailureReporting(unittest.TestCase):
+    """A failed preparation or command is reported first and fails the run."""
+
+    def test_failed_archive_is_returned_not_discarded(self):
+        class Stub:
+            root = Path(".")
+            stderr = "boom"
+
+            def run(self, *argv, **kwargs):
+                return 1, "", 0.0
+
+        phases = [SimpleNamespace(id="P0", status="COMPLETE"), SimpleNamespace(id="P1", status="ACTIVE")]
+        with mock.patch.object(bench.compiler, "load", return_value=SimpleNamespace(phases=phases)):
+            moved, failures = bench.Chronicle.archive_complete_phases(Stub())
+        self.assertEqual(moved, [])
+        self.assertEqual(len(failures), 1)
+        self.assertIn("archive P0: exit 1: boom", failures[0])
+
+    def test_no_complete_phase_is_a_failure(self):
+        class Stub:
+            root = Path(".")
+
+        with mock.patch.object(bench.compiler, "load", return_value=SimpleNamespace(phases=[])):
+            moved, failures = bench.Chronicle.archive_complete_phases(Stub())
+        self.assertEqual((moved, len(failures)), ([], 1))
+
+    def test_main_withholds_the_after_archiving_run_and_exits_nonzero(self):
+        class Fake:
+            def __init__(self, source, parent, name):
+                self.root, self.name = Path(parent) / name, name
+
+            def archive_complete_phases(self):
+                return [], ["archive P0: exit 1: boom"] if self.name == "archived" else []
+
+            def size(self):
+                return {"working_bytes": 1, "archive_bytes": 0, "TASKS.md": 1, "ACCEPTANCE.md": 1, "JOURNAL.md": 1}
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "src"
+            (source / "chronicle").mkdir(parents=True)
+            report = Path(directory) / "out.md"
+            with mock.patch.object(bench, "Chronicle", Fake), mock.patch.object(bench, "active_module", return_value="M"), \
+                    mock.patch.object(bench, "measure", return_value=([], [])), \
+                    mock.patch.object(bench, "gate", return_value=[]), \
+                    mock.patch("sys.stdout", io.TextIOWrapper(io.BytesIO())):
+                code = bench.main(["--source", str(source), "--markdown", str(report)])
+            text = report.read_text(encoding="utf-8")
+        self.assertEqual(code, 1)
+        self.assertLess(text.index("archive P0: exit 1: boom"), text.index("###"))
+        self.assertNotIn("### After archiving", text)
+        self.assertIn("Archiving failed", text)
 
 
 if __name__ == "__main__":

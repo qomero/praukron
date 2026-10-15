@@ -60,24 +60,26 @@ Run `validate` after editing authority. Before finishing, refresh everything in
 run `compile && graph && dashboard`; a stale dashboard shows people a state the
 chronicle no longer holds. The tool writes only: the generated `INDEX.md`;
 `respond` (the owner's responses); `archive <phase>` (owner only: moves a
-COMPLETE phase, verbatim, into `chronicle/archive/<phase>/`, where it stays
-authority); and five validated, atomic structured writes (ADR-068). Use these
+COMPLETE phase's eligible closed tasks and contracts, verbatim, into
+`chronicle/archive/<phase>/`, where they stay authority); and five validated, atomic structured writes (ADR-068). Use these
 instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 
 ```sh
-.praukron/praukron journal append --input -   # a dated JOURNAL.md entry; a repeat is refused
-.praukron/praukron criterion set --input -    # one criterion's state and one-line evidence
-.praukron/praukron task add --input -         # a task, with its new contract in one write
+.praukron/praukron journal append --input -   # a dated entry; repeats are refused
+.praukron/praukron criterion set --input -    # a criterion's state and evidence
+.praukron/praukron task add --input -         # a task and its new contract
 .praukron/praukron contract add --input -     # the contract of a TODO task
 .praukron/praukron task update --input -      # status, owner, claimed, evidence
 ```
 
 Each takes a JSON payload (`--schema` prints it, `--dry-run` previews), prints
-one JSON line, and exits nonzero when refused. Updates need `expectRevision`; a
-stale one is refused with the current revision to retry with (send 16 zeros to
-learn it). They never set `HUMAN_VERIFIED`, close an `Authority: owner` task,
-change a `WIP` or `DONE` contract (raise an Acceptance Change Request), or touch
-`archive/`.
+one JSON line, and exits nonzero when refused. Updates need the record's revision
+(`expectRevision`; `expectTaskRevision` for `contract add`); a stale one is
+refused with the current revision to retry with (send 16 zeros to learn it).
+`criterion set` records state and evidence on any task's criteria, `WIP`
+included. The commands never set `HUMAN_VERIFIED`, close an `Authority: owner`
+task, change a criterion's text or class, add a contract once the task is `WIP`
+or `DONE` (raise an Acceptance Change Request), or touch `archive/`.
 
 For any other direct edit of a chronicle file, do not read the whole file. Read
 only the record you change: locate its `## <id>` heading (a search for the id),

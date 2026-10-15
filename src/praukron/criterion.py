@@ -28,6 +28,9 @@ EXAMPLE = {
 }
 
 
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["criterion.set"])
+
+
 def _criterion_location(text: str, criterion_id: str) -> tuple[int, int, re.Match[str], re.Match[str] | None]:
     """Locate parser-valid state and evidence syntax inside one contract section."""
     bullets = list(_BULLET.finditer(text))

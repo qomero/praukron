@@ -45,6 +45,9 @@ EXAMPLE = {
 }
 
 
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["contract.add"])
+
+
 def single_line(value: str, field: str) -> None:
     if not value.strip() or value != value.strip() or len(value.splitlines()) != 1:
         raise mutate.WriteError("invalid-value", f"{field} must be non-empty, trimmed and one line", field)

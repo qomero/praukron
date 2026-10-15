@@ -292,8 +292,8 @@ tool makes.
 `--input -` (stdin); unknown fields, duplicate keys and wrong types are refused.
 `--schema` prints the payload schema with a minimal example and needs no
 project. `--dry-run` plans the write and reports `wouldWrite` without writing;
-the whole-chronicle check runs only on a real write. `--help` states WHEN, WHEN
-NOT, RETURNS and EXAMPLE. Output is one compact JSON line.
+the whole-chronicle check runs only on a real write. `--help`, and the
+`description` in `--schema`, state WHEN, WHEN NOT, RETURNS and EXAMPLE. Output is one compact JSON line.
 
 **Pipeline.** Payload schema → governance rules → the target resolved by ID → one
 section built → the shared write lock (owner-checked, never reclaimed from a live
@@ -347,7 +347,9 @@ learn a revision for the first time, send sixteen zeros and read the refusal.
 "revision","validation":"passed","written":true,"refreshed":true}`; a dry run
 adds `dryRun` and `wouldWrite` and has `written:false`. A refusal is
 `{"ok":false,"operation","error":{"code","message","field"?,…},"written":false}`;
-the message names the rule and the next valid step. The exit status is 0 for a
+the message names the rule and the next valid step (the two failures after a
+commit, `lock-release-failed` and `refresh-failed`, carry `written:true`: the write
+stands and is not repeated). The exit status is 0 for a
 success (and for `--schema`), 1 for any refusal or failure, and 2 for a usage
 error. If the write committed but the refresh failed, the result has
 `written:true`, `refreshed:false` and error `refresh-failed`: do not repeat the
@@ -359,7 +361,9 @@ write; run `compile && graph && dashboard`.
 |---|---|
 | `journal append` repeated | refused: `duplicate-heading` |
 | `task add` or `contract add` repeated | refused: `duplicate-id` |
-| `task update` or `criterion set` repeated after it succeeded | refused: `stale-revision`; the refusal shows the record as it now is |
+| `task update` repeated with the revision it used before | refused: `stale-revision`; the refusal shows the record as it now is |
+| `criterion set` repeated with the old revision | refused: `stale-revision` |
+| `criterion set` repeated with the new revision and the same values | succeeds again as a no-op: `written:true` and the same `revision` |
 | `task update` with the current revision and the values already set | refused: `no-change` |
 | lock held by another writer | refused: `locked`; wait and retry |
 | an earlier write was interrupted | refused once: `interrupted-write`, after the restore; retry |

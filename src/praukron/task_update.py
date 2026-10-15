@@ -41,6 +41,9 @@ _FIELD = re.compile(r"- ([A-Za-z][A-Za-z ]*): ?(.*)")
 _WIDTH = 100
 
 
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"])
+
+
 def _lines(name: str, value: str, single: bool) -> list[str]:
     """Normalize a value so the parser reads back exactly what was given."""
     parts = value.splitlines()

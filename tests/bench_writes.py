@@ -127,6 +127,7 @@ class Chronicle:
                               input=stdin.encode("utf-8") if stdin is not None else None,
                               capture_output=True)
         elapsed = time.perf_counter() - started
+        self.stderr = done.stderr.decode("utf-8", "replace")
         return done.returncode, done.stdout.decode("utf-8", "replace"), elapsed
 
     def snapshot(self) -> dict[str, bytes]:
@@ -143,15 +144,19 @@ class Chronicle:
         code, out, _ = self.run("validate", "--quiet")
         return "passed" if code == 0 else f"FAILED ({out.strip()[:120]})"
 
-    def archive_complete_phases(self) -> list[str]:
-        project = compiler.load(self.root)
-        moved = []
-        for phase in project.phases:
-            if phase.status == "COMPLETE":
-                code, _, _ = self.run("archive", phase.id)
-                if code == 0:
-                    moved.append(phase.id)
-        return moved
+    def archive_complete_phases(self) -> tuple[list[str], list[str]]:
+        """Archive every COMPLETE phase; return the phases moved and every failure."""
+        complete = [p.id for p in compiler.load(self.root).phases if p.status == "COMPLETE"]
+        moved, failures = [], []
+        if not complete:
+            failures.append("archive: the chronicle has no COMPLETE phase to archive")
+        for phase in complete:
+            code, out, _ = self.run("archive", phase)
+            if code == 0:
+                moved.append(phase)
+            else:
+                failures.append(f"archive {phase}: exit {code}: {(out + self.stderr).strip()[:160]}")
+        return moved, failures
 
 
 def active_module(root: Path) -> str:
@@ -199,8 +204,14 @@ def command_text(*argv: str) -> str:
 def call(c: Chronicle, argv: tuple[str, ...], payload: dict) -> dict:
     """One structured command: the bytes the agent emits and receives."""
     text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    _, out, seconds = c.run(*argv, "--input", "-", stdin=text)
-    return {"reply": json.loads(out), "body": len(text.encode("utf-8")),
+    code, out, seconds = c.run(*argv, "--input", "-", stdin=text)
+    try:
+        reply = json.loads(out)
+    except ValueError:
+        reply = {"ok": False, "error": {"code": "non-json", "message": (out + c.stderr).strip()[:160]}}
+    if (code == 0) != bool(reply.get("ok")):
+        reply = {"ok": False, "error": {"code": "exit-mismatch", "message": f"exit {code}, ok={reply.get('ok')}"}}
+    return {"reply": reply, "body": len(text.encode("utf-8")),
             "meta": len(command_text(*argv).encode("utf-8")), "output": len(out.encode("utf-8")),
             "seconds": seconds}
 
@@ -222,8 +233,10 @@ def record(name: str, c: Chronicle, before: dict, calls: list[dict]) -> dict:
     }
 
 
-def measure(c: Chronicle, module: str) -> list[dict]:
+def measure(c: Chronicle, module: str) -> tuple[list[dict], list[str]]:
+    """Run the four operations; return their rows and the failures of the unmeasured setup."""
     p = payloads(module)
+    setup_failures: list[str] = []
     zero = "0" * 16
     rows = []
 
@@ -235,13 +248,17 @@ def measure(c: Chronicle, module: str) -> list[dict]:
     # Setup, not measured: the other two criteria, so that DONE is reachable.
     for number in (2, 3):
         state = {"criterion": f"AC-T-BENCH-01-0{number}", "state": "PASS", "evidence": "setup"}
-        revision = call(c, ("criterion", "set"), {**state, "expectRevision": zero})["reply"]["error"].get("currentRevision")
-        call(c, ("criterion", "set"), {**state, "expectRevision": revision})
+        learned = call(c, ("criterion", "set"), {**state, "expectRevision": zero})
+        revision = learned["reply"].get("error", {}).get("currentRevision")
+        done = call(c, ("criterion", "set"), {**state, "expectRevision": revision})
+        if revision is None or not done["reply"].get("ok"):
+            setup_failures.append(f"setup of criterion {number}: {done['reply'].get('error')}")
 
     before = c.snapshot()
     probe = call(c, ("criterion", "set"), {**p["criterion"], "expectRevision": zero})
-    revision = probe["reply"]["error"].get("currentRevision")
-    probe["reply"] = {"ok": True}  # the probe is a refusal by design: it fetches the revision
+    revision = probe["reply"].get("error", {}).get("currentRevision")
+    if probe["reply"].get("error", {}).get("code") == "stale-revision":
+        probe["reply"] = {"ok": True}  # a refusal by design: it fetches the revision
     rows.append(record("record one criterion result", c, before,
                        [probe, call(c, ("criterion", "set"), {**p["criterion"], "expectRevision": revision})]))
 
@@ -251,7 +268,7 @@ def measure(c: Chronicle, module: str) -> list[dict]:
 
     before = c.snapshot()
     rows.append(record("append a journal entry", c, before, [call(c, ("journal", "append"), p["journal"])]))
-    return rows
+    return rows, setup_failures
 
 
 def gate(c: Chronicle) -> list[str]:
@@ -281,6 +298,9 @@ def render(runs: dict[str, dict], meta: dict) -> str:
     out += [f"Failures, reported before any aggregate: {'none' if not failures else '; '.join(failures)}", ""]
     for label, run in runs.items():
         size = run["size"]
+        if run.get("withheld"):
+            out += [f"### {label}", "", "Not measured: preparing this chronicle failed (see the failures above).", ""]
+            continue
         out += [f"### {label}", "",
                 f"Working chronicle {size['working_bytes']:,} bytes (`TASKS.md` {size['TASKS.md']:,}, "
                 f"`ACCEPTANCE.md` {size['ACCEPTANCE.md']:,}, `JOURNAL.md` {size['JOURNAL.md']:,}); "
@@ -321,12 +341,17 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="praukron-bench-") as scratch:
         for label, archive in (("As copied", False), ("After archiving every COMPLETE phase", True)):
             c = Chronicle(source, Path(scratch), "archived" if archive else "copied")
-            archived = c.archive_complete_phases() if archive else []
+            archived, preparation = c.archive_complete_phases() if archive else ([], [])
+            if preparation:  # never label a run "after archiving" unless archiving succeeded
+                runs["Archiving failed: no after-archiving measurement"] = {
+                    "rows": [], "size": c.size(), "archived": archived, "withheld": True,
+                    "failures": preparation}
+                continue
             module = active_module(c.root)
             size_before = c.size()
-            rows = measure(c, module)
+            rows, setup = measure(c, module)
             problems = gate(c)
-            failures = [f for row in rows for f in row["failures"]] + [f"gate: {x}" for x in problems]
+            failures = setup + [f for row in rows for f in row["failures"]] + [f"gate: {x}" for x in problems]
             failures += [f"{row['operation']}: validate {row['validate']}" for row in rows
                          if row["validate"] != "passed"]
             runs[label] = {"rows": rows, "size": size_before, "archived": archived, "failures": failures}

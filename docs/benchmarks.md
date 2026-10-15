@@ -27,7 +27,9 @@ Rules the numbers follow:
   structured command does. Calls count a search, a read and an edit as three for (b).
 - Every method finishes the same work. The script checks afterwards that the task
   is `DONE`, its three criteria are `PASS` and the journal entry exists, and runs
-  `validate` after each write. Failures would be listed before any figure.
+  `validate` after each write. Any failed archive or command is listed before any
+  figure; a run is labelled "after archiving" only if archiving succeeded (else it
+  is withheld); and the script then exits 1.
 - Refreshed compiled views and `INDEX.md` are infrastructure and are in no figure.
 - A ratio is shown only where both sides are above zero. Selection is not cost:
   these figures compare what is communicated to do one write, not how much of the

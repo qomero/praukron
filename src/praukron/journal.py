@@ -22,6 +22,9 @@ SCHEMA = {
 EXAMPLE = {"title": "Progress", "body": "Recorded the result."}
 
 
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["journal.append"])
+
+
 def append(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
     """Preserve every existing byte and append one final section."""
     operation = "journal.append"

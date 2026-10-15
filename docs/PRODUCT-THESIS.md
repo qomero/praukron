@@ -117,7 +117,7 @@ The word is worth avoiding until the mechanism is visible, because most of what
 it suggests is not here. Praukron has no workflow engine, no scheduler, and no
 assignment of work. It has one role, the owner, and that role is narrow and
 explicit. **Implemented:** a task marked `Authority: owner` is `DONE` only with
-`HUMAN_VERIFIED` evidence; a choice the project's policy reserves becomes an
+`HUMAN_VERIFIED`; a choice the project's policy reserves becomes an
 owner-held task or a provisional assumption the owner must answer; the owner
 answers (CONFIRM, REVISE, REJECT, GUIDE) through `praukron respond` or the served
 dashboard, and no agent edits them; and `archive` runs only when the owner asks.
@@ -276,9 +276,10 @@ later failure. They stay inspectable and never count as progress.
 answer in the records, an agent follows a fixed order: authority decides it; or
 the project's policy reserves it, and the owner is asked through a task; or it is
 assumed, and the assumption is written down before anything relies on it. The
-owner answers in `RESPONSES.md`. The next agent sees every unreconciled answer in
-its packet and carries it out in the ADR, contract, task or code it concerns,
-then marks the assumption. An open assumption is never presented as decided.
+owner answers in `RESPONSES.md`. The next agent's packet shows the unreconciled
+answers that concern its task, that task's assumptions and its open dependencies
+(`status` reports the project-wide count). The agent carries each out in the ADR,
+contract, task or code it concerns, then marks the assumption. An open assumption is never presented as decided.
 
 ## Bounded cost
 
@@ -288,8 +289,9 @@ history. Five mechanisms do it, and none involves a model.
 
 - `INDEX.md` is compact: `validate` warns past about 5,000 estimated tokens. It
   is a warning and not a cap.
-- `context <task>` carries one task's lineage, contract, decisions and evidence,
-  and nothing about other tasks.
+- `context <task>` carries one task's neighbourhood: its lineage, contract,
+  decisions and evidence, plus the tasks it depends on and the ones it unlocks,
+  and not the rest of the project.
 - `retrieve --budget` (default 4,000 estimated tokens) bounds the selected record
   bodies, most relevant first, and lists the rest as pointers. It does not bound
   the whole output, and the first record always loads.
