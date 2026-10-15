@@ -50,6 +50,8 @@ class Selection:
     phase: str
 
     def check(self, project: Project) -> None:
+        if self.phase == NO_PHASE:
+            return
         phase = project.phase(self.phase)
         if phase is None:
             raise ArchiveError(f"{self.phase} is not a phase in PHASES.md", "unknown-phase")
@@ -84,6 +86,9 @@ class Plan:
     phase: str
     tasks: list[str] = field(default_factory=list)
     contracts: list[str] = field(default_factory=list)
+    assumptions: list[str] = field(default_factory=list)
+    debts: list[str] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
     kept: list[tuple[str, str]] = field(default_factory=list)  # (task, why it stays)
     moved_bytes: int = 0
     candidates: list[Candidate] = field(default_factory=list)
@@ -98,6 +103,7 @@ class Plan:
     def as_json(self) -> dict[str, object]:
         return {
             "phase": self.phase, "tasks": self.tasks, "contracts": self.contracts,
+            "assumptions": self.assumptions, "debts": self.debts, "events": self.events,
             "kept": [{"task": t, "why": w} for t, w in self.kept], "movedBytes": self.moved_bytes,
             "candidates": [c.as_json() for c in self.candidates],
             "digest": self.digest, "mode": self.mode, "version": self.version,
@@ -448,6 +454,12 @@ def plan(project: Project, phase_id: str, root: Path | None = None, *, snapshot:
                     result.tasks.append(candidate.id)
                 elif candidate.kind == "contract":
                     result.contracts.append(candidate.id)
+                elif candidate.kind == "assumption":
+                    result.assumptions.append(candidate.id)
+                elif candidate.kind == "debt":
+                    result.debts.append(candidate.id)
+                elif candidate.kind == "event":
+                    result.events.append(candidate.id)
             elif candidate.kind == "task":
                 result.kept.append((candidate.id, candidate.reason))
     if root is not None:
