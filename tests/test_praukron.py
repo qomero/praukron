@@ -2803,6 +2803,15 @@ class TestBootProtocol(unittest.TestCase):
         self.assertEqual(self.text("templates/claude/CLAUDE.md"),
                          text.split("@AGENTS.md", 1)[1].strip())
 
+    def test_agents_md_reads_only_the_target_record_when_editing(self) -> None:
+        text = self.text("AGENTS.md")
+        block = text[text.index("<!-- project-praukron:start -->"):text.index("<!-- project-praukron:end -->")]
+        self.assertIn("do not read the whole file. Read only the record you change", block)
+        self.assertIn("locate its `## <id>` heading", block)
+        self.assertIn("read that section with a ranged read", block)
+        self.assertIn("When appending a new record, read only the end of the file.", block)
+        self.assertIn("`.praukron/praukron retrieve <id>` returns one record", block)
+
     def test_f_agents_md_scopes_context_before_code(self) -> None:
         """ADR-050: the task packet comes after the index and before code."""
         text = self.text("AGENTS.md")

@@ -66,6 +66,12 @@ COMPLETE phase's closed tasks and contracts, verbatim, into
 `chronicle/archive/<phase>/`, where they remain authority; run it only when the
 owner asks. Nothing else in the chronicle is written by the tool.
 
+When you must edit a chronicle file directly, do not read the whole file. Read
+only the record you change: locate its `## <id>` heading (a search for the id),
+read that section with a ranged read, and edit it. When appending a new record,
+read only the end of the file. `.praukron/praukron retrieve <id>` returns one
+record with its source when you only need to read it.
+
 Recognize these workflows:
 
 - `/praukron-init [new|existing]` → `.praukron/commands/praukron-init.md`
