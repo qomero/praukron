@@ -264,16 +264,18 @@ class ContractRule(IdRule):
             yield Candidate(contract.id, self.kind, self.filename, selection.destination(self.filename), why)
 
 
-def _task_destination(project: Project, task_ids: Iterable[str]) -> str | None:
-    """The latest named real phase, or P-NONE when every named task has it."""
-    phases = [project.task(task_id).phase for task_id in task_ids if project.task(task_id) is not None]
-    if not phases:
+def latest_phase(project: Project, phases: Iterable[str]) -> str | None:
+    """Latest named phase in PHASES.md order, with P-NONE ordered last."""
+    named = list(dict.fromkeys(phases))
+    if not named:
         return None
-    real_phases = [phase for phase in phases if phase != NO_PHASE]
-    if not real_phases:
-        return NO_PHASE
     order = {phase.id: index for index, phase in enumerate(project.phases)}
-    return max(real_phases, key=lambda phase: (order.get(phase, -1), phase))
+    return max(named, key=lambda phase: (phase == NO_PHASE, order.get(phase, -1), phase))
+
+
+def _task_destination(project: Project, task_ids: Iterable[str]) -> str | None:
+    return latest_phase(project, (task.phase for task_id in task_ids
+                                  if (task := project.task(task_id)) is not None))
 
 
 def _all_archived_or_moving(project: Project, task_ids: Iterable[str], moving: set[str]) -> str | None:
@@ -576,7 +578,7 @@ def _move(working: str, archived: str | None, ids: list[str], pattern, header: s
 
 
 def _records(project: Project) -> dict[str, object]:
-    """Tasks and contracts as authored, without where they live."""
+    """All archived record types as authored, without where they live."""
     def strip(value):
         if isinstance(value, dict):
             return {k: strip(v) for k, v in value.items() if k != "source"}
@@ -586,6 +588,9 @@ def _records(project: Project) -> dict[str, object]:
     return {
         "tasks": {t.id: strip(asdict(t)) for t in project.tasks},
         "contracts": {c.id: strip(asdict(c)) for c in project.contracts.values()},
+        "assumptions": {a.id: strip(asdict(a)) for a in project.assumptions},
+        "debts": {d.id: strip(asdict(d)) for d in project.debts},
+        "events": {e.id: strip(asdict(e)) for e in project.events},
     }
 
 
@@ -647,5 +652,5 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
 
 
 __all__ = ["ArchiveError", "Candidate", "EligibilityContext", "Plan", "RecordRule",
-           "RECORD_RULES", "IdRule", "Selection", "Snapshot", "section_locations",
+           "RECORD_RULES", "IdRule", "Selection", "Snapshot", "latest_phase", "section_locations",
            "archive", "archive_mode", "plan", "preview"]

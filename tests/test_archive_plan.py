@@ -244,6 +244,7 @@ class TestArchiveApply(ArchivePlanCase):
         self.write_lifecycle_records()
         before_project = compiler.load(self.root)
         before = archive._records(before_project)
+        self.assertEqual(set(before), {"tasks", "contracts", "assumptions", "debts", "events"})
         facts = self.derived_facts(before_project)
         plan = archive.preview(self.root, "P1")
         candidates = {candidate.id: candidate for candidate in plan.candidates}
@@ -282,6 +283,32 @@ class TestArchiveApply(ArchivePlanCase):
             "assumption": "A-CLOSED", "response": "R-2", "action": "REJECT", "archived": True,
             "remedy": "owner must run archive restore before an agent can reconcile it",
         }])
+
+    def test_lifecycle_authored_record_drift_is_refused_and_rolled_back(self):
+        self.add_task("T-CLOSED", "M-FOUNDATION")
+        self.add_task("T-HELD", "M-FOUNDATION")
+        self.write_lifecycle_records()
+        before = self.snapshot()
+        digest = archive.preview(self.root, "P1").digest
+        real_replace = archive._replace
+
+        def changed_lifecycle_record(path, data):
+            relative = path.relative_to(self.authority).as_posix()
+            replacements = {
+                "archive/P1/ASSUMPTIONS.md": (b"The closed task is ready.", b"The closed task is NOT ready."),
+                "archive/P1/TECH_DEBT.md": (b"Nothing remains.", b"New debt remains."),
+                "archive/P1/TRACE.md": (b"Completed command", b"Different command"),
+            }
+            if relative in replacements:
+                old, new = replacements[relative]
+                self.assertIn(old, data)
+                data = data.replace(old, new)
+            return real_replace(path, data)
+
+        with mock.patch.object(archive, "_replace", side_effect=changed_lifecycle_record), \
+                self.assertRaisesRegex(archive.ArchiveError, "records read back differently"):
+            archive.archive(self.root, "P1", digest=digest)
+        self.assertEqual(self.snapshot(), before)
 
     def test_lifecycle_candidates_report_every_reason_to_stay(self):
         self.add_task("T-CLOSED", "M-FOUNDATION")
@@ -329,7 +356,7 @@ class TestArchiveApply(ArchivePlanCase):
         (self.authority / "ASSUMPTIONS.md").write_text(
             "# Assumptions\n\n## A-SPREAD: Across phases\n- Status: CONFIRMED\n"
             "- Tasks: T-P9\n- Impact: LOW\n- Assumption: Each task is complete.\n"
-            "- Applied in: T-P2, T-NONE\n- Responses: R-1\n\n"
+            "- Applied in: T-P2\n- Responses: R-1\n\n"
             "## A-NONE: Only phase-independent work\n- Status: CONFIRMED\n"
             "- Tasks: T-NONE\n- Impact: LOW\n- Assumption: This work is phase-independent.\n"
             "- Responses: R-2\n\n"
@@ -346,7 +373,7 @@ class TestArchiveApply(ArchivePlanCase):
         (self.authority / "TECH_DEBT.md").write_text(
             "# Technical debt\n\n## TD-SPREAD: Across phases\n- Status: RESOLVED\n"
             "- Introduced by: T-P9\n- Debt: Nothing remains.\n- Exit condition: Removed.\n"
-            "- Linked tasks: T-P2, T-NONE\n- Resolution: Completed.\n\n"
+            "- Linked tasks: T-P2\n- Resolution: Completed.\n\n"
             "## TD-NONE: Only phase-independent work\n- Status: INVALIDATED\n"
             "- Debt: Nothing remains.\n- Exit condition: Removed.\n"
             "- Linked tasks: T-NONE\n- Resolution: Invalidated.\n\n"
@@ -369,12 +396,11 @@ class TestArchiveApply(ArchivePlanCase):
         self.assertEqual(p2["TD-SPREAD"].destination, "archive/P2/TECH_DEBT.md")
         self.assertEqual(p2["TD-SPREAD"].reason, "task T-P9 is still working")
         self.assertNotIn("A-SPREAD", {candidate.id for candidate in archive.preview(self.root, "P9").candidates})
-        p9 = {candidate.id: candidate for candidate in archive.preview(self.root, "P9").candidates}
-        self.assertEqual(p9["A-MIXED"].destination, "archive/P9/ASSUMPTIONS.md")
-        self.assertEqual(p9["A-MIXED"].reason, "task T-NONE is still working")
-        self.assertEqual(p9["TD-MIXED"].destination, "archive/P9/TECH_DEBT.md")
-        self.assertEqual(p9["TD-MIXED"].reason, "task T-NONE is still working")
         pnone = {candidate.id: candidate for candidate in archive.preview(self.root, "P-NONE").candidates}
+        self.assertEqual(pnone["A-MIXED"].destination, "archive/P-NONE/ASSUMPTIONS.md")
+        self.assertEqual(pnone["A-MIXED"].reason, "task T-P9 is still working")
+        self.assertEqual(pnone["TD-MIXED"].destination, "archive/P-NONE/TECH_DEBT.md")
+        self.assertEqual(pnone["TD-MIXED"].reason, "task T-P9 is still working")
         self.assertEqual(pnone["A-NONE"].destination, "archive/P-NONE/ASSUMPTIONS.md")
         self.assertTrue(pnone["A-NONE"].moves)
         self.assertEqual(pnone["TD-NONE"].destination, "archive/P-NONE/TECH_DEBT.md")
@@ -386,9 +412,6 @@ class TestArchiveApply(ArchivePlanCase):
 
         p9 = archive.preview(self.root, "P9")
         archive.archive(self.root, "P9", digest=p9.digest)
-        p2 = {candidate.id: candidate for candidate in archive.preview(self.root, "P2").candidates}
-        self.assertEqual(p2["A-SPREAD"].reason, "task T-NONE is still working")
-        self.assertEqual(p2["TD-SPREAD"].reason, "task T-NONE is still working")
 
         pnone_plan = archive.preview(self.root, "P-NONE")
         moving = [candidate for candidate in pnone_plan.candidates if candidate.moves]
@@ -401,10 +424,6 @@ class TestArchiveApply(ArchivePlanCase):
         self.assertEqual(after_pnone.task("T-NONE").source.file, "archive/P-NONE/TASKS.md")
         self.assertEqual(next(event for event in after_pnone.events if event.id == "EV-NONE").source.file,
                          "archive/P-NONE/TRACE.md")
-        p9_plan = archive.preview(self.root, "P9")
-        self.assertIn("A-MIXED", p9_plan.assumptions)
-        self.assertIn("TD-MIXED", p9_plan.debts)
-        archive.archive(self.root, "P9", digest=p9_plan.digest)
         p2_plan = archive.preview(self.root, "P2")
         self.assertIn("A-SPREAD", p2_plan.assumptions)
         self.assertIn("TD-SPREAD", p2_plan.debts)
@@ -412,6 +431,9 @@ class TestArchiveApply(ArchivePlanCase):
         after = compiler.load(self.root)
         self.assertEqual(archive._records(after), before)
         self.assertEqual(self.derived_facts(after), facts)
+        self.assertEqual(after.assumption("A-MIXED").source.file, "archive/P-NONE/ASSUMPTIONS.md")
+        self.assertEqual(next(debt for debt in after.debts if debt.id == "TD-MIXED").source.file,
+                         "archive/P-NONE/TECH_DEBT.md")
         self.assertEqual(after.assumption("A-SPREAD").source.file, "archive/P2/ASSUMPTIONS.md")
         self.assertEqual(next(debt for debt in after.debts if debt.id == "TD-SPREAD").source.file,
                          "archive/P2/TECH_DEBT.md")
