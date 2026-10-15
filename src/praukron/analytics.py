@@ -532,8 +532,8 @@ def assumption_line(report: Report) -> str:
     )
 
 
-def awaiting_reconciliation(project: Project) -> list[dict[str, str]]:
-    """Owner responses the records do not yet reflect. Reported, never resolved."""
+def awaiting_reconciliation(project: Project) -> list[dict[str, object]]:
+    """Owner responses the records do not yet reflect, including archived ones."""
     waiting = []
     for assumption in project.assumptions:
         decisive = [r for r in project.responses_to(assumption.id) if r.action in RESPONSE_STATUS]
@@ -543,7 +543,13 @@ def awaiting_reconciliation(project: Project) -> list[dict[str, str]]:
         wanted = RESPONSE_STATUS[latest.action]
         needs_record = latest.action in ("REVISE", "REJECT") and not assumption.reconciled_by
         if assumption.status != wanted or needs_record:
-            waiting.append({"assumption": assumption.id, "response": latest.id, "action": latest.action})
+            item: dict[str, object] = {
+                "assumption": assumption.id, "response": latest.id, "action": latest.action,
+            }
+            if assumption.source.file.startswith(f"{layout.ARCHIVE_DIR}/"):
+                item["archived"] = True
+                item["remedy"] = "owner must run archive restore before an agent can reconcile it"
+            waiting.append(item)
     return waiting
 
 

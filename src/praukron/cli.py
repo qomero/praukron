@@ -738,9 +738,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     shelve = subparsers.add_parser(
         "archive",
-        help="owner only: move a COMPLETE phase's DONE tasks and contracts to archive/<phase>/ (ADR-067)",
+        help="owner only: archive eligible lifecycle records for a COMPLETE phase or P-NONE (ADR-070)",
     )
-    shelve.add_argument("phase", help="a COMPLETE phase, or plan/apply followed by a phase")
+    shelve.add_argument("phase", help="a COMPLETE phase or P-NONE, or plan/apply followed by one")
     shelve.add_argument("selection", nargs="?", help="phase for archive plan/apply, e.g. P3")
     shelve.add_argument("--plan", dest="plan_digest", metavar="DIGEST",
                         help="apply only if the locked chronicle matches this plan digest")

@@ -1,9 +1,10 @@
-"""Archiving a closed phase: the owner's command, never an agent's (ADR-067).
+"""Archive closed lifecycle records: the owner's command, never an agent's.
 
-A COMPLETE phase's DONE tasks and their contracts move, verbatim, from
-`TASKS.md` and `ACCEPTANCE.md` into `archive/<phase>/`. Archived records stay
-authority: the compiler reads them with the working files, so every command
-sees the same project. Only where each record lives changes.
+DONE tasks and contracts in a COMPLETE phase or P-NONE, plus eligible closed
+assumptions, technical debt, and trace events, move verbatim into
+`archive/<phase>/` (ADR-070). Archived records stay authority: the compiler
+reads them with the working files, so every command sees the same project.
+Only where each record lives changes.
 
 A task stays in the working files while anything open still points at it. The
 move is refused unless validation is clean before it; it is made file by file
@@ -23,7 +24,7 @@ from typing import Iterable, Protocol
 
 from . import analytics, compile as compiler, layout, validate
 from .layout import ARCHIVE_DIR, AUTHORITY_DIR
-from .model import DEBT_CLOSED, Project
+from .model import DEBT_CLOSED, NO_PHASE, Project
 from .mutate import (RespondError, _lock, _replace, _spans, _write_recovery, recover_archive,
                      staged_replacements)
 from .parse import ParseError
@@ -31,6 +32,9 @@ from .snapshot import Snapshot
 
 _TASK = re.compile(r"(T-[A-Za-z0-9.\-]+): ")
 _CONTRACT = re.compile(r"(AC-[A-Za-z0-9.\-]+)(?: — |$)")
+_ASSUMPTION = re.compile(r"(A-[A-Za-z0-9.\-]+): ")
+_DEBT = re.compile(r"(TD-[A-Za-z0-9.\-]+): ")
+_EVENT = re.compile(r"(EV-[A-Za-z0-9.\-]+): ")
 
 
 class ArchiveError(Exception):
@@ -103,8 +107,16 @@ class Plan:
     def render(self, applied: bool) -> str:
         verb = "Moved" if applied else "Would move"
         target = f"{AUTHORITY_DIR}/{ARCHIVE_DIR}/{self.phase}/"
-        lines = [f"{verb} {len(self.tasks)} tasks and {len(self.contracts)} contracts "
-                 f"({self.moved_bytes:,} bytes) of {self.phase} to {target}"]
+        moving = [candidate for candidate in self.candidates if candidate.moves]
+        counts = ", ".join(
+            f"{len(records)} {label}" for label, records in (
+                ("tasks", self.tasks), ("contracts", self.contracts),
+                ("assumptions", self.assumptions), ("debt", self.debts),
+                ("events", self.events),
+            ) if records
+        ) or "no records"
+        lines = [f"{verb} {len(moving)} records ({counts}; {self.moved_bytes:,} bytes) "
+                 f"of {self.phase} to {target}"]
         if self.tasks:
             lines.append("  tasks:     " + ", ".join(self.tasks))
         if self.contracts:
@@ -185,10 +197,31 @@ class TaskRule(IdRule):
         project, selection = context.project, context.selection
         unresolved = set(analytics.unresolved_failures(project))
         waiting = {w["assumption"] for w in analytics.awaiting_reconciliation(project)}
-        for task in project.tasks:
-            if task.phase != selection.phase or task.source.file != self.filename:
-                continue
+        selected = [t for t in project.tasks
+                    if t.phase == selection.phase and t.source.file == self.filename]
+        eligible = {t.id for t in selected
+                    if t.done and _why_kept(project, t.id, unresolved, waiting) is None}
+        if selection.phase == NO_PHASE:
+            # Keep every task that a remaining working task depends on.  A
+            # dependant can itself be held by another dependant, so calculate
+            # the fixed point rather than moving only the first layer.
+            while True:
+                remaining = {
+                    task_id for task_id in eligible
+                    if all(task.id in eligible for task in project.tasks
+                           if task.source.file == self.filename and task_id in task.dependencies)
+                }
+                if remaining == eligible:
+                    break
+                eligible = remaining
+        for task in selected:
             why = "it is not DONE" if not task.done else _why_kept(project, task.id, unresolved, waiting)
+            if why is None and selection.phase == NO_PHASE:
+                dependants = [t.id for t in project.tasks
+                              if t.source.file == self.filename and task.id in t.dependencies
+                              and t.id not in eligible]
+                if dependants:
+                    why = "working task(s) depend on it: " + ", ".join(dependants)
             yield Candidate(task.id, self.kind, self.filename, selection.destination(self.filename), why)
 
 
@@ -225,7 +258,128 @@ class ContractRule(IdRule):
             yield Candidate(contract.id, self.kind, self.filename, selection.destination(self.filename), why)
 
 
-RECORD_RULES: tuple[RecordRule, ...] = (TaskRule(), ContractRule())
+def _task_destination(project: Project, task_ids: Iterable[str]) -> str | None:
+    """The latest named real phase, or P-NONE when every named task has it."""
+    phases = [project.task(task_id).phase for task_id in task_ids if project.task(task_id) is not None]
+    if not phases:
+        return None
+    real_phases = [phase for phase in phases if phase != NO_PHASE]
+    if not real_phases:
+        return NO_PHASE
+    order = {phase.id: index for index, phase in enumerate(project.phases)}
+    return max(real_phases, key=lambda phase: (order.get(phase, -1), phase))
+
+
+def _all_archived_or_moving(project: Project, task_ids: Iterable[str], moving: set[str]) -> str | None:
+    for task_id in task_ids:
+        task = project.task(task_id)
+        if task is None:
+            return f"task {task_id} does not exist"
+        if task.source.file == "TASKS.md" and task_id not in moving:
+            return f"task {task_id} is still working"
+    return None
+
+
+class AssumptionRule(IdRule):
+    kind, filename, pattern, title = "assumption", "ASSUMPTIONS.md", _ASSUMPTION, "Assumptions"
+
+    def candidates(self, context: EligibilityContext) -> Iterable[Candidate]:
+        project, selection = context.project, context.selection
+        waiting = {w["assumption"] for w in analytics.awaiting_reconciliation(project)}
+        moving = set(context.result.tasks)
+        for assumption in project.assumptions:
+            if assumption.source.file != self.filename:
+                continue
+            task_ids = list(dict.fromkeys(
+                [*assumption.tasks, *(reference for reference in assumption.references
+                                      if reference.startswith("T-"))]
+            ))
+            destination_phase = _task_destination(project, task_ids)
+            if destination_phase != selection.phase:
+                continue
+            why = None
+            if assumption.status not in ("CONFIRMED", "REJECTED", "REVISED", "WITHDRAWN"):
+                why = f"status is {assumption.status}"
+            elif assumption.id in waiting:
+                why = "a response awaits reconciliation"
+            else:
+                why = _all_archived_or_moving(project, task_ids, moving)
+            yield Candidate(assumption.id, self.kind, self.filename,
+                            selection.destination(self.filename), why)
+
+
+class DebtRule(IdRule):
+    kind, filename, pattern, title = "debt", "TECH_DEBT.md", _DEBT, "Technical debt"
+
+    def candidates(self, context: EligibilityContext) -> Iterable[Candidate]:
+        project, selection = context.project, context.selection
+        moving = set(context.result.tasks)
+        for debt in project.debts:
+            if debt.source.file != self.filename:
+                continue
+            task_ids = [reference for reference in (*debt.introduced_by, *debt.linked_tasks)
+                        if reference.startswith("T-")]
+            destination_phase = _task_destination(project, task_ids)
+            if destination_phase is None and selection.phase != NO_PHASE:
+                continue
+            if destination_phase is not None and destination_phase != selection.phase:
+                continue
+            why = None
+            if debt.status not in DEBT_CLOSED:
+                why = f"status is {debt.status}"
+            elif not task_ids:
+                why = "names no task"
+            else:
+                why = _all_archived_or_moving(project, task_ids, moving)
+            yield Candidate(debt.id, self.kind, self.filename,
+                            selection.destination(self.filename), why)
+
+
+def _unresolved_retry_chain(project: Project) -> set[str]:
+    """Every event connected through retries to an unresolved failure."""
+    chain = set(analytics.unresolved_failures(project))
+    changed = True
+    while changed:
+        changed = False
+        for event in project.events:
+            if event.id in chain or event.retry_of in chain:
+                if event.id not in chain:
+                    chain.add(event.id)
+                    changed = True
+                if event.retry_of and event.retry_of not in chain:
+                    chain.add(event.retry_of)
+                    changed = True
+    return chain
+
+
+class TraceRule(IdRule):
+    kind, filename, pattern, title = "event", "TRACE.md", _EVENT, "Trace"
+
+    def candidates(self, context: EligibilityContext) -> Iterable[Candidate]:
+        project, selection = context.project, context.selection
+        moving = set(context.result.tasks)
+        unresolved = _unresolved_retry_chain(project)
+        for event in project.events:
+            if event.source.file != self.filename:
+                continue
+            task = project.task(event.task) if event.task else None
+            destination_phase = task.phase if task is not None else NO_PHASE
+            if destination_phase != selection.phase:
+                continue
+            why = None
+            if event.id in unresolved:
+                why = "part of an unresolved retry chain"
+            elif event.task and task is None:
+                why = f"task {event.task} does not exist"
+            elif task is not None:
+                why = _all_archived_or_moving(project, [task.id], moving)
+            yield Candidate(event.id, self.kind, self.filename,
+                            selection.destination(self.filename), why)
+
+
+RECORD_RULES: tuple[RecordRule, ...] = (
+    TaskRule(), ContractRule(), AssumptionRule(), DebtRule(), TraceRule(),
+)
 
 
 def _why_kept(project: Project, task_id: str, unresolved: set[str], waiting: set[str]) -> str | None:

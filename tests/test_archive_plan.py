@@ -211,6 +211,13 @@ class TestArchivePlan(ArchivePlanCase):
         self.assertEqual(held.reason, "working task(s) depend on it: T-PNONE-WORKER")
         root = next(c for c in pnone.candidates if c.id == "T-PNONE-ROOT")
         self.assertEqual(root.reason, "working task(s) depend on it: T-PNONE-MIDDLE")
+        before = archive._records(compiler.load(self.root))
+        archive.archive(self.root, "P-NONE", digest=pnone.digest)
+        after = compiler.load(self.root)
+        self.assertEqual(archive._records(after), before)
+        self.assertEqual(validate.errors(validate.check(after)), [])
+        self.assertEqual(after.task("T-PNONE-EXEC").source.file, "archive/P-NONE/TASKS.md")
+        self.assertEqual(after.task("T-PNONE-OPS").source.file, "archive/P-NONE/TASKS.md")
 
 
 class TestArchiveApply(ArchivePlanCase):
@@ -261,14 +268,20 @@ class TestArchiveApply(ArchivePlanCase):
         self.assertIn("## A-CLOSED", chronicle.section("ASSUMPTIONS.md", "A-CLOSED"))
         self.assertIn("## TD-CLOSED", chronicle.section("TECH_DEBT.md", "TD-CLOSED"))
         self.assertIn("## EV-CLOSED", chronicle.section("TRACE.md", "EV-CLOSED"))
+        debt_pack = retrieve.retrieve(after, analytics.report(after), self.root, "TD-CLOSED")
+        event_pack = retrieve.retrieve(after, analytics.report(after), self.root, "EV-CLOSED")
+        self.assertIn("archive/P1/TECH_DEBT.md#TD-CLOSED", [item.source for item in debt_pack.items])
+        self.assertIn("archive/P1/TRACE.md#EV-CLOSED", [item.source for item in event_pack.items])
 
         self.add_task("T-LATER", "M-UPKEEP", status="TODO", dependencies="T-CLOSED")
-        responses = self.authority / "RESPONSES.md"
-        responses.write_text(responses.read_text(encoding="utf-8") +
-                             "\n## R-2: A-CLOSED GUIDE\n- By: owner\n- Date: 2026-10-15\n"
-                             "- Via: test\n\n> Keep the archived conclusion in mind.\n", encoding="utf-8")
+        respond.append(self.root, [respond.Item("A-CLOSED", "REJECT", "Restore before reconciling.")],
+                       "owner", date="2026-10-15", recompile=False)
         later = compiler.load(self.root)
         self.assertEqual(validate.errors(validate.check(later)), [])
+        self.assertEqual(analytics.awaiting_reconciliation(later), [{
+            "assumption": "A-CLOSED", "response": "R-2", "action": "REJECT", "archived": True,
+            "remedy": "owner must run archive restore before an agent can reconcile it",
+        }])
 
     def test_lifecycle_candidates_report_every_reason_to_stay(self):
         self.add_task("T-CLOSED", "M-FOUNDATION")
@@ -306,6 +319,102 @@ class TestArchiveApply(ArchivePlanCase):
         self.assertEqual(candidates["EV-FAIL"].reason, "part of an unresolved retry chain")
         self.assertEqual(candidates["EV-RETRY"].reason, "part of an unresolved retry chain")
         self.assertEqual(candidates["EV-WORKING"].reason, "task T-HELD is still working")
+
+    def test_lifecycle_destination_uses_every_named_task_and_phase_order(self):
+        self.add_phase("P9")
+        self.add_phase("P2")
+        self.add_task("T-P9", "M-P9")
+        self.add_task("T-P2", "M-P2")
+        self.add_task("T-NONE", "M-UPKEEP")
+        (self.authority / "ASSUMPTIONS.md").write_text(
+            "# Assumptions\n\n## A-SPREAD: Across phases\n- Status: CONFIRMED\n"
+            "- Tasks: T-P9\n- Impact: LOW\n- Assumption: Each task is complete.\n"
+            "- Applied in: T-P2, T-NONE\n- Responses: R-1\n\n"
+            "## A-NONE: Only phase-independent work\n- Status: CONFIRMED\n"
+            "- Tasks: T-NONE\n- Impact: LOW\n- Assumption: This work is phase-independent.\n"
+            "- Responses: R-2\n\n"
+            "## A-MIXED: Phase and phase-independent work\n- Status: CONFIRMED\n"
+            "- Tasks: T-P9\n- Impact: LOW\n- Assumption: Both tasks are complete.\n"
+            "- Applied in: T-NONE\n- Responses: R-3\n", encoding="utf-8")
+        (self.authority / "RESPONSES.md").write_text(
+            "# Responses\n\n## R-1: A-SPREAD CONFIRM\n"
+            "- By: owner\n- Date: 2026-10-15\n- Via: test\n\n> Confirmed.\n\n"
+            "## R-2: A-NONE CONFIRM\n"
+            "- By: owner\n- Date: 2026-10-15\n- Via: test\n\n> Confirmed.\n\n"
+            "## R-3: A-MIXED CONFIRM\n"
+            "- By: owner\n- Date: 2026-10-15\n- Via: test\n\n> Confirmed.\n", encoding="utf-8")
+        (self.authority / "TECH_DEBT.md").write_text(
+            "# Technical debt\n\n## TD-SPREAD: Across phases\n- Status: RESOLVED\n"
+            "- Introduced by: T-P9\n- Debt: Nothing remains.\n- Exit condition: Removed.\n"
+            "- Linked tasks: T-P2, T-NONE\n- Resolution: Completed.\n\n"
+            "## TD-NONE: Only phase-independent work\n- Status: INVALIDATED\n"
+            "- Debt: Nothing remains.\n- Exit condition: Removed.\n"
+            "- Linked tasks: T-NONE\n- Resolution: Invalidated.\n\n"
+            "## TD-NO-TASK: No task lineage\n- Status: RESOLVED\n"
+            "- Introduced by: ADR-001\n- Debt: Nothing remains.\n"
+            "- Exit condition: Removed.\n- Resolution: Recorded.\n\n"
+            "## TD-MIXED: Phase and phase-independent work\n- Status: RESOLVED\n"
+            "- Introduced by: T-P9\n- Debt: Nothing remains.\n"
+            "- Exit condition: Removed.\n- Linked tasks: T-NONE\n"
+            "- Resolution: Completed.\n", encoding="utf-8")
+        (self.authority / "TRACE.md").write_text(
+            "# Trace\n\n## EV-NONE: No task\n- Type: command\n- Outcome: success\n", encoding="utf-8")
+        before_project = compiler.load(self.root)
+        before = archive._records(before_project)
+        facts = self.derived_facts(before_project)
+
+        p2 = {candidate.id: candidate for candidate in archive.preview(self.root, "P2").candidates}
+        self.assertEqual(p2["A-SPREAD"].destination, "archive/P2/ASSUMPTIONS.md")
+        self.assertEqual(p2["A-SPREAD"].reason, "task T-P9 is still working")
+        self.assertEqual(p2["TD-SPREAD"].destination, "archive/P2/TECH_DEBT.md")
+        self.assertEqual(p2["TD-SPREAD"].reason, "task T-P9 is still working")
+        self.assertNotIn("A-SPREAD", {candidate.id for candidate in archive.preview(self.root, "P9").candidates})
+        p9 = {candidate.id: candidate for candidate in archive.preview(self.root, "P9").candidates}
+        self.assertEqual(p9["A-MIXED"].destination, "archive/P9/ASSUMPTIONS.md")
+        self.assertEqual(p9["A-MIXED"].reason, "task T-NONE is still working")
+        self.assertEqual(p9["TD-MIXED"].destination, "archive/P9/TECH_DEBT.md")
+        self.assertEqual(p9["TD-MIXED"].reason, "task T-NONE is still working")
+        pnone = {candidate.id: candidate for candidate in archive.preview(self.root, "P-NONE").candidates}
+        self.assertEqual(pnone["A-NONE"].destination, "archive/P-NONE/ASSUMPTIONS.md")
+        self.assertTrue(pnone["A-NONE"].moves)
+        self.assertEqual(pnone["TD-NONE"].destination, "archive/P-NONE/TECH_DEBT.md")
+        self.assertTrue(pnone["TD-NONE"].moves)
+        self.assertEqual(pnone["TD-NO-TASK"].destination, "archive/P-NONE/TECH_DEBT.md")
+        self.assertEqual(pnone["TD-NO-TASK"].reason, "names no task")
+        self.assertEqual(pnone["EV-NONE"].destination, "archive/P-NONE/TRACE.md")
+        self.assertTrue(pnone["EV-NONE"].moves)
+
+        p9 = archive.preview(self.root, "P9")
+        archive.archive(self.root, "P9", digest=p9.digest)
+        p2 = {candidate.id: candidate for candidate in archive.preview(self.root, "P2").candidates}
+        self.assertEqual(p2["A-SPREAD"].reason, "task T-NONE is still working")
+        self.assertEqual(p2["TD-SPREAD"].reason, "task T-NONE is still working")
+
+        pnone_plan = archive.preview(self.root, "P-NONE")
+        moving = [candidate for candidate in pnone_plan.candidates if candidate.moves]
+        self.assertIn(f"Would move {len(moving)} records", pnone_plan.render(False))
+        archive.archive(self.root, "P-NONE", digest=pnone_plan.digest)
+        after_pnone = compiler.load(self.root)
+        self.assertEqual(archive._records(after_pnone), before)
+        self.assertEqual(self.derived_facts(after_pnone), facts)
+        self.assertEqual(validate.errors(validate.check(after_pnone)), [])
+        self.assertEqual(after_pnone.task("T-NONE").source.file, "archive/P-NONE/TASKS.md")
+        self.assertEqual(next(event for event in after_pnone.events if event.id == "EV-NONE").source.file,
+                         "archive/P-NONE/TRACE.md")
+        p9_plan = archive.preview(self.root, "P9")
+        self.assertIn("A-MIXED", p9_plan.assumptions)
+        self.assertIn("TD-MIXED", p9_plan.debts)
+        archive.archive(self.root, "P9", digest=p9_plan.digest)
+        p2_plan = archive.preview(self.root, "P2")
+        self.assertIn("A-SPREAD", p2_plan.assumptions)
+        self.assertIn("TD-SPREAD", p2_plan.debts)
+        archive.archive(self.root, "P2", digest=p2_plan.digest)
+        after = compiler.load(self.root)
+        self.assertEqual(archive._records(after), before)
+        self.assertEqual(self.derived_facts(after), facts)
+        self.assertEqual(after.assumption("A-SPREAD").source.file, "archive/P2/ASSUMPTIONS.md")
+        self.assertEqual(next(debt for debt in after.debts if debt.id == "TD-SPREAD").source.file,
+                         "archive/P2/TECH_DEBT.md")
 
     def test_lifecycle_records_preserve_lf_and_crlf(self):
         for newline in (b"\n", b"\r\n"):
