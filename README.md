@@ -351,7 +351,9 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron context <task>` | The minimal packet an agent needs to start that task, with the exact records to read and any references that do not resolve. |
 | `praukron domains` | How each task's execution/operations domain was decided, and which need one. |
 | `praukron retrieve "<question or id>"` | Only the chronicle records a question needs, routed by `INDEX.md`, each with its source, within a token budget (`--budget`). |
-| `praukron archive <phase> [--dry-run]` | Owner only: move a COMPLETE phase's closed tasks and contracts to `archive/<phase>/`. They stay authority; open work stays put. |
+| `praukron archive plan <phase>` | Owner only, read-only: which closed records of a COMPLETE phase (or `P-NONE`) would move to `archive/<phase>/` and which stay and why, with a digest. |
+| `praukron archive apply <phase> --plan <digest>` | Owner only: move exactly that plan. They stay authority; open work stays put; a stale plan is refused. |
+| `praukron archive restore <phase>` | Owner only: return an archive's records to the working files. |
 | `praukron task add --input -` | Append a task, with its new contract in the same validated write. |
 | `praukron task update --input -` | Change one task's status, owner, claim date or evidence; `DONE` needs every criterion `PASS`. |
 | `praukron contract add --input -` | Give a `TODO` task its acceptance contract. |

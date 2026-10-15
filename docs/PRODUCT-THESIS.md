@@ -173,8 +173,8 @@ inside `chronicle/` is a short list, and each entry is validated and governed:
 
 - `INDEX.md`, generated, never authored and never authority (ADR-047);
 - the owner's answers, appended to `RESPONSES.md` by `respond` (ADR-055);
-- `archive <phase>`, which moves a closed phase's tasks and contracts verbatim
-  into `archive/<phase>/`, only when the owner asks (ADR-067);
+- `archive`, which moves a closed phase's records verbatim into
+  `archive/<phase>/` and back, only when the owner asks (ADR-067, ADR-070);
 - five structured writes, `journal append`, `criterion set`, `task add`,
   `contract add` and `task update`, which check the rules before and after,
   refuse stale revisions, and undo themselves byte for byte on any new
@@ -226,7 +226,7 @@ question.
 | `TECH_DEBT.md` | What are we knowingly leaving behind? | Cost, trigger, exit condition, and the decision that created it |
 | `TRACE.md` | What ran, failed, or changed along the way? | Operational events: tool calls, mutations, failures, retries. Never counts as progress |
 | `INDEX.md` | Where should an agent start? | Generated, inside the chronicle; a routing map of what matters now and where each record lives. Never authority |
-| `archive/<phase>/` | Where did the finished work go? | A closed phase's tasks and contracts, moved verbatim; still authority, still resolved by their old pointers |
+| `archive/<phase>/` | Where did the finished work go? | A closed phase's tasks, contracts, assumptions, debt, trace events and journal entries, moved verbatim; still authority, still resolved by their old pointers |
 
 Two of those are worth dwelling on.
 
@@ -295,17 +295,24 @@ history. Five mechanisms do it, and none involves a model.
 - `retrieve --budget` (default 4,000 estimated tokens) bounds the selected record
   bodies, most relevant first, and lists the rest as pointers. It does not bound
   the whole output, and the first record always loads.
-- `archive` moves a closed phase's tasks and contracts out of `TASKS.md` and
-  `ACCEPTANCE.md`. They stay authority and the compiler still reads them, so it
-  shortens files for people and tools but not compile time.
+- `archive` moves a COMPLETE phase's, or `P-NONE`'s, closed records out of the
+  working files: tasks, contracts, assumptions, debt, trace events and the
+  journal entries that name them, as verbatim records. `RESPONSES.md` and the
+  ADRs never move. The owner plans (`archive plan`), applies exactly that plan
+  (`archive apply --plan`) and can reverse it (`archive restore`); every move is
+  read back, undone if it differs, and recoverable through Git or a byte-exact
+  backup. Archived records stay authority and the compiler still reads them, so
+  it shortens what an agent reads to edit a working file but not compile time.
+  On a real 349 KB chronicle it cut `TASKS.md` by 93% and `ACCEPTANCE.md` by
+  91%, with `compile` and `validate` unchanged within noise (see
+  [benchmarks](benchmarks.md)).
 - Structured writes cost the size of the record: a payload and a one-line result,
   where a direct edit first reads the file it edits. Measured figures, with their
   method and limits, are in [benchmarks](benchmarks.md).
 
-**Designed, not built.** Extending archiving past tasks and contracts, to
-assumptions, debt, trace events and journal entries, with verify and restore,
-is specified in an internal working document. `archive` today moves closed tasks
-and their contracts only.
+Not claimed: a faster compile (it still follows the whole chronicle), a smaller
+`context` or `retrieve` result (they already select), or figures beyond one
+project on one machine.
 
 ## Making disagreement decidable
 

@@ -10,6 +10,15 @@ people arriving from a release page.
   and journal-named references now validate across working and archived files; archive apply and restore both
   report a committed authoritative move when any projection refresh step fails.
 
+- Document the archive lifecycle in the owner guide, specification (§2.7), README, `AGENTS.md`, the product
+  thesis and the chronicle README template: `archive plan`, `apply --plan` and `restore`; eligibility per record
+  type on the phase axis; destinations; what is never archived and why; and the exact Git (unstaged, staged,
+  committed) and no-Git (byte-exact backup) recovery procedures. The permanent archive invariants and the
+  refresh contract of T-ARCH-VERIFY-01 are written from its brief in marked blocks, pending that PR.
+- Add archive parity tests on a synthetic large chronicle (every record type, many phases, `P-NONE`, Vietnamese
+  text, LF and CRLF) comparing records, derived facts, `context` and `retrieve` before and after archive and
+  restore, an `install.sh` runtime-module check, and `tests/bench_archive.py`, whose Git and no-Git results on a
+  real chronicle copy are added to the benchmarks page.
 - Add Git-aware archive recovery with a clean-chronicle guard and exact undo commands,
   persistent byte-exact backups outside Git, and `archive restore <phase>` after later edits;
   apply and restore share durable rollback across all record files. Detect partial ignores and nested

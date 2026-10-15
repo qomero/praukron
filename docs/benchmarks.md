@@ -120,7 +120,122 @@ Measurement contract for (c): `bodyBytes` is the payload, `outputBytes` the comp
   and undo themselves on failure. A targeted edit that is as cheap has none of that.
 - **Archiving matters to the full read, not to the command or to the targeted
   read.** It shrinks `TASKS.md` and `ACCEPTANCE.md` for people and tools that read
-  them whole; `JOURNAL.md` is not archived yet, so its figure is the same in both
-  runs.
+  them whole. In this run `JOURNAL.md` was not archived, because that measurement
+  predates journal archiving, so its figure is the same in both runs; the archive
+  measurement below moves it too.
 - Not measured: real agent sessions, which vary from run to run, and read-side
   commands (`context`, `retrieve`), which are unchanged by structured writes.
+
+
+# Archive cost: what archiving changes for the reader
+
+The write benchmark above asks what one write costs. This one asks what
+`praukron archive` does to the files an agent has to read in order to edit
+them, to `compile` and `validate`, and to what `context` and `retrieve` return.
+It is a different question, so it is a separate measurement and a separate
+script.
+
+## Method
+
+[`tests/bench_archive.py`](../tests/bench_archive.py) copies a real chronicle
+into a temporary folder twice and never touches the original: once with a Git
+repository initialised around the copy (`core.autocrlf` off, so Git recovery
+applies), and once with none (backup recovery). On each copy it runs
+`archive plan <phase>` and then `archive apply <phase> --plan <digest>` for every
+COMPLETE phase and then for `P-NONE`, committing between runs in the Git copy
+because Git mode requires a clean chronicle. It measures:
+
+- the size of each working file before and after;
+- what an agent reads to edit that file: the whole file, or only the target. The
+  target is the file's last section when appending, and the median section when
+  changing one record in place. The search to find a section is not counted;
+- the wall time of `compile` and `validate`, a median of nine runs with the
+  range, Python start-up included;
+- parity: authored records equal except `source`; derived facts (ready,
+  blocked, work in progress, gates, phase progress, unresolved failures, owner
+  responses awaiting reconciliation, open debt and assumptions) equal as sets;
+  and `context <task>` and `retrieve` results for a sample of 25 records equal
+  record by record, apart from the `source` paths. The script exits 1 and lists
+  the failure before any figure if any of them differs, or if an archive step
+  fails.
+
+Parity is also a unit test on a synthetic chronicle that is committed with the
+tests ([`tests/synth_chronicle.py`](../tests/synth_chronicle.py), checked by
+`tests/test_archive_parity.py`): every record type, six phases, `P-NONE` work,
+Vietnamese text, a journal date shared by every phase, and LF and CRLF. It
+archives every eligible phase and `P-NONE`, compares records, facts, `context`
+and `retrieve`, then restores them in another order and compares again. No real
+project's text is in a test or in this page, only aggregate numbers.
+
+## Results
+
+Machine: Windows-11-10.0.26200-SP0, 12 logical CPUs. Python 3.14.7. Measured 2026-10-16 on local copies of a real chronicle (Git and no-Git). Tokens are estimates (UTF-8 bytes / 4), not counts from a tokenizer.
+
+Failures, reported before any aggregate: none
+
+### Git mode
+
+Archived 13 runs (248 records moved; recovery mode `git`); apply took a median 0.52 s per run including the refresh. Archive files: 268,437 bytes.
+
+| Working file | Bytes before | Bytes after | Change | Agent reads: whole file (~tokens) | Targeted append (~tokens) | Targeted edit (~tokens) |
+|---|---:|---:|---:|---:|---:|---:|
+| `TASKS.md` | 54,979 | 3,654 | -93% | 54,979 → 3,654 (13,745 → 914) | 809 → 619 | 466 → 555 |
+| `ACCEPTANCE.md` | 187,709 | 16,481 | -91% | 187,709 → 16,481 (46,928 → 4,121) | 1,243 → 1,555 | 1,438 → 657 |
+| `JOURNAL.md` | 27,522 | 13,536 | -51% | 27,522 → 13,536 (6,881 → 3,384) | 1,123 → 745 | 743 → 749 |
+| `ASSUMPTIONS.md` | 8,420 | 6,085 | -28% | 8,420 → 6,085 (2,105 → 1,522) | 726 → 726 | 682 → 932 |
+| `TECH_DEBT.md` | 19,534 | 6,684 | -66% | 19,534 → 6,684 (4,884 → 1,671) | 1,529 → 1,110 | 1,201 → 1,196 |
+| `TRACE.md` | 11,790 | 2,602 | -78% | 11,790 → 2,602 (2,948 → 651) | 745 → 610 | 485 → 633 |
+
+| Command | Before (range) | After (range) | Change in median |
+|---|---:|---:|---:|
+| `compile` (median of 9) | 0.22 s (0.21–0.28) | 0.23 s (0.22–0.23) | +1% |
+| `validate` (median of 9) | 0.20 s (0.19–0.20) | 0.20 s (0.19–0.21) | +0% |
+
+### No-Git mode
+
+Archived 13 runs (248 records moved; recovery mode `nogit`); apply took a median 0.46 s per run including the refresh. Archive files: 268,437 bytes.
+
+| Working file | Bytes before | Bytes after | Change | Agent reads: whole file (~tokens) | Targeted append (~tokens) | Targeted edit (~tokens) |
+|---|---:|---:|---:|---:|---:|---:|
+| `TASKS.md` | 54,979 | 3,654 | -93% | 54,979 → 3,654 (13,745 → 914) | 809 → 619 | 466 → 555 |
+| `ACCEPTANCE.md` | 187,709 | 16,481 | -91% | 187,709 → 16,481 (46,928 → 4,121) | 1,243 → 1,555 | 1,438 → 657 |
+| `JOURNAL.md` | 27,522 | 13,536 | -51% | 27,522 → 13,536 (6,881 → 3,384) | 1,123 → 745 | 743 → 749 |
+| `ASSUMPTIONS.md` | 8,420 | 6,085 | -28% | 8,420 → 6,085 (2,105 → 1,522) | 726 → 726 | 682 → 932 |
+| `TECH_DEBT.md` | 19,534 | 6,684 | -66% | 19,534 → 6,684 (4,884 → 1,671) | 1,529 → 1,110 | 1,201 → 1,196 |
+| `TRACE.md` | 11,790 | 2,602 | -78% | 11,790 → 2,602 (2,948 → 651) | 745 → 610 | 485 → 633 |
+
+| Command | Before (range) | After (range) | Change in median |
+|---|---:|---:|---:|
+| `compile` (median of 9) | 0.22 s (0.22–0.27) | 0.23 s (0.22–0.23) | +3% |
+| `validate` (median of 9) | 0.19 s (0.19–0.20) | 0.20 s (0.19–0.21) | +4% |
+
+Reads are UTF-8 bytes of what an agent must read to edit the file: the whole file; the last section when appending; the median section when changing one record in place. Searches to locate a section are not counted. Times include Python start-up, the whole-chronicle load and, for `compile`, writing every compiled view. Parity compared authored records (except `source`), derived facts as sets, and `context` and `retrieve` results on a sample of records, before and after archiving.
+
+## What it shows, and what it does not
+
+- **The files an agent reads whole shrink by what was finished.** On this
+  chronicle `TASKS.md` and `ACCEPTANCE.md` fell by about nine tenths, which
+  matters to anyone or any tool that reads them in full. `JOURNAL.md` fell by
+  half, because entries that name only open records, or only ADRs, stay. The
+  moved records are in the archive files, so the project did not get smaller:
+  the working set did.
+- **A targeted read does not follow file size.** The figures for a targeted
+  append or edit move a little in either direction, because the last section or
+  the median section is now a different record, not because the cost of reading
+  one record changed. An agent that follows `AGENTS.md` reads one section, before
+  and after.
+- **No regression in `compile` or `validate`.** Both read the whole chronicle, the
+  archives included, so they do the same work before and after. The differences in
+  the table are within the run-to-run range of the nine measurements and are noise
+  at this size (a quarter of a second, most of it interpreter start-up). The
+  expectation was no change, and none was found. A saving in compile time is not
+  claimed.
+- **One thing that does change.** `context <task>` reports `events.recent`, the
+  last few events in load order: working files first, then each archive. When a
+  task's events straddle two files, which of two events is listed last can differ
+  after archiving. The set is the same, and the parity check compares it as a
+  set.
+- Not measured: real agent sessions; a chronicle much larger than this one; how
+  the cost grows with many more phases; the Git mode on a repository with
+  conversion attributes, which uses backups instead. Figures are one project on
+  one machine on one day.

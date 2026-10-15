@@ -140,18 +140,138 @@ the command that fetches each.
 ### Archiving a closed phase
 
 ```sh
-praukron archive P3 --dry-run                     # what would move, and what stays and why
-praukron archive P3                               # owner only: move it
+praukron archive plan P3                          # read-only: what moves, what stays and why, and a digest
+praukron archive apply P3 --plan <digest>         # owner only: move exactly what that plan showed
+praukron archive restore P3                       # owner only: bring the phase's archive back
+praukron archive plan P-NONE                      # phase-independent work is archived the same way
+praukron archive P3 --dry-run                     # the older one-step form (no digest); --dry-run writes nothing
 ```
 
-`TASKS.md` and `ACCEPTANCE.md` only grow. Once a phase is `COMPLETE`, the
-owner can move its `DONE` tasks and their contracts, verbatim, into
-`chronicle/archive/P3/`. They stay authority: every command reads them as
-before, `retrieve` labels them with their new file, and an old
-`TASKS.md#T-…` pointer still resolves. A task stays in the working file while
-an open assumption, unresolved debt or failure, or an awaiting response points
-at it; a contract stays while it holds an inherited invariant. Agents never
-run it on their own (ADR-067).
+`TASKS.md` and `ACCEPTANCE.md` only grow, and so do the lifecycle files beside
+them. Once a phase is `COMPLETE` (or for `P-NONE`, which has no status), the
+owner can move its closed records, verbatim, into `chronicle/archive/P3/`. They
+stay authority: every command reads them as before, `retrieve` labels them with
+their new file, and an old `TASKS.md#T-…` pointer still resolves. Agents never
+run these commands on their own (ADR-067, ADR-070). The write commands treat
+everything under `archive/` as immutable (`archived-record`), so an agent
+cannot edit an archived record; only `restore` brings one back.
+
+**Plan, apply, restore.**
+
+- `archive plan <phase>` reads the chronicle and writes nothing. It lists every
+  candidate record as `moves` or `stays` with the reason, the files that would
+  change, the recovery mode, and a SHA-256 `digest` over every chronicle file's
+  bytes, the phase, the recovery mode and the tool version. `--json` prints the
+  same as one line.
+- `archive apply <phase> --plan <digest>` takes the shared write lock, plans
+  again, and applies only if the digest still matches; otherwise it refuses with
+  `stale-plan` and writes nothing, so run `plan` again and read it. A missing
+  `--plan` is refused (`missing-plan`). The older `archive <phase>` plans and
+  applies in one step with no digest; `--dry-run` shows the plan without writing.
+- `archive restore <phase>` returns every record in `archive/<phase>/` to its
+  working file, in place of eligibility, which is not checked again. It refuses a
+  record whose id already exists in a working file (`id-collision`). `--dry-run`
+  shows what would return. A phase that has no archive is `unknown-archive`.
+- A phase must be `COMPLETE` (`incomplete-phase`) or `P-NONE`, and must exist in
+  `PHASES.md` (`unknown-phase`). `archive` refuses unless the chronicle validates
+  cleanly first; `restore` validates the state it would write before writing.
+- Success refreshes `INDEX.md`, the compiled views, the graphs and the dashboard.
+  If the move succeeded but the refresh failed, the result says `written: true`,
+  `refreshed: false` and exits nonzero. The records are already moved: re-run
+  `compile && graph && dashboard`, never the archive. A move that cannot be
+  verified is undone, byte for byte, before the command returns.
+
+**What moves.** Eligibility is checked once, when `apply` or `restore` runs, and
+only on the phase axis: a task's phase comes from its module (`P-NONE` for
+phase-independent work), and `Domain: execution` or `operations` never changes
+it. No id prefix such as `T-OPS-` means anything to it.
+
+| Record | File | Moves when | Stays when |
+|---|---|---|---|
+| Task | `TASKS.md` | its phase is the selection and it is `DONE` | an `OPEN` assumption names it, a response to such an assumption awaits reconciliation, a linked debt is not `RESOLVED` or `INVALIDATED`, or an unresolved failure points at it; for `P-NONE` also while a working task depends on it |
+| Contract | `ACCEPTANCE.md` | its task moves | a working task still uses it, another contract inherits it, or it holds an inherited invariant |
+| Assumption | `ASSUMPTIONS.md` | `CONFIRMED`, `REJECTED`, `REVISED` or `WITHDRAWN`, no response awaits reconciliation, and every task it names is archived or moving | any other status, or a task it names still works. One that names no task is never a candidate |
+| Technical debt | `TECH_DEBT.md` | `RESOLVED` or `INVALIDATED`, naming at least one task, all archived or moving | any other status, or a task it names still works; under `P-NONE`, one that names no task is reported as staying |
+| Trace event | `TRACE.md` | its task is archived or moving (an event with no task belongs to `P-NONE`) | it belongs to an unresolved failure or retry chain |
+| Journal entry | `JOURNAL.md` | it names at least one archivable record, and every record it names is archived or moving | it names nothing, only ADRs, an open or unknown record, or its heading is duplicated |
+
+A record that names tasks of several phases goes to the archive of the latest of
+those phases in `PHASES.md` order, with `P-NONE` last. Each file keeps its line
+endings and UTF-8, and each archive file takes the line endings of the file the
+records came from.
+
+**What is never archived.** `RESPONSES.md` is the owner's words and stays whole:
+a response is evidence that an assumption was answered, and nothing may move it
+out from under the assumption. Decision records in `ADR/` stay too: they are
+the highest-ranked authority an agent reads, and a journal entry that names only
+ADRs names nothing to archive. `INTENT.md`, `HANDOFF.md`, `PHASES.md`,
+`MODULES.md`, `THESIS.md` and the gates are state, not history, and also stay.
+
+**Destinations.** `archive/<phase>/` receives `TASKS.md`, `ACCEPTANCE.md`,
+`ASSUMPTIONS.md`, `TECH_DEBT.md`, `TRACE.md` and `JOURNAL.md` as the plan needs
+them; the shared `archive/JOURNAL.order.json` is described below. `restore`
+deletes an archive file once nothing is left in it.
+
+**Later references never matter.** A dependency, response or journal entry written after
+the archive may point at an archived record. That is allowed and never blocks
+the archive or a later restore: the archived record is still authority.
+
+#### Recovery: Git and no Git
+
+`apply` and `restore` print a recovery procedure before they finish, and also
+return it in the `recovery` field of `--json`. Which one depends on the
+`mode` the plan shows.
+
+- **Git mode** is used when the chronicle is inside a Git work tree, none of its
+  paths is ignored, and no checkout conversion could change its bytes
+  (`core.autocrlf`, `filter`, `eol`, `text`, `ident` or `working-tree-encoding`
+  attributes). The chronicle must be clean first: modified, staged or untracked
+  files stop the command with `dirty-chronicle`. Commit them, then apply. After
+  the move, undo it according to where it is:
+  - *unstaged:* `git restore --source=HEAD --worktree -- <changed files>`, then
+    delete the newly created archive files (the printed command does both);
+  - *staged:* the same with `--staged`, plus `git rm --cached` for the new files;
+  - *committed:* `git revert <archive-commit>`. The suggested commit message is
+    `Archive <phase> chronicle records` (`Restore <phase> chronicle records`
+    after a restore).
+  Each command is printed for POSIX sh and for PowerShell with exact paths.
+- **No-Git mode** is used otherwise, including when conversion could change
+  bytes. Before writing, the command copies every original file byte for byte to
+  `.praukron/backup/<UTC timestamp>-<id>/`, with a `manifest.json`, and prints a
+  command that restores them. The backup is kept, and its folder ignores itself in Git.
+  Restoring from it puts back the exact bytes, including files the move created,
+  which it removes.
+- **Interrupted runs.** Both modes write a durable recovery record first. If a
+  process dies mid-move, the next write command rolls the files back and reports
+  that an interrupted archive was rolled back; try again.
+
+#### Checking an archive with `validate`
+
+<!-- T-ARCH-VERIFY-01-PENDING start: written from the task brief while that PR is
+unmerged. Re-check every line of this section against the code, then delete
+these markers. -->
+
+There is no separate `archive verify` command: `praukron validate` checks the
+permanent invariants of the archives, and never checks eligibility again,
+because eligibility is decided once, when a move is made.
+
+- every `archive/<phase>/*.md` parses;
+- no record id appears in more than one place across the working files and
+  every archive, and no journal heading appears twice;
+- every reference (dependencies, `AC:`, `Governed by:`, an assumption's tasks, a
+  debt's tasks, an event's task, an id named in a journal entry) resolves across
+  the working files and the archives;
+- no recovery record is left over (`interrupted-write`);
+- an archived record in a directory that is not its own phase (for records that
+  belong to one phase) is a warning, not an error.
+
+A dependency, response or journal entry written *after* an archive may point at
+an archived record without error. If the move succeeded but a refresh of
+`INDEX.md`, the compiled views, the graphs or the dashboard failed, the result
+says `written: true`, `refreshed: false` with the error and exits nonzero;
+re-running only the refresh completes it, and a second `apply` is never needed.
+
+<!-- T-ARCH-VERIFY-01-PENDING end -->
 
 #### Journal ordering and repair
 

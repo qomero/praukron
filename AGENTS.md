@@ -59,9 +59,10 @@ Run `validate` after editing authority. Before finishing, refresh everything in
 `.praukron/compiled/`: `compile` does not redraw the graphs or the dashboard, so
 run `compile && graph && dashboard`; a stale dashboard shows people a state the
 chronicle no longer holds. The tool writes only: the generated `INDEX.md`;
-`respond` (the owner's responses); `archive <phase>` (owner only: moves a
-COMPLETE phase's eligible closed tasks and contracts, verbatim, into
-`chronicle/archive/<phase>/`, where they stay authority); and five validated, atomic structured writes (ADR-068). Use these
+`respond` (the owner's responses); `archive plan|apply|restore <phase>` (owner
+only: moves a COMPLETE phase's, or P-NONE's, eligible closed records, verbatim,
+into `chronicle/archive/<phase>/`, where they stay authority and the write
+commands cannot change them; `RESPONSES.md` and ADRs never move); and five validated, atomic structured writes (ADR-068). Use these
 instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 
 ```sh
