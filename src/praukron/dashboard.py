@@ -551,6 +551,12 @@ function countsFor(dim) {
   return { counts, byStatus };
 }
 
+// A share as a whole percent, rounded half up: the same rule as _percent()
+// in the compiler, so a recount over every task reads as the rendered page.
+function share(part, whole) {
+  return whole ? Math.floor(part / whole * 100 + 0.5) : 0;
+}
+
 // An aggregate is a list of [task ids, weight] entries written by the
 // compiler's selections. An entry counts while any of its tasks passes; one
 // that names no task can only be counted while nothing is filtered.
@@ -1015,7 +1021,7 @@ function renderAggregates() {
     holder.querySelectorAll('[data-agg-pct]').forEach(node => {
       const before = original(node, node.textContent);
       const [part, whole] = node.dataset.aggPct.split('/');
-      node.textContent = on ? Math.round(sums[whole] ? sums[part] / sums[whole] * 100 : 0) + '%' : before;
+      node.textContent = on ? share(sums[part], sums[whole]) + '%' : before;
     });
     holder.querySelectorAll('[data-agg-bar]').forEach(bar => {
       const before = original(bar, bar.style.width);
@@ -1120,9 +1126,20 @@ function toggleFilter(dim, value) {
   applyFilters();
 }
 
+// Focus that sat on a control the filters just hid (a chip, Clear all, Show
+// all) moves to the charts when they are on screen, else to the open tab, so
+// a keyboard reader is never dropped at the top of the page.
+function keepFocus() {
+  if (visible(document.activeElement) && document.activeElement !== document.body) return;
+  const fallback = [document.querySelector('#breakdown .key'),
+                    document.querySelector('.toptabs [aria-selected="true"]')].find(visible);
+  if (fallback) fallback.focus();
+}
+
 function clearFilters() {
   Object.values(filters).forEach(chosen => chosen.clear());
   applyFilters();
+  keepFocus();
 }
 
 function writeHash() {
@@ -1135,9 +1152,7 @@ document.addEventListener('click', event => {
   if (key) { toggleFilter(key.dataset.dim, key.dataset.value); return; }
   const chip = event.target.closest('[data-remove-dim]');
   if (chip) {
-    // Focus moves to the next chip; with none left, to the charts when they
-    // are on screen, else to the open tab, so a keyboard reader is never
-    // dropped at the top of the page.
+    // Focus moves to the next chip; with none left, keepFocus() places it.
     const next = chip.closest('li').nextElementSibling || chip.closest('li').previousElementSibling;
     const nextValue = next && next.querySelector('[data-remove-dim]');
     const target = nextValue ? [nextValue.dataset.removeDim, nextValue.dataset.removeValue] : null;
@@ -1145,9 +1160,8 @@ document.addEventListener('click', event => {
     applyFilters();
     const again = target && [...document.querySelectorAll('[data-remove-dim]')].find(node =>
       node.dataset.removeDim === target[0] && node.dataset.removeValue === target[1]);
-    const fallback = [document.querySelector('#breakdown .key'),
-                      document.querySelector('.toptabs [aria-selected="true"]')].find(visible);
-    (again || fallback || document.body).focus();
+    if (again) again.focus();
+    else keepFocus();
     return;
   }
   if (event.target.closest('[data-xf-clear]')) clearFilters();
@@ -1357,6 +1371,11 @@ def _agg(**figures: list) -> str:
         for name, entries in figures.items()
     }
     return f' data-agg="{esc(json.dumps(data, separators=(",", ":")))}"'
+
+
+def _percent(part: int, whole: int) -> int:
+    """A share rounded half up, as the page's recount rounds it."""
+    return int(part / whole * 100 + 0.5) if whole else 0
 
 
 def _each(ids, weight: int = 1) -> list:
@@ -1748,16 +1767,16 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 
     def criteria(begun: bool, state: str | None = None) -> list:
         # Analytics counts a contract once per group, however many tasks name
-        # it; here its criteria ride on the group's first task that does.
-        seen: set[str] = set()
-        out = []
+        # it. So does this: one entry per contract, naming every task in the
+        # group that names it, counted while any of them passes the filters.
+        named: dict[str, list[str]] = {}
         for task in exec_tasks:
-            contract = contracts.get(task.contract) if task.contract else None
-            if (task.status in ("WIP", "DONE")) != begun or contract is None or contract.id in seen:
-                continue
-            seen.add(contract.id)
-            out.append(([task.id], sum(1 for c in contract.criteria if state is None or c.state == state)))
-        return out
+            if (task.status in ("WIP", "DONE")) == begun and task.contract in contracts:
+                named.setdefault(task.contract, []).append(task.id)
+        return [
+            (ids, sum(1 for c in contracts[contract].criteria if state is None or c.state == state))
+            for contract, ids in named.items()
+        ]
 
     def with_validation(*states: str) -> list:
         return _each(t.id for t in exec_tasks if t.validation in states)
@@ -2129,7 +2148,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     validation_rows = "".join(
         f'<tr{_agg(n=with_validation(state), total=_each(exec_ids))}><td>{_pill(state)}</td>'
         f'<td class="num" data-agg-key="n">{count}</td>'
-        f'<td class="num" data-agg-pct="n/total">{(count / total_tasks * 100) if total_tasks else 0:.0f}%</td>'
+        f'<td class="num" data-agg-pct="n/total">{_percent(count, total_tasks)}%</td>'
         f'<td style="width:40%"><div class="bar"><i data-agg-bar="n/total" style="width:{(count / total_tasks * 100) if total_tasks else 0:.1f}%"></i></div></td></tr>'
         for state, count in sorted(metrics["validationBreakdown"].items())
     )

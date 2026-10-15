@@ -192,6 +192,49 @@ class TestCrossFilter(FixtureCase):
         self.assertEqual(sums["chosen"][completion],
                          {"done": sum(1 for t in chosen if t.done), "total": len(chosen)})
 
+    def test_a_shared_contract_counts_while_any_task_naming_it_passes(self) -> None:
+        """Two started tasks share one contract; a filter that drops the first
+        but keeps the second still counts the contract's criteria, once."""
+        self.rewrite("TASKS.md", "## T-TWO: Build on it\n- Status: TODO", "## T-TWO: Build on it\n- Status: WIP")
+        self.rewrite("TASKS.md", "- AC: AC-T-TWO", "- AC: AC-T-ONE")
+        compiled = compiler.as_json(self.project)
+        page = dashboard.render(self.project, analytics.report(self.project), compiled)
+        card = next(f for f in holders(page) if "Criteria passed" in f["body"])
+        keys = ("done", "total", "fail", "notrun", "later")
+        result = with_filters(compiled, f"""
+            const card = {json.dumps(card["entries"])};
+            const sums = () => Object.fromEntries({json.dumps(keys)}.map(k => [k, aggValue(card[k] || [])]));
+            const all = sums();
+            const counts = {{}};
+            for (const status of ['DONE', 'WIP']) {{
+              readFilters('status=' + status);
+              counts[status] = sums();
+            }}
+            console.log(JSON.stringify({{ all, counts }}));""")
+
+        def expected(statuses: tuple[str, ...]) -> dict[str, int]:
+            chosen = [t for t in self.project.execution_tasks if t.status in statuses]
+            begun = {t.contract for t in chosen if t.status in ("WIP", "DONE") and t.contract}
+            later = {t.contract for t in chosen if t.status not in ("WIP", "DONE") and t.contract}
+
+            def count(names: set, state: str | None = None) -> int:
+                return sum(1 for name in names for c in self.project.contracts[name].criteria
+                           if state is None or c.state == state)
+            return {"done": count(begun, "PASS"), "total": count(begun), "fail": count(begun, "FAIL"),
+                    "notrun": count(begun, "NOT_RUN"), "later": count(later)}
+
+        self.assertEqual(result["all"], expected(("TODO", "WIP", "DONE", "BLOCKED")))
+        self.assertEqual(result["counts"]["DONE"], expected(("DONE",)))
+        self.assertEqual(result["counts"]["WIP"], expected(("WIP",)))
+        self.assertGreater(result["counts"]["WIP"]["total"], 0)
+
+    def test_shares_round_the_same_way_in_python_and_the_page(self) -> None:
+        pairs = [(part, whole) for whole in range(1, 41) for part in range(whole + 1)]
+        result = with_filters(self.compiled, f"""
+            console.log(JSON.stringify({json.dumps(pairs)}.map(([p, w]) => share(p, w))));""")
+        self.assertEqual(result, [dashboard._percent(p, w) for p, w in pairs])
+        self.assertEqual(dashboard._percent(1, 8), 13)
+
     def test_an_entry_with_no_task_counts_only_while_nothing_is_filtered(self) -> None:
         result = with_filters(self.compiled, """
             const entries = [['', 2], ['T-ONE', 1], ['T-NOT-A-TASK', 5]];
@@ -243,6 +286,8 @@ class TestThemes(unittest.TestCase):
                 for text in ("ink", "muted") + self.MARKS:
                     with self.subTest(theme=name, text=text, surface=surface):
                         self.assertGreaterEqual(_contrast(t[text], t[surface]), 4.5)
+                with self.subTest(theme=name, border=surface):
+                    self.assertGreaterEqual(_contrast(t["line-strong"], t[surface]), 3.0)
             self.assertGreaterEqual(_contrast(t["on-warn"], t["warn"]), 4.5)
             self.assertGreaterEqual(_contrast(t["on-accent"], t["accent"]), 4.5)
             self.assertGreaterEqual(_contrast(t["ink"], t["sunken"]), 4.5)
