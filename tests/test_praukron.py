@@ -1043,7 +1043,8 @@ class TestDashboardTabs(FixtureCase):
         for name, _, _ in tabs:
             self.assertIn(f'id="panel-{name}" role="tabpanel" aria-labelledby="tab-{name}"', self.html)
         self.assertIn("root.setAttribute('data-tab', known.indexOf(tab) >= 0 ? tab : 'overview')", self.html)
-        self.assertIn("history.replaceState(null, '', '#' + name)", self.html)
+        # The hash carries the tab and, after it, any cross-filters.
+        self.assertIn("history.replaceState(null, '', '#' + hashFor(name))", self.html)
 
     def test_only_the_selected_panel_is_displayed(self) -> None:
         self.assertIn("html.js .panel { display: none; }", self.html)

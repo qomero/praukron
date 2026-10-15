@@ -6,6 +6,14 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Redesign the dashboard to put attention first: a "Needs attention" band (blocked tasks, failing
+  work, owner input, review gaps, debt at its trigger, unresolved operational failures) above progress;
+  cross-filtering Status, Domain, Validation, Phase and Module charts that narrow every chart, table,
+  obstacle list and the Needs you panel, with removable filter chips, Clear all, and the filters kept in
+  the URL hash; a served Needs you panel marked live, with a submit bar that stays in reach and a count
+  that falls as cards are answered; a System / Light / Dark control; WCAG AA contrast tokens for both
+  themes, checked by a test; and reduced-motion support. The page stays one deterministic,
+  self-contained, read-only file.
 - Document the structured writes: a "Structured writes" section in the specification (pipeline,
   field permissions, freeze and owner rules, revisions, results, exit codes and retry semantics),
   copy-paste examples in the guide, a README command row for each, and the commands in the `AGENTS.md`

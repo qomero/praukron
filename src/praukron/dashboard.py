@@ -6,8 +6,8 @@ network. Mermaid renders the diagrams when it is reachable; when it is not, the
 page shows the diagram source instead of an empty box.
 
 The dashboard is read-only by construction: it carries no control that writes.
-Its six tabs, theme, and filters are presentation state kept in the URL hash and
-localStorage; none of it reaches authority (ADR-044).
+Its tabs, theme, and cross-filters are presentation state kept in the URL hash
+and localStorage; none of it reaches authority (ADR-044).
 """
 
 from __future__ import annotations
@@ -43,92 +43,128 @@ def embed(data: object) -> str:
 _STYLE = """
 /* Colours are tokens. The reader's explicit choice sets data-theme on <html>;
    without one the head script copies the operating system preference, and
-   without script the media query below does (ADR-044). */
+   without script the media query below does (ADR-044). Every text token meets
+   WCAG AA (4.5:1) on --bg, --panel and --panel-raised in both themes, and every
+   chart fill and control border meets 3:1. */
 :root, :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f6f6f3; --panel: #ffffff; --panel-raised: #fbfbf9; --ink: #1a1a18;
-  --muted: #66665f; --line: #e2e2db; --accent: #3a5a40; --good: #2e7d32;
-  --warn: #a8600a; --bad: #a4343a; --shadow: 0 1px 2px rgba(20, 20, 16, 0.05);
-  --radius: 10px;
+  --bg: #f3f4f6; --panel: #ffffff; --panel-raised: #f8f9fa; --sunken: #eceef1;
+  --ink: #14171c; --muted: #565d68; --line: #dfe2e7; --line-strong: #878e99;
+  --accent: #3b3fb6; --on-accent: #ffffff; --good: #1d7036; --warn: #8a5100; --bad: #b3261e;
+  --wip: #0a63a8; --todo: #646b76; --ops: #4a5f80; --on-warn: #ffffff;
+  --shadow: 0 1px 2px rgba(16, 20, 28, 0.06), 0 2px 6px rgba(16, 20, 28, 0.04);
+  --radius: 12px; --radius-s: 8px;
 }
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #141518; --panel: #1c1e22; --panel-raised: #23262b; --ink: #e8e8e3;
-  --muted: #9a9a92; --line: #2e3238; --accent: #8fb996; --good: #7fc08a;
-  --warn: #e0a458; --bad: #e08585; --shadow: none;
+  --bg: #0e1013; --panel: #161a1f; --panel-raised: #1c2127; --sunken: #232931;
+  --ink: #e7e9ed; --muted: #a0a8b4; --line: #2a3038; --line-strong: #6b7380;
+  --accent: #a9b1ff; --on-accent: #0e1013; --good: #5fc684; --warn: #e3a64a; --bad: #f08a80;
+  --wip: #5db2ec; --todo: #8f98a5; --ops: #9db4d3; --on-warn: #0e1013;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     color-scheme: dark;
-    --bg: #141518; --panel: #1c1e22; --panel-raised: #23262b; --ink: #e8e8e3;
-    --muted: #9a9a92; --line: #2e3238; --accent: #8fb996; --good: #7fc08a;
-    --warn: #e0a458; --bad: #e08585; --shadow: none;
+    --bg: #0e1013; --panel: #161a1f; --panel-raised: #1c2127; --sunken: #232931;
+    --ink: #e7e9ed; --muted: #a0a8b4; --line: #2a3038; --line-strong: #6b7380;
+    --accent: #a9b1ff; --on-accent: #0e1013; --good: #5fc684; --warn: #e3a64a; --bad: #f08a80;
+    --wip: #5db2ec; --todo: #8f98a5; --ops: #9db4d3; --on-warn: #0e1013;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
   }
 }
 * { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
-  font: 15px/1.55 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font-variant-numeric: tabular-nums;
 }
-main { max-width: 1560px; margin: 0 auto; padding: 28px 16px 96px; }
+::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--ink); }
+a { color: var(--accent); text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
+      white-space: nowrap; }
+main { max-width: 1600px; margin: 0 auto; padding: 20px 20px 96px; }
 /* The side panel: everything awaiting the owner, beside whichever tab is open
    (ADR-065). Narrow windows stack it above the tabs. */
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 24px; align-items: start; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
 .content { min-width: 0; }
-aside.needs { position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 12px 0 24px;
-              scrollbar-width: thin; }
-aside.needs > .needs-head { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; }
-aside.needs > .needs-head h2 { margin: 0; color: var(--ink); }
-aside.needs .needcount { font-variant-numeric: tabular-nums; font-size: 12px; padding: 1px 8px;
-              border-radius: 999px; background: var(--warn); color: var(--bg); font-weight: 600; }
-aside.needs .needcount.zero { background: var(--line); color: var(--muted); }
-aside.needs h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
-              margin: 16px 0 8px; font-weight: 600; }
+aside.needs { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto;
+              background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+              box-shadow: var(--shadow); padding: 16px; scrollbar-width: thin; }
+aside.needs > .needs-head { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
+aside.needs > .needs-head h2 { margin: 0; font-size: 17px; }
+aside.needs .needcount { font-size: 12px; line-height: 20px; min-width: 22px; text-align: center;
+              padding: 0 7px; border-radius: 999px; background: var(--warn); color: var(--on-warn);
+              font-weight: 700; }
+aside.needs .needcount.zero { background: var(--sunken); color: var(--ink); font-weight: 600; }
+aside.needs .live { display: none; margin-left: auto; font-size: 12px; font-weight: 600; color: var(--accent); }
+aside.needs h3 { margin: 18px 0 8px; }
+/* Inside the panel, items are rows split by rules, not cards in a card. */
 aside.needs .acards { padding: 0; }
-aside.needs ul.plain > li { background: var(--panel); border: 1px solid var(--line);
-              border-radius: var(--radius); padding: 10px 12px; margin: 0 0 8px; box-shadow: var(--shadow); }
+aside.needs details.acard, aside.needs ul.plain > li { background: none; border: 0; border-radius: 0;
+              border-top: 1px solid var(--line); box-shadow: none; margin: 0; padding: 10px 0; }
+aside.needs details.acard { padding: 0; }
+aside.needs details.acard > summary { padding: 10px 0; }
+aside.needs details.acard .abody { padding: 0 0 12px; }
+aside.needs ul.plain > li:last-child { border-bottom: 0; }
 aside.needs .controls { flex-wrap: wrap; }
 aside.needs .review-by { flex: 1 1 160px; min-width: 0; }
 aside.needs details.group { background: none; border: 0; box-shadow: none; margin: 0; }
 aside.needs details.group > summary { padding: 4px 0; }
 aside.needs details.group > .note { padding: 0; margin: 0 0 8px; }
-aside.needs a, .panel a[href="#needs-you"] { color: var(--accent); }
+/* Served, the panel is where the owner answers, so it is marked live: an
+   accent frame, a live label, and a submit bar that stays in reach. */
+aside.needs.is-live { border: 2px solid var(--accent); padding: 15px;
+              background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
+aside.needs.is-live .live { display: inline; }
+aside.needs.is-live .review-bar { position: sticky; top: -15px; z-index: 2; margin: 10px -15px 0;
+              padding: 10px 15px; background: color-mix(in srgb, var(--accent) 9%, var(--panel));
+              border-block: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
+aside.needs .remaining { flex: 1 0 100%; font-size: 13px; font-weight: 600; }
 @media (max-width: 1099px) {
   .layout { grid-template-columns: minmax(0, 1fr); }
-  aside.needs { position: static; max-height: none; order: -1; padding-top: 0; }
+  aside.needs { position: static; max-height: none; order: -1; }
+  aside.needs[data-waiting="0"] { order: 1; }
 }
-header.top { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between;
-             flex-wrap: wrap; padding-bottom: 16px; }
-h1 { font-size: 26px; margin: 0 0 6px; letter-spacing: -0.01em; }
-h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em;
-     color: var(--muted); margin: 32px 0 12px; font-weight: 600; }
-.panel > h2:first-child, .panel > .focus + h2 { margin-top: 24px; }
-.sub { color: var(--muted); margin: 0; }
+header.top { display: flex; gap: 12px 16px; align-items: center; justify-content: space-between;
+             flex-wrap: wrap; padding: 4px 0 14px; }
+h1 { font-size: 22px; line-height: 1.25; margin: 0 0 4px; letter-spacing: -0.015em; font-weight: 700; }
+h2 { font-size: 16px; line-height: 1.3; font-weight: 650; color: var(--ink); margin: 36px 0 12px;
+     letter-spacing: -0.005em; }
+h3 { font-size: 14px; font-weight: 650; margin: 22px 0 8px; }
+.panel > h2:first-child, .panel > .attention + h2 { margin-top: 20px; }
+.sub { color: var(--muted); margin: 0; font-size: 13px; }
 button { font: inherit; color: inherit; }
+.linkbtn { border: 0; background: none; padding: 2px 4px; color: var(--accent); cursor: pointer;
+           text-decoration: underline; text-underline-offset: 3px; font-size: 13px; border-radius: 4px; }
 
-/* Theme control */
-.theme { display: inline-flex; border: 1px solid var(--line); border-radius: 999px;
+/* Theme control: follow the system until the reader picks, then remember. */
+.theme { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px;
          padding: 2px; background: var(--panel); }
 .theme button { border: 0; background: none; cursor: pointer; font-size: 13px;
                 padding: 4px 12px; border-radius: 999px; color: var(--muted); }
-.theme button[aria-pressed="true"] { background: var(--panel-raised); color: var(--ink);
-                box-shadow: inset 0 0 0 1px var(--line); }
+.theme button:hover { color: var(--ink); }
+.theme button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 
-/* Top-level tabs. Without script every panel shows, one after another. */
-.toptabs { position: sticky; top: 0; z-index: 5; background: var(--bg);
-           display: flex; gap: 2px; overflow-x: auto; white-space: nowrap;
-           border-bottom: 1px solid var(--line); margin: 0 -16px; padding: 0 16px;
-           scrollbar-width: thin; }
+/* Top-level tabs and the filter bar stay in reach while the page scrolls.
+   Without script every panel shows, one after another. */
+.stickyhead { position: sticky; top: 0; z-index: 5; background: var(--bg);
+              margin: 0 -20px; padding: 0 20px; }
+.toptabs { display: flex; gap: 2px; overflow-x: auto; white-space: nowrap;
+           border-bottom: 1px solid var(--line); scrollbar-width: thin; }
 html:not(.js) .toptabs { display: none; }
-.toptabs button { border: 0; background: none; cursor: pointer; padding: 11px 14px 10px;
+.toptabs button { border: 0; background: none; cursor: pointer; padding: 11px 12px 9px;
            color: var(--muted); font-size: 14px; border-bottom: 2px solid transparent;
-           flex: 0 0 auto; }
+           flex: 0 0 auto; font-weight: 500; }
 .toptabs button:hover { color: var(--ink); }
 .toptabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent);
-           font-weight: 600; }
+           font-weight: 650; }
 .toptabs button:focus-visible, .tasklink:focus-visible, tr[data-task]:focus-visible,
 summary:focus-visible, .chips button:focus-visible, .theme button:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 2px; }
+.toptabs button:focus-visible { outline-offset: -2px; }
 html.js .panel { display: none; }
 html.js[data-tab="overview"] #panel-overview,
 html.js[data-tab="assumptions"] #panel-assumptions,
@@ -138,76 +174,163 @@ html.js[data-tab="operations"] #panel-operations,
 html.js[data-tab="governance"] #panel-governance,
 html.js[data-tab="decisions"] #panel-decisions,
 html.js[data-tab="tasks"] #panel-tasks { display: block; }
-.panel { padding-top: 8px; }
+.panel { padding-top: 4px; }
 .panel:focus { outline: none; }
+
+/* Active cross-filters: every one visible, every one removable. */
+.xfbar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 8px 0;
+         border-bottom: 1px solid var(--line); font-size: 13px; }
+.xfbar[hidden] { display: none; }
+.xfbar .xf-label { color: var(--muted); }
+.xf-chips { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; }
+.chip-x { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer;
+          padding: 2px 6px 2px 10px; border-radius: 999px; color: var(--ink);
+          border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--panel)); }
+.chip-x:hover { background: color-mix(in srgb, var(--accent) 18%, var(--panel)); }
+.chip-x svg { width: 14px; height: 14px; flex: none; }
+.xf-count { color: var(--muted); margin-left: auto; }
+.xf-out { display: none !important; }
+.tablewrap.xf-none::after { content: "No task here matches the active filters."; display: block;
+         padding: 10px; color: var(--muted); font-size: 13px; }
+.xf-needs { font-size: 13px; color: var(--ink); background: var(--sunken); border-radius: var(--radius-s);
+         padding: 6px 10px; margin: 8px 0; }
+
+/* Attention first: what is stuck, failing, or waiting on a person, before any
+   progress figure. Each count is a compiled selection and links to its records. */
+.attention { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px;
+             background: var(--line); border: 1px solid var(--line); border-radius: var(--radius);
+             overflow: hidden; box-shadow: var(--shadow); margin-top: 16px; }
+.sig { position: relative; display: flex; flex-direction: column; gap: 1px; min-width: 0;
+       padding: 12px 14px 12px; background: var(--panel); color: var(--ink); text-decoration: none; }
+.sig:hover { background: var(--panel-raised); }
+.sig:focus-visible { outline-offset: -3px; }
+.sig::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 3px; background: transparent; }
+.sig.bad::before { background: var(--bad); }
+.sig.warn::before { background: var(--warn); }
+.sig-n { font-size: 22px; font-weight: 700; line-height: 1.15; }
+.sig.bad .sig-n { color: var(--bad); }
+.sig.warn .sig-n { color: var(--warn); }
+.sig.clear .sig-n { color: var(--muted); font-weight: 600; }
+.sig-l { font-size: 13px; font-weight: 600; }
+.sig-note { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 
 /* Cards */
 .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
 .card { background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow);
         border-radius: var(--radius); padding: 14px 16px; min-width: 0; }
-.card .k { color: var(--muted); font-size: 12px; text-transform: uppercase;
-           letter-spacing: 0.06em; }
-.card .v { font-size: 24px; font-variant-numeric: tabular-nums; margin-top: 4px; }
-.bar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 10px; overflow: hidden; }
-.bar > i { display: block; height: 100%; background: var(--accent); }
+.card .k, .box .k { color: var(--muted); font-size: 12px; font-weight: 600; }
+.card .v { font-size: 22px; font-weight: 650; margin-top: 2px; }
+.card .more { color: var(--muted); font-size: 13px; margin-top: 6px; }
+.card.alert .v { color: var(--bad); }
+.bar { height: 6px; background: var(--sunken); border-radius: 3px; margin-top: 10px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--good); border-radius: 3px; }
 
-/* The focus strip answers "where are we" before anything else. */
-.focus { display: grid; gap: 12px; margin-top: 18px;
+/* The focus strip answers "where are we" right after what needs attention:
+   one band, four cells, so no cell competes as a separate card. */
+.focus { display: grid; gap: 1px; margin-top: 12px; background: var(--line);
+         border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden;
          grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.focus .card { border-top: 3px solid var(--accent); }
-.focus .card.alert { border-top-color: var(--warn); }
-.focus .v { font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
-.focus .more { color: var(--muted); font-size: 13px; margin-top: 8px; }
+.focus .card { border: 0; border-radius: 0; box-shadow: none; }
+.focus .card.alert { background: color-mix(in srgb, var(--bad) 6%, var(--panel)); }
+.focus .card.alert .k { color: var(--bad); }
+.focus .v { font-size: 15px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.focus .card.alert .v { color: var(--ink); }
+.focus .more { margin-top: 6px; }
+
+/* Cross-filter charts. A segment or legend entry toggles a filter; every
+   other chart recounts the tasks that pass the remaining filters. */
+.xf-grid { display: grid; gap: 12px; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.chart { margin: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+         box-shadow: var(--shadow); padding: 14px 14px 10px; min-width: 0; grid-column: span 2; }
+.chart.half { grid-column: span 3; }
+.chart figcaption { display: flex; gap: 8px; justify-content: space-between; align-items: baseline;
+         font-weight: 650; margin: 0 2px 10px; }
+.chart figcaption .note { font-weight: 400; }
+.stack { display: flex; gap: 2px; height: 14px; border-radius: 4px; overflow: hidden;
+         background: var(--sunken); margin: 0 2px 10px; }
+.stack .seg { flex: 0 1 0; min-width: 3px; cursor: pointer; transition: flex-grow 0.2s ease-out, opacity 0.15s; }
+.stack .seg.empty { display: none; }
+.seg.off, .key.off .sw, .key.off .track { opacity: 0.3; }
+.legend, .bars { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.key { width: 100%; display: flex; align-items: center; gap: 8px; padding: 5px 8px; cursor: pointer;
+       border: 1px solid transparent; border-radius: var(--radius-s); background: none;
+       text-align: left; font-size: 13px; color: var(--ink); }
+.key:hover { background: var(--panel-raised); border-color: var(--line); }
+.key[aria-pressed="true"] { border-color: var(--accent);
+       background: color-mix(in srgb, var(--accent) 10%, var(--panel)); font-weight: 600; }
+.key.off { color: var(--muted); }
+.key .lab { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.key .n { margin-left: auto; font-weight: 600; }
+.key.empty .n { color: var(--muted); font-weight: 400; }
+.sw { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+.row .lab { flex: 0 0 40%; }
+.row .track { flex: 1 1 auto; display: flex; gap: 1px; height: 10px; border-radius: 3px;
+              overflow: hidden; background: var(--sunken); }
+.row .track i { display: block; height: 100%; flex: none; transition: width 0.2s ease-out; }
+.row .n { flex: 0 0 4ch; text-align: right; }
+details.more-rows > summary { cursor: pointer; font-size: 13px; color: var(--accent); padding: 6px 8px;
+       list-style: none; border-radius: var(--radius-s); }
+details.more-rows > summary::-webkit-details-marker { display: none; }
+.c-DONE, .c-HUMAN_VERIFIED { background: var(--good); }
+.c-WIP, .c-AI_REVIEWED { background: var(--wip); }
+.c-BLOCKED { background: var(--bad); }
+.c-TODO, .c-UNTESTED { background: var(--todo); }
+.c-SYNTHETIC { background: var(--warn); }
+.c-execution { background: var(--accent); }
+.c-operations { background: var(--ops); }
 
 /* Phases */
-.phases { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.phases { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 .phase { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
          padding: 12px 14px; box-shadow: var(--shadow); min-width: 0; }
-.phase.current { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent), var(--shadow); }
+.phase.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), var(--shadow); }
 .phase header { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
 .phase .outcome { color: var(--muted); font-size: 13px; margin: 6px 0 8px; }
-.thesis p { margin: 4px 0; font-size: 15px; }
+.phase .mono { font-family: inherit; font-size: 13px; }
+.thesis { padding: 12px 16px; margin-bottom: 10px; }
+.thesis p { margin: 4px 0; font-size: 15px; max-width: 75ch; }
 .hierarchy .module { padding: 8px 16px 10px; border-top: 1px solid var(--line); }
 .hierarchy .module .outcome { color: var(--muted); font-size: 13px; margin: 2px 0 6px; }
 
 /* Tables */
 .tablewrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius);
-             background: var(--panel); }
+             background: var(--panel); box-shadow: var(--shadow); }
 .tablewrap.tall { max-height: 70vh; }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px;
-     text-transform: uppercase; letter-spacing: 0.05em; padding: 8px 10px;
-     border-bottom: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+     padding: 8px 10px; border-bottom: 1px solid var(--line); background: var(--panel-raised);
+     white-space: nowrap; }
 .tablewrap th { position: sticky; top: 0; z-index: 1; }
 td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr[data-task] { cursor: pointer; }
-tbody tr[data-task]:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+tbody tr[data-task]:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+td.num { text-align: right; white-space: nowrap; }
 
-.pill { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
-        border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
-.pill.DONE, .pill.GREEN, .pill.PASS, .pill.COMPLETE { color: var(--good);
-        border-color: color-mix(in srgb, var(--good) 40%, transparent); }
-.pill.WIP, .pill.ACTIVE, .pill.EXIT_PENDING { color: var(--warn);
-        border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.pill { display: inline-block; font-size: 11px; line-height: 16px; padding: 1px 7px; border-radius: 999px;
+        border: 1px solid var(--line-strong); color: var(--muted); white-space: nowrap; font-weight: 600;
+        letter-spacing: 0.01em; vertical-align: 1px; }
+.pill.DONE, .pill.GREEN, .pill.PASS, .pill.COMPLETE, .pill.HUMAN_VERIFIED { color: var(--good);
+        border-color: color-mix(in srgb, var(--good) 55%, transparent); }
+.pill.WIP, .pill.ACTIVE, .pill.AI_REVIEWED { color: var(--wip);
+        border-color: color-mix(in srgb, var(--wip) 55%, transparent); }
+.pill.EXIT_PENDING, .pill.SYNTHETIC, .pill.HIGH { color: var(--warn);
+        border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .pill.RED, .pill.FAIL, .pill.BLOCKED { color: var(--bad);
-        border-color: color-mix(in srgb, var(--bad) 40%, transparent); }
-.pill.RECONSTRUCTED, .pill.PROPOSED { color: var(--warn);
-        border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
-.pill.current { color: var(--accent); border-color: var(--accent); }
+        border-color: color-mix(in srgb, var(--bad) 55%, transparent);
+        background: color-mix(in srgb, var(--bad) 7%, transparent); }
+.pill.RECONSTRUCTED, .pill.PROPOSED { color: var(--warn); border-style: dashed;
+        border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.pill.current { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 /* Operations is labelled wherever it appears, in its own calm colour: it is
    not a warning, it is a different kind of work (ADR-045). */
-:root { --ops: #4f6a8a; }
-:root[data-theme="dark"] { --ops: #9db4d3; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme]) { --ops: #9db4d3; } }
 .pill.domain-operations, .pill.operations { color: var(--ops);
-        border-color: color-mix(in srgb, var(--ops) 45%, transparent); border-style: dashed; }
+        border-color: color-mix(in srgb, var(--ops) 55%, transparent); border-style: dashed; }
 .tasklink.ops code { color: var(--ops); }
 .tracelink { color: var(--ops); font-size: 13px; text-decoration: none; }
 .tracelink:hover { text-decoration: underline; }
 .external { margin-top: 4px; width: 100%; font-size: 13px; color: var(--muted); }
-.lead { font-size: 14px; margin: 18px 0 0; max-width: 820px; }
+.lead { font-size: 14px; margin: 18px 0 0; max-width: 75ch; }
 ul.events li.event { padding: 8px 0; }
 .evhead { display: flex; gap: 6px; flex-wrap: wrap; align-items: baseline; }
 .evmeta { color: var(--muted); font-size: 13px; margin-top: 3px; overflow-wrap: anywhere; }
@@ -218,46 +341,57 @@ details.group.op > summary { font-weight: 400; }
 @keyframes flash { from { background: color-mix(in srgb, var(--ops) 22%, transparent); } to { background: transparent; } }
 
 .tasklink { border: 0; background: none; padding: 0; cursor: pointer; text-align: left;
-            color: var(--ink); }
+            color: var(--ink); border-radius: 3px; }
 .tasklink:hover { text-decoration: underline; text-underline-offset: 3px; }
+.tasklink code { color: var(--muted); }
 
 ul.plain { list-style: none; padding: 0; margin: 0; }
 ul.plain li { padding: 9px 0; border-bottom: 1px solid var(--line); }
 ul.plain li:last-child { border-bottom: 0; }
-code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+code, .mono { font-family: ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
 .box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
        padding: 4px 16px; box-shadow: var(--shadow); }
 
 /* Obstacle groups and decisions disclose on demand. */
 details.group { background: var(--panel); border: 1px solid var(--line);
                 border-radius: var(--radius); margin-bottom: 10px; box-shadow: var(--shadow); }
-details.group > summary { cursor: pointer; padding: 10px 16px; font-weight: 600; list-style: none; }
+details.group > summary { cursor: pointer; padding: 10px 16px; font-weight: 600; list-style: none;
+                border-radius: var(--radius); }
 details.group > summary::-webkit-details-marker { display: none; }
-details.group > summary::before { content: "▸"; display: inline-block; width: 1em; color: var(--muted); }
-details.group[open] > summary::before { content: "▾"; }
+details.group > summary::before, details.more-rows > summary::before {
+  content: ""; display: inline-block; width: 6px; height: 6px; margin: 0 10px 2px 2px;
+  border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); transition: transform 0.15s ease-out; color: var(--muted); }
+details.group[open] > summary::before, details.more-rows[open] > summary::before { transform: rotate(45deg); }
 details.group > .note, details.group > ul { padding: 0 16px 10px; }
-.count { color: var(--muted); font-weight: 400; margin-left: 6px; font-variant-numeric: tabular-nums; }
+/* A group inside a group is a section of it, not a second card. */
+details.group details.group, details.group details.acard { border: 0; border-top: 1px solid var(--line);
+                border-radius: 0; box-shadow: none; margin: 0; }
+.count { color: var(--muted); font-weight: 400; margin-left: 6px; }
 
 /* The critical path reads top to bottom. */
 ol.chain { list-style: none; margin: 0; padding: 0; }
 ol.chain li { position: relative; padding: 8px 12px; background: var(--panel);
-              border: 1px solid var(--line); border-radius: 8px; display: flex; gap: 8px;
+              border: 1px solid var(--line); border-radius: var(--radius-s); display: flex; gap: 8px;
               align-items: baseline; flex-wrap: wrap; }
-ol.chain li + li { margin-top: 22px; }
-ol.chain li + li::before { content: "↓"; position: absolute; left: 18px; top: -21px;
-              color: var(--muted); line-height: 20px; }
-ol.chain li.done { opacity: 0.6; }
+ol.chain li + li { margin-top: 16px; }
+ol.chain li + li::before { content: ""; position: absolute; left: 22px; top: -17px; height: 16px;
+              border-left: 2px solid var(--line-strong); }
+ol.chain li.done { background: var(--panel-raised); }
+ol.chain li.done .tasklink { color: var(--muted); }
 
 /* Filters */
 .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
-.controls input[type="search"], .controls select {
-  font: inherit; font-size: 14px; color: var(--ink); background: var(--panel);
-  border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; }
+.controls input[type="search"], .controls input[type="text"], .controls select {
+  font: inherit; font-size: 14px; color: var(--ink); background: var(--panel); min-height: 34px;
+  border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 5px 10px; }
+.controls input::placeholder, .aform textarea::placeholder { color: var(--muted); opacity: 1; }
 .controls input[type="search"] { flex: 1 1 240px; min-width: 0; }
 .chips { display: inline-flex; gap: 4px; flex-wrap: wrap; }
 .chips button { cursor: pointer; font-size: 13px; padding: 4px 10px; border-radius: 999px;
-  background: var(--panel); color: var(--muted); border: 1px solid var(--line); }
-.chips button[aria-pressed="true"] { color: var(--ink); border-color: var(--accent); }
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line-strong); }
+.chips button[aria-pressed="true"] { color: var(--ink); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel)); font-weight: 600; }
 .shown { color: var(--muted); font-size: 13px; margin-left: auto; }
 
 details.adr { border-bottom: 1px solid var(--line); }
@@ -265,8 +399,7 @@ details.adr:last-child { border-bottom: 0; }
 details.adr > summary { cursor: pointer; padding: 9px 0; display: flex; gap: 8px;
                         align-items: baseline; flex-wrap: wrap; }
 details.adr dl { margin: 0 0 10px 18px; }
-details.adr dt { color: var(--muted); font-size: 12px; text-transform: uppercase;
-                 letter-spacing: 0.05em; margin-top: 6px; }
+details.adr dt { color: var(--muted); font-size: 12px; font-weight: 600; margin-top: 6px; }
 details.adr dd { margin: 2px 0 0; }
 
 .diagram { background: var(--panel); border: 1px solid var(--line);
@@ -283,12 +416,12 @@ details.adr dd { margin: 2px 0 0; }
 .stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
 .stage svg { max-width: none !important; display: block; }
 .zoom { position: absolute; right: 10px; top: 10px; z-index: 2; display: flex; gap: 2px;
-        align-items: center; background: var(--panel); border: 1px solid var(--line);
+        align-items: center; background: var(--panel); border: 1px solid var(--line-strong);
         border-radius: 999px; padding: 3px; }
-.zoom button { font: inherit; font-size: 13px; line-height: 1; width: 26px; height: 24px;
+.zoom button { font: inherit; font-size: 13px; line-height: 1; width: 28px; height: 26px;
         cursor: pointer; background: none; border: 0; color: var(--muted); border-radius: 999px; }
 .zoom button.wide { width: auto; padding: 0 10px; font-size: 12px; }
-.zoom button:hover { color: var(--ink); }
+.zoom button:hover { color: var(--ink); background: var(--panel-raised); }
 .zoom .level { font-size: 12px; color: var(--muted); min-width: 42px; text-align: center; }
 .trace { position: absolute; left: 12px; bottom: 10px; z-index: 2; font-size: 12px;
          color: var(--muted); pointer-events: none; max-width: calc(100% - 140px);
@@ -306,34 +439,50 @@ details.adr dd { margin: 2px 0 0; }
 .stage g.node.opens { cursor: pointer; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .tabs button { font: inherit; font-size: 13px; padding: 5px 12px; cursor: pointer;
-  background: var(--panel); color: var(--muted); border: 1px solid var(--line);
+  background: var(--panel); color: var(--muted); border: 1px solid var(--line-strong);
   border-radius: 999px; }
-.tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--accent); }
+.tabs button[aria-selected="true"] { color: var(--ink); border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel)); font-weight: 600; }
 dialog { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
-  color: var(--ink); max-width: 640px; width: calc(100% - 32px); padding: 0; }
-dialog::backdrop { background: rgba(0,0,0,0.45); }
+  color: var(--ink); max-width: 680px; width: calc(100% - 32px); padding: 0;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25); }
+dialog::backdrop { background: rgba(10, 12, 16, 0.5); }
 dialog .body { padding: 22px 24px 26px; }
-dialog h3 { margin: 0 0 4px; font-size: 19px; }
-dialog dt { color: var(--muted); font-size: 12px; text-transform: uppercase;
-            letter-spacing: 0.05em; margin-top: 14px; }
+dialog h3 { margin: 0 0 6px; font-size: 18px; padding-right: 32px; }
+dialog dt { color: var(--muted); font-size: 12px; font-weight: 600; margin-top: 14px; }
 dialog dd { margin: 4px 0 0; }
-dialog button.close { position: sticky; top: 0; float: right; margin: 10px 12px 0 0;
-  background: none; border: 0; color: var(--muted); font-size: 22px; cursor: pointer; }
+dialog button.close { position: sticky; top: 0; float: right; margin: 10px 10px 0 0; width: 32px; height: 32px;
+  display: grid; place-items: center; background: none; border: 0; border-radius: 8px;
+  color: var(--muted); cursor: pointer; }
+dialog button.close:hover { background: var(--panel-raised); color: var(--ink); }
+dialog button.close svg { width: 18px; height: 18px; }
 .note { color: var(--muted); font-size: 13px; }
 footer { color: var(--muted); font-size: 12px; margin-top: 48px;
          border-top: 1px solid var(--line); padding-top: 14px; }
 
+@media (max-width: 1280px) {
+  .attention { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 @media (max-width: 900px) {
   .focus { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .xf-grid { grid-template-columns: minmax(0, 1fr); }
+  .chart, .chart.half { grid-column: auto; }
 }
 @media (max-width: 560px) {
-  main { padding-top: 18px; }
-  h1 { font-size: 22px; }
+  main { padding: 14px 16px 64px; }
+  .stickyhead { margin: 0 -16px; padding: 0 16px; }
+  h1 { font-size: 20px; }
+  .attention { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .focus { grid-template-columns: minmax(0, 1fr); }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .phases { grid-template-columns: minmax(0, 1fr); }
-  .shown { margin-left: 0; width: 100%; }
+  .shown, .xf-count { margin-left: 0; width: 100%; }
   .canvas { height: 60vh; }
+  .row .lab { flex-basis: 46%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important;
+                           scroll-behavior: auto !important; }
 }
 """
 
@@ -707,9 +856,216 @@ function graphShown() {
   else if (!adjusted) openView();
 }
 
+// --- Cross-filtering ---------------------------------------------------
+// Selecting a chart segment narrows every chart, table and the Needs you
+// panel to the tasks that pass all active filters. It hides what is already on
+// the page and recounts compiled tasks; it decides nothing new (ADR-044). The
+// filters are presentation state and live in the URL hash beside the tab.
+
+const DIMS = {
+  status: t => t.status, phase: t => t.phase, module: t => t.module || '~none',
+  domain: t => t.domain, validation: t => t.validation,
+};
+const DIM_LABEL = { status: 'Status', phase: 'Phase', module: 'Module', domain: 'Domain', validation: 'Validation' };
+const filters = Object.fromEntries(Object.keys(DIMS).map(dim => [dim, new Set()]));
+const SCOPED = 'ul.xf-list > li, ol.chain > li, details.acard';
+const CLOSE_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" ' +
+  'stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg>';
+
+function filtering() { return Object.keys(DIMS).some(dim => filters[dim].size); }
+
+function passes(task, skip) {
+  return Object.keys(DIMS).every(dim =>
+    dim === skip || !filters[dim].size || filters[dim].has(DIMS[dim](task)));
+}
+
+// An element belongs to the tasks it names. One with no task (an assumption
+// recorded against a phase only) can be placed by a phase filter alone.
+function scopeMatches(element) {
+  const ids = [...element.querySelectorAll('[data-task]')]
+    .map(node => node.dataset.task).filter(id => byId[id]);
+  if (element.dataset.task && byId[element.dataset.task]) ids.push(element.dataset.task);
+  if (ids.length) return ids.some(id => passes(byId[id]));
+  if (Object.keys(DIMS).some(dim => dim !== 'phase' && filters[dim].size)) return false;
+  const phases = (element.dataset.phase || '').split(' ').filter(Boolean);
+  return !filters.phase.size || phases.some(phase => filters.phase.has(phase));
+}
+
+function keyLabel(dim, value) {
+  const key = [...document.querySelectorAll(`[data-chart] .key[data-dim="${dim}"]`)]
+    .find(node => node.dataset.value === value);
+  return key ? key.querySelector('.lab').textContent : value;
+}
+
+function renderCharts() {
+  document.querySelectorAll('[data-chart]').forEach(chart => {
+    const dim = chart.dataset.chart;
+    const counts = {};
+    const byStatus = {};
+    DATA.tasks.filter(task => passes(task, dim)).forEach(task => {
+      const value = DIMS[dim](task);
+      counts[value] = (counts[value] || 0) + 1;
+      byStatus[value] = byStatus[value] || {};
+      byStatus[value][task.status] = (byStatus[value][task.status] || 0) + 1;
+    });
+    const top = Math.max(1, ...Object.values(counts));
+    const chosen = filters[dim];
+    chart.querySelectorAll('[data-value]').forEach(node => {
+      const value = node.dataset.value;
+      const n = counts[value] || 0;
+      node.classList.toggle('off', chosen.size > 0 && !chosen.has(value));
+      node.classList.toggle('empty', !n);
+      if (node.classList.contains('seg')) node.style.flexGrow = n;
+      if (node.matches('button')) node.setAttribute('aria-pressed', String(chosen.has(value)));
+      const number = node.querySelector('.n');
+      if (number) number.textContent = n;
+      node.querySelectorAll('.track i').forEach(part => {
+        part.style.width = ((byStatus[value] || {})[part.dataset.s] || 0) / top * 100 + '%';
+      });
+    });
+  });
+}
+
+function renderChips() {
+  const bar = document.getElementById('xf-bar');
+  const matching = DATA.tasks.filter(task => passes(task)).length;
+  bar.hidden = !filtering();
+  document.getElementById('xf-chips').innerHTML = Object.keys(DIMS).flatMap(dim =>
+    [...filters[dim]].map(value => {
+      const label = keyLabel(dim, value);
+      return `<li><button type="button" class="chip-x" data-remove-dim="${esc(dim)}" ` +
+        `data-remove-value="${esc(value)}" aria-label="Remove filter ${esc(DIM_LABEL[dim])}: ${esc(label)}">` +
+        `${esc(DIM_LABEL[dim])}: <strong>${esc(label)}</strong>${CLOSE_ICON}</button></li>`;
+    })).join('');
+  const summary = `${matching} of ${DATA.tasks.length} tasks match`;
+  document.getElementById('xf-count').textContent = summary;
+  const status = document.getElementById('xf-status');
+  status.textContent = filtering() ? summary : status.textContent ? 'Filters cleared' : '';
+}
+
+function renderScoped() {
+  document.querySelectorAll('tbody tr[data-task]').forEach(row => {
+    if (!row.closest('#task-registry')) row.classList.toggle('xf-out', !passes(byId[row.dataset.task] || {}));
+  });
+  document.querySelectorAll(SCOPED).forEach(element =>
+    element.classList.toggle('xf-out', filtering() && !scopeMatches(element)));
+  document.querySelectorAll('.tablewrap').forEach(wrap => {
+    const rows = [...wrap.querySelectorAll('tbody tr[data-task]')];
+    wrap.classList.toggle('xf-none',
+      rows.length > 0 && rows.every(row => row.hidden || row.classList.contains('xf-out')));
+  });
+  const needs = document.getElementById('needs-you');
+  const hiddenHere = needs.querySelectorAll('.xf-out').length;
+  const note = document.getElementById('needs-filtered');
+  note.hidden = !hiddenHere;
+  note.querySelector('span').textContent =
+    `${hiddenHere} item${hiddenHere === 1 ? '' : 's'} hidden by the active filters.`;
+}
+
+// The registry's own selects are the same filters, one value at a time.
+const REGISTRY_SELECTS = { 'task-domain': 'domain', 'task-phase': 'phase',
+                           'task-status': 'status', 'task-validation': 'validation' };
+
+function syncSelects() {
+  Object.entries(REGISTRY_SELECTS).forEach(([id, dim]) => {
+    const select = document.getElementById(id);
+    if (!select) return;
+    const all = select.options[0];
+    all.dataset.label = all.dataset.label || all.textContent;
+    const chosen = [...filters[dim]];
+    select.value = chosen.length === 1 ? chosen[0] : '';
+    all.textContent = chosen.length > 1
+      ? `${DIM_LABEL[dim]}: ${chosen.length} selected` : all.dataset.label;
+  });
+}
+
+let runRegistry = null;
+
+function applyFilters({ record = true } = {}) {
+  renderCharts();
+  if (runRegistry) runRegistry();
+  renderScoped();
+  renderChips();
+  syncSelects();
+  if (record) writeHash();
+}
+
+function toggleFilter(dim, value) {
+  if (!filters[dim]) return;
+  if (filters[dim].has(value)) filters[dim].delete(value);
+  else filters[dim].add(value);
+  applyFilters();
+}
+
+function clearFilters() {
+  Object.values(filters).forEach(chosen => chosen.clear());
+  applyFilters();
+}
+
+function filterQuery() {
+  return Object.keys(DIMS).filter(dim => filters[dim].size)
+    .map(dim => dim + '=' + [...filters[dim]].map(encodeURIComponent).join(',')).join('&');
+}
+
+function readFilters(query) {
+  Object.values(filters).forEach(chosen => chosen.clear());
+  (query || '').split('&').forEach(pair => {
+    const [dim, values] = pair.split('=');
+    if (!filters[dim] || !values) return;
+    values.split(',').forEach(value => {
+      try { filters[dim].add(decodeURIComponent(value)); } catch (error) {}
+    });
+  });
+}
+
+function hashFor(name) {
+  const query = filterQuery();
+  return query ? name + '?' + query : name;
+}
+
+function writeHash() {
+  const name = document.documentElement.dataset.tab || 'overview';
+  if (location.hash !== '#' + hashFor(name)) history.replaceState(null, '', '#' + hashFor(name));
+}
+
+document.addEventListener('click', event => {
+  const key = event.target.closest('[data-chart] [data-dim][data-value]');
+  if (key) { toggleFilter(key.dataset.dim, key.dataset.value); return; }
+  const chip = event.target.closest('[data-remove-dim]');
+  if (chip) {
+    // Focus moves to the next chip, or back to the charts when none is left,
+    // so a keyboard reader is never dropped at the top of the page.
+    const next = chip.closest('li').nextElementSibling || chip.closest('li').previousElementSibling;
+    const nextValue = next && next.querySelector('[data-remove-dim]');
+    const target = nextValue ? [nextValue.dataset.removeDim, nextValue.dataset.removeValue] : null;
+    filters[chip.dataset.removeDim].delete(chip.dataset.removeValue);
+    applyFilters();
+    const again = target && [...document.querySelectorAll('[data-remove-dim]')].find(node =>
+      node.dataset.removeDim === target[0] && node.dataset.removeValue === target[1]);
+    (again || document.querySelector('#breakdown .key') || document.body).focus();
+    return;
+  }
+  if (event.target.closest('[data-xf-clear]')) clearFilters();
+});
+document.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && filtering() && event.target.closest &&
+      event.target.closest('[data-chart], #xf-bar')) clearFilters();
+});
+Object.entries(REGISTRY_SELECTS).forEach(([id, dim]) => {
+  const select = document.getElementById(id);
+  if (!select) return;
+  select.addEventListener('change', () => {
+    filters[dim].clear();
+    if (select.value) filters[dim].add(select.value);
+    applyFilters();
+  });
+});
+readFilters(location.hash.slice(1).split('?')[1]);
+
 // --- Top-level tabs ----------------------------------------------------
-// Which tab is open is presentation state. It lives in the URL hash, so a
-// reload or a shared link opens the same view, and it never touches authority.
+// Which tab is open is presentation state. It lives in the URL hash with the
+// filters, so a reload or a shared link opens the same view, and it never
+// touches authority.
 
 const TOP = ['overview', 'assumptions', 'execution', 'graph', 'operations', 'governance', 'decisions', 'tasks'];
 const topTabs = [...document.querySelectorAll('.toptabs [role="tab"]')];
@@ -723,7 +1079,7 @@ function selectTab(name, { focus = false, record = true } = {}) {
     tab.tabIndex = on ? 0 : -1;
     if (on && focus) tab.focus();
   });
-  if (record && location.hash !== '#' + name) history.replaceState(null, '', '#' + name);
+  if (record && location.hash !== '#' + hashFor(name)) history.replaceState(null, '', '#' + hashFor(name));
   if (name === 'graph') graphShown();
 }
 
@@ -742,8 +1098,12 @@ document.querySelector('.toptabs').addEventListener('keydown', event => {
 addEventListener('hashchange', () => {
   // A link to a card (#assumption-A-1, #needs-you) moves to it without
   // switching tabs; only a tab name selects a tab.
-  const name = location.hash.slice(1);
-  if (TOP.includes(name)) return selectTab(name, { record: false });
+  const [name, query] = location.hash.slice(1).split('?');
+  if (TOP.includes(name)) {
+    readFilters(query);
+    applyFilters({ record: false });
+    return selectTab(name, { record: false });
+  }
   const target = document.getElementById(name);
   if (!target) return;
   if (target.tagName === 'DETAILS') target.open = true;
@@ -751,14 +1111,27 @@ addEventListener('hashchange', () => {
   if (holder) holder.open = true;
   target.scrollIntoView({ block: 'start' });
 });
-selectTab(location.hash.slice(1) || 'overview', { record: Boolean(location.hash) });
+selectTab(location.hash.slice(1).split('?')[0] || 'overview', { record: Boolean(location.hash) });
+
+// A link to a tab switches to it and keeps the active filters; following the
+// bare href would replace the hash and drop them.
+document.addEventListener('click', event => {
+  const link = event.target.closest('a[href^="#"]:not([data-focus])');
+  const name = link && link.getAttribute('href').slice(1);
+  if (!name || !TOP.includes(name)) return;
+  event.preventDefault();
+  selectTab(name);
+  document.getElementById('panel-' + name).focus();
+});
 
 // --- Theme -------------------------------------------------------------
 // The reader's explicit choice is kept in localStorage. Until they make one,
-// the operating system preference decides, and keeps deciding if it changes.
+// or after they choose System again, the operating system preference decides,
+// and keeps deciding if it changes.
 
 const THEME_KEY = 'praukron-theme';
 const themeButtons = document.querySelectorAll('[data-theme-choice]');
+const osDark = matchMedia('(prefers-color-scheme: dark)');
 
 function storedTheme() {
   try { return localStorage.getItem(THEME_KEY); } catch (error) { return null; }
@@ -766,8 +1139,10 @@ function storedTheme() {
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
+  const stored = storedTheme();
+  const choice = stored === 'light' || stored === 'dark' ? stored : 'system';
   themeButtons.forEach(button =>
-    button.setAttribute('aria-pressed', String(button.dataset.themeChoice === theme)));
+    button.setAttribute('aria-pressed', String(button.dataset.themeChoice === choice)));
   if (!window.mermaid) return;
   window.mermaid.initialize({ startOnLoad: false, maxTextSize: 200000, theme: mermaidTheme() });
   if (drawn && graphVisible()) draw();
@@ -775,11 +1150,15 @@ function applyTheme(theme) {
 }
 
 themeButtons.forEach(button => button.addEventListener('click', () => {
+  if (button.dataset.themeChoice === 'system') {
+    try { localStorage.removeItem(THEME_KEY); } catch (error) {}
+    applyTheme(osDark.matches ? 'dark' : 'light');
+    return;
+  }
   try { localStorage.setItem(THEME_KEY, button.dataset.themeChoice); } catch (error) {}
   applyTheme(button.dataset.themeChoice);
 }));
 applyTheme(document.documentElement.dataset.theme || 'light');
-const osDark = matchMedia('(prefers-color-scheme: dark)');
 const followOs = () => {
   const stored = storedTheme();
   if (stored !== 'light' && stored !== 'dark') applyTheme(osDark.matches ? 'dark' : 'light');
@@ -787,7 +1166,8 @@ const followOs = () => {
 if (osDark.addEventListener) osDark.addEventListener('change', followOs);
 
 // --- Filters -----------------------------------------------------------
-// Filtering hides rows already on the page. It computes nothing new.
+// Filtering hides rows already on the page. It computes nothing new. The
+// registry's selects are the cross-filters above; only search is its own.
 
 function filterable(rows, controls, countEl, test) {
   const run = () => {
@@ -802,19 +1182,11 @@ function filterable(rows, controls, countEl, test) {
 
 const taskRows = [...document.querySelectorAll('#task-registry tbody tr[data-task]')];
 const taskSearch = document.getElementById('task-search');
-const taskPhase = document.getElementById('task-phase');
-const taskStatus = document.getElementById('task-status');
-const taskValidation = document.getElementById('task-validation');
-const taskDomain = document.getElementById('task-domain');
-filterable(taskRows, [taskSearch, taskDomain, taskPhase, taskStatus, taskValidation],
-  document.getElementById('task-shown'), row => {
-    const q = taskSearch.value.trim().toLowerCase();
-    return (!q || row.dataset.text.includes(q))
-      && (!taskDomain.value || row.dataset.domain === taskDomain.value)
-      && (!taskPhase.value || row.dataset.phase === taskPhase.value)
-      && (!taskStatus.value || row.dataset.status === taskStatus.value)
-      && (!taskValidation.value || row.dataset.validation === taskValidation.value);
-  });
+runRegistry = filterable(taskRows, [taskSearch], document.getElementById('task-shown'), row => {
+  const q = taskSearch.value.trim().toLowerCase();
+  return (!q || row.dataset.text.includes(q)) && passes(byId[row.dataset.task]);
+});
+taskSearch.addEventListener('input', () => renderScoped());
 
 const adrs = [...document.querySelectorAll('#decision-list details.adr')];
 const adrSearch = document.getElementById('decision-search');
@@ -861,6 +1233,8 @@ document.addEventListener('click', event => {
   target.scrollIntoView({ block: 'center' });
   target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
 });
+
+applyFilters({ record: false });
 """
 
 
@@ -881,6 +1255,114 @@ def _count_card(label: str, value: object, note: str = "", alert: bool = False) 
         f'<div class="v">{esc(value)}</div>'
         + (f'<div class="more">{esc(note)}</div>' if note else "")
         + "</div>"
+    )
+
+
+# Stacks read left to right as progress: finished work first.
+_STATUS_STACK = ("DONE", "WIP", "BLOCKED", "TODO")
+_VALIDATION_STACK = ("HUMAN_VERIFIED", "AI_REVIEWED", "SYNTHETIC", "UNTESTED")
+_MODULE_ROWS = 8
+
+
+def _breakdown(compiled: dict) -> str:
+    """Charts the reader filters the page by.
+
+    Every count is of compiled tasks, by a field the compiler wrote. The script
+    recounts the same tasks when a filter narrows them; nothing is scored or
+    inferred (ADR-044)."""
+    tasks = compiled["tasks"]
+    dims = {
+        "status": lambda t: t["status"], "phase": lambda t: t["phase"],
+        "module": lambda t: t["module"] or "~none", "domain": lambda t: t["domain"],
+        "validation": lambda t: t["validation"],
+    }
+    counts: dict[str, dict[str, int]] = {dim: {} for dim in dims}
+    mix: dict[str, dict[str, dict[str, int]]] = {dim: {} for dim in dims}
+    for task in tasks:
+        for dim, key in dims.items():
+            value = key(task)
+            counts[dim][value] = counts[dim].get(value, 0) + 1
+            row = mix[dim].setdefault(value, {})
+            row[task["status"]] = row.get(task["status"], 0) + 1
+
+    def key(dim: str, value: str, label: str, swatch: str = "", track: str = "") -> str:
+        return (
+            f'<li><button type="button" class="key{" row" if track else ""}" data-dim="{dim}"'
+            f' data-value="{esc(value)}" aria-pressed="false">{swatch}<span class="lab">{label}</span>{track}'
+            f'<span class="n">{counts[dim][value]}</span><span class="sr"> tasks</span></button></li>'
+        )
+
+    def stack(dim: str, title: str, order: tuple) -> str:
+        values = [v for v in order if counts[dim].get(v)]
+        segments = "".join(
+            f'<span class="seg c-{esc(v)}" data-dim="{dim}" data-value="{esc(v)}"'
+            f' style="flex-grow:{counts[dim][v]}"></span>'
+            for v in values
+        )
+        keys = "".join(key(dim, v, esc(v), f'<i class="sw c-{esc(v)}"></i>') for v in values)
+        return (
+            f'<figure class="chart" data-chart="{dim}"><figcaption>{title}</figcaption>'
+            f'<div class="stack" aria-hidden="true">{segments}</div>'
+            f'<ul class="legend" aria-label="{title}">{keys}</ul></figure>'
+        )
+
+    def rows(dim: str, entries: list[tuple[str, str]]) -> list[str]:
+        top = max(counts[dim].values(), default=1)
+        out = []
+        for value, label in entries:
+            if not counts[dim].get(value):
+                continue
+            track = "".join(
+                f'<i class="c-{s}" data-s="{s}" style="width:{mix[dim][value].get(s, 0) / top * 100:.2f}%"></i>'
+                for s in _STATUS_STACK
+            )
+            out.append(key(dim, value, label, track=f'<span class="track" aria-hidden="true">{track}</span>'))
+        return out
+
+    phase_names = {p["id"]: p["name"] for p in compiled["phases"]}
+    phase_ids = [p["id"] for p in compiled["phases"]]
+    phase_ids += sorted({t["phase"] for t in tasks} - set(phase_ids))
+    phase_rows = rows("phase", [
+        (p, f"<code>{esc(p)}</code> {esc(phase_names.get(p, 'Phase-independent' if p == 'P-NONE' else ''))}")
+        for p in phase_ids
+    ])
+    module_ids = [m["id"] for m in compiled["modules"]]
+    module_names = {m["id"]: m["name"] for m in compiled["modules"]}
+    module_ids += sorted({t["module"] for t in tasks if t["module"]} - set(module_ids)) + ["~none"]
+    module_rows = rows("module", [
+        (m, "No module" if m == "~none" else f"<code>{esc(m)}</code> {esc(module_names.get(m, ''))}")
+        for m in module_ids
+    ])
+    shown, rest = module_rows[:_MODULE_ROWS], module_rows[_MODULE_ROWS:]
+    modules = f'<ul class="bars" aria-label="Module">{"".join(shown)}</ul>' + (
+        f'<details class="more-rows"><summary>Show {len(rest)} more module{"" if len(rest) == 1 else "s"}'
+        f'</summary><ul class="bars" aria-label="More modules">{"".join(rest)}</ul></details>'
+        if rest else ""
+    )
+    return (
+        '<section class="breakdown" id="breakdown" aria-labelledby="breakdown-title">'
+        '<h2 id="breakdown-title">Breakdown</h2>'
+        f'<p class="note">{len(tasks)} tasks. Select a bar or legend entry to filter every chart, '
+        "table, and the Needs you panel; select it again to remove it. Bars split by status: "
+        "done, in progress, blocked, to do.</p>"
+        '<div class="xf-grid">'
+        + stack("status", "Status", _STATUS_STACK)
+        + stack("domain", "Domain", DOMAINS)
+        + stack("validation", "Validation strength", _VALIDATION_STACK)
+        + '<figure class="chart half" data-chart="phase"><figcaption>Phase</figcaption>'
+        f'<ul class="bars" aria-label="Phase">{"".join(phase_rows)}</ul></figure>'
+        f'<figure class="chart half" data-chart="module"><figcaption>Module</figcaption>{modules}</figure>'
+        "</div></section>"
+    )
+
+
+def _signal(count: int, label: str, href: str, tone: str, note: str) -> str:
+    """One attention count. A zero reads as clear rather than disappearing, so
+    the band keeps its shape and its absence of trouble is visible too."""
+    return (
+        f'<a class="sig {tone if count else "clear"}" href="{href}">'
+        f'<span class="sig-n">{count}</span><span class="sig-l">{esc(label)}</span>'
+        f'<span class="sig-note">{esc(note if count else "Clear")}</span></a>'
     )
 
 
@@ -933,7 +1415,7 @@ _BOOT = """(function () {
     theme = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   root.setAttribute('data-theme', theme);
-  var tab = location.hash.slice(1);
+  var tab = location.hash.slice(1).split('?')[0];
   var known = ['overview', 'assumptions', 'execution', 'graph', 'operations', 'governance', 'decisions', 'tasks'];
   root.setAttribute('data-tab', known.indexOf(tab) >= 0 ? tab : 'overview');
 })();"""
@@ -1174,7 +1656,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             f'<div class="module"><div><code>{esc(module["id"])}</code> <strong>{esc(module["name"])}</strong>'
             f' <span class="note">{len(module["tasks"])} tasks</span></div>'
             f'<div class="outcome">{esc(module["outcome"])}</div>'
-            + (f'<ul class="plain">{items}</ul>' if items else '<p class="note">No tasks yet.</p>')
+            + (f'<ul class="plain xf-list">{items}</ul>' if items else '<p class="note">No tasks yet.</p>')
             + "</div>"
         )
 
@@ -1204,7 +1686,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         + phase_group("P-NONE", "Phase-independent", False)
         + (
             '<details class="group hierarchy-phase" data-phase="legacy"><summary>Legacy tasks with no module'
-            f'<span class="count">{len(legacy)}</span></summary><ul class="plain">'
+            f'<span class="count">{len(legacy)}</span></summary><ul class="plain xf-list">'
             + "".join(f"<li>{_pill(tasks[t]['status'])} {ref(t)}</li>" for t in legacy)
             + "</ul></details>"
             if legacy else ""
@@ -1277,7 +1759,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     ) + ("".join(
         f'<details class="group"{" open" if opened else ""}><summary>{esc(label)}'
         f'<span class="count">{len(items)}</span></summary>{note}'
-        f'<ul class="plain">{"".join(obstacle_item(o) for o in items)}</ul></details>'
+        f'<ul class="plain xf-list">{"".join(obstacle_item(o) for o in items)}</ul></details>'
         for label, items, opened, note in groups
     ) or '<p class="note">No other execution obstacles.</p>')
 
@@ -1313,7 +1795,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         for f in execution["failures"]
     )
     failures_section = (
-        f'<h2>Execution failures</h2><div class="box"><ul class="plain">{failures}</ul></div>'
+        f'<h2>Execution failures</h2><div class="box"><ul class="plain xf-list">{failures}</ul></div>'
         if failures else ""
     )
 
@@ -1542,6 +2024,30 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         )
 
     exec_in_flight = in_flight
+    assumptions_body, queue, queued, awaiting_agent = review.panel_body(compiled, ref, interactive)
+    waiting = len(owner_held) + queued
+
+    # --- Attention: what to act on, before any progress figure -------------
+    review_gaps = [o for o in execution_obstacles if o["type"] == "VALIDATION_GAP"]
+    open_risk = [d for d in compiled["debt"] if d["status"] not in ("RESOLVED", "INVALIDATED")
+                 and d["triggerState"] in ("REACHED", "APPROACHING")]
+    reached = sum(1 for d in open_risk if d["triggerState"] == "REACHED")
+    attention = (
+        '<h2 class="sr">Needs attention</h2><div class="attention">'
+        + _signal(len(compiled["blocked"]), "Blocked tasks", "#execution", "bad",
+                  "waiting on unfinished dependencies")
+        + _signal(len(execution["failures"]), "Failing work", "#execution", "bad",
+                  f'{started["FAIL"]} criteria fail' if started["FAIL"] else "failed operational evidence")
+        + _signal(waiting, "Needs you", "#needs-you", "warn",
+                  f"{queued} to review · {len(owner_held)} held by you")
+        + _signal(len(review_gaps), "Review gaps", "#execution", "warn",
+                  "done without a recorded review")
+        + _signal(len(open_risk), "Debt at its trigger", "#governance", "bad" if reached else "warn",
+                  f"{reached} reached · {len(open_risk) - reached} approaching")
+        + _signal(om["events"]["unresolvedFailures"], "Unresolved failures", "#operations", "bad",
+                  "operational events not yet retried or explained")
+        + "</div>"
+    )
     ahead = execution.get("workAhead")
     work_ahead = (
         '<div class="box" id="work-ahead"><strong>Work ahead of phase closure</strong> '
@@ -1554,9 +2060,11 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         if ahead else ""
     )
     overview = panel("overview", f"""
+  {attention}
   {focus}
   {external_overview}
   {work_ahead}
+  {_breakdown(compiled)}
   <h2>Execution progress</h2>
   <div class="grid">{cards}</div>
   <h2>Phases</h2>
@@ -1644,22 +2152,26 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   </div>
   <div class="box" id="decision-list">{decision_items or '<p class="note">No decisions recorded.</p>'}</div>
 """)
-    assumptions_body, queue, queued, awaiting_agent = review.panel_body(compiled, ref, interactive)
     assumptions_panel = panel("assumptions", assumptions_body)
-    waiting = len(owner_held) + queued
     needs = (
-        '<aside class="needs" id="needs-you" aria-labelledby="needs-title">'
+        f'<aside class="needs" id="needs-you" aria-labelledby="needs-title" data-waiting="{waiting}">'
         '<div class="needs-head"><h2 id="needs-title">Needs you</h2>'
-        f'<span class="needcount{"" if waiting else " zero"}">{waiting}</span></div>'
+        f'<span class="needcount{"" if waiting else " zero"}">{waiting}</span>'
+        '<span class="live">Answering live</span></div>'
         '<p class="note">Everything waiting on a person, whichever tab is open.</p>'
+        '<p class="xf-needs" id="needs-filtered" hidden><span></span> '
+        '<button type="button" class="linkbtn" data-xf-clear>Show all</button></p>'
         + (review.review_bar(True) + '<p class="note">Each card starts at OK. A card you open or mark '
            "reviewed is recorded as confirmed when you submit; a card you never open records nothing. "
            "Feedback is recorded verbatim with your name.</p>" if interactive and waiting else "")
+        + ('<p class="respond-hint">This page is read-only. To answer, run '
+           "<code>praukron dashboard --serve</code> and open the link it prints.</p>"
+           if waiting and not interactive else "")
         + (f"<h3>Assumptions to review</h3>{queue}" if queue else "")
         + (
             "<h3>Waiting on the owner</h3>"
             '<p class="note">Only a named person can finish the work these wait on.</p>'
-            f'<ul class="plain">{"".join(obstacle_item(o, True) for o in owner_held)}</ul>'
+            f'<ul class="plain owner-list xf-list">{"".join(obstacle_item(o, True) for o in owner_held)}</ul>'
             if owner_held else ""
         )
         + ("" if waiting else '<p class="note">Nothing waits for you.</p>')
@@ -1702,6 +2214,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
       </p>
     </div>
     <div class="theme" role="group" aria-label="Theme">
+      <button type="button" data-theme-choice="system" aria-pressed="false">System</button>
       <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
       <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
     </div>
@@ -1709,7 +2222,15 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 
   <div class="layout">
   <div class="content">
+  <div class="stickyhead">
   <nav class="toptabs" role="tablist" aria-label="Report sections">{tab_buttons}</nav>
+  <div class="xfbar" id="xf-bar" role="region" aria-label="Active filters" hidden>
+    <span class="xf-label">Filtered by</span><ul class="xf-chips" id="xf-chips"></ul>
+    <button type="button" class="linkbtn" data-xf-clear>Clear all</button>
+    <span class="xf-count" id="xf-count"></span>
+  </div>
+  </div>
+  <p class="sr" id="xf-status" aria-live="polite"></p>
 {overview}
 {assumptions_panel}
 {execution_panel}
@@ -1728,7 +2249,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   </footer>
 </main>
 
-<dialog id="detail"><button class="close" aria-label="Close">×</button><div class="body"></div></dialog>
+<dialog id="detail"><button class="close" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg></button><div class="body"></div></dialog>
 
 <script type="application/json" id="project-data">{embed(compiled)}</script>
 <script type="application/json" id="diagram-data">{embed(diagrams)}</script>

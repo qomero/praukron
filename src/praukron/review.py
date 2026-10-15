@@ -21,13 +21,31 @@ details.acard[open] > summary { border-bottom: 1px solid var(--line); }
 details.acard .abody { padding: 10px 14px 12px; }
 details.acard .abody p { margin: 6px 0; }
 .acards { padding: 0 12px 6px; }
-.perm { border-left: 3px solid var(--warn); padding: 4px 10px; background: color-mix(in srgb, var(--warn) 10%, transparent); }
+details.acard > summary:hover { background: var(--panel-raised); }
+.perm { padding: 6px 10px; border-radius: var(--radius-s); color: var(--ink);
+        background: color-mix(in srgb, var(--warn) 12%, var(--panel)); }
 .pill.permission { color: var(--warn); border-color: var(--warn); }
-.resp { white-space: pre-wrap; border-left: 3px solid var(--accent); padding: 4px 10px; margin: 6px 0; }
+.resp { white-space: pre-wrap; padding: 6px 10px; margin: 6px 0; border-radius: var(--radius-s);
+        background: var(--sunken); }
 .resp .who { color: var(--muted); white-space: normal; }
 .respond-hint { color: var(--muted); font-size: 13px; }
 .aform { display: grid; gap: 6px; margin-top: 8px; }
-.aform textarea { min-height: 60px; font: inherit; }
+.aform label { display: flex; gap: 8px; align-items: center; min-height: 24px; cursor: pointer; }
+.aform input[type="radio"], .aform input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+.aform select, .aform textarea { font: inherit; font-size: 14px; color: var(--ink); background: var(--panel);
+        border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 6px 10px; }
+.aform textarea { min-height: 64px; resize: vertical; }
+.review-bar button { cursor: pointer; font-weight: 600; min-height: 34px; padding: 5px 14px;
+        border: 1px solid var(--accent); border-radius: var(--radius-s); background: var(--accent);
+        color: var(--on-accent); }
+.review-bar button:hover { filter: brightness(1.08); }
+.review-result { font-size: 13px; flex: 1 0 100%; }
+.review-result:empty { display: none; }
+/* Served: a card already answered in this sitting says so before it is submitted. */
+details.acard.is-answered > summary::after, ul.owner-list > li.is-answered::after {
+  content: "Answered, not yet submitted"; flex: 1 0 100%; font-size: 12px; font-weight: 600;
+  color: var(--good); }
+ul.owner-list > li.is-answered::after { display: block; margin-top: 6px; }
 """
 
 SCRIPT = """
@@ -108,6 +126,36 @@ if (reviewBars.length) {
                seen: !!card && card.dataset.seen === '1', reviewed: !!reviewed && reviewed.checked };
     }));
   }
+  // The panel is where the owner answers, so it is marked live, and its count
+  // falls as cards are answered: opened, marked reviewed, or given words.
+  const needsPanel = document.getElementById('needs-you');
+  const remaining = needsPanel && needsPanel.querySelector('.review-bar .remaining');
+  if (remaining) {
+    needsPanel.classList.add('is-live');
+    const badge = needsPanel.querySelector('.needcount');
+    const items = [...needsPanel.querySelectorAll('details.acard, ul.owner-list > li')];
+    const answered = item => (item.matches('details.acard') && item.dataset.seen === '1')
+      || [...item.querySelectorAll('.aform')].some(form =>
+        form.querySelector('textarea').value.trim()
+        || (form.querySelector('.reviewed') && form.querySelector('.reviewed').checked));
+    const recount = () => {
+      let left = 0;
+      items.forEach(item => {
+        const done = answered(item);
+        item.classList.toggle('is-answered', done);
+        if (!done) left += 1;
+      });
+      badge.textContent = left;
+      badge.classList.toggle('zero', !left);
+      remaining.textContent = left
+        ? `${left} of ${items.length} still need${left === 1 ? 's' : ''} a response`
+        : `All ${items.length} answered. Submit to record them.`;
+    };
+    needsPanel.addEventListener('input', recount);
+    needsPanel.addEventListener('change', recount);
+    items.forEach(item => item.addEventListener('toggle', recount));
+    recount();
+  }
   reviewBars.forEach(bar => bar.querySelector('button').addEventListener('click', async () => {
     const out = bar.querySelector('.review-result');
     try {
@@ -138,7 +186,8 @@ def review_bar(interactive: bool) -> str:
         return ""
     return ('<div class="controls review-bar"><input type="text" class="review-by" aria-label="Your name"'
             ' placeholder="Your name (recorded with every answer)">'
-            '<button type="button">Submit review</button><span class="review-result" aria-live="polite"></span></div>')
+            '<button type="button">Submit review</button><span class="remaining" aria-live="polite"></span>'
+            '<span class="review-result" aria-live="polite"></span></div>')
 
 
 def esc(value: object) -> str:
