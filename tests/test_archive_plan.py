@@ -53,6 +53,14 @@ class ArchivePlanCase(FixtureCase):
         self.assertEqual(len(out.getvalue().splitlines()), 1)
         return code, json.loads(out.getvalue())
 
+    def refresh_commands(self):
+        for command in ("compile", "graph", "dashboard"):
+            out, err = io.StringIO(), io.StringIO()
+            with redirect_stdout(out), redirect_stderr(err):
+                code = cli.main(["-C", str(self.root), command])
+            self.assertEqual(code, 0, (command, out.getvalue(), err.getvalue()))
+            self.assertEqual(err.getvalue(), "")
+
     def add_phase(self, phase):
         path = self.authority / "PHASES.md"
         text = path.read_text(encoding="utf-8")
@@ -491,8 +499,41 @@ class TestArchiveApply(ArchivePlanCase):
         (self.authority / "archive/P1").mkdir(parents=True)
         (self.authority / "archive/P1/JOURNAL.md").write_text(
             "# Journal\n\n## not a dated heading\nT-MISSING\n", encoding="utf-8")
-        codes = {finding.code for finding in validate.check(compiler.load(self.root))}
-        self.assertTrue({"invalid-journal-heading", "unknown-journal-reference"} <= codes)
+        findings = {finding.code: finding for finding in validate.check(compiler.load(self.root))}
+        self.assertEqual(findings["invalid-journal-heading"].severity, "error")
+        self.assertEqual(findings["unknown-journal-reference"].severity, "warning")
+
+    def test_validate_ignores_unreadable_nonrecord_and_reports_archive_input_errors(self):
+        stray = self.authority / "attachments/locked.bin"
+        stray.parent.mkdir()
+        stray.write_bytes(b"not a record")
+        project = compiler.load(self.root)
+        original_read_bytes = Path.read_bytes
+
+        def unreadable(path):
+            if path == stray:
+                raise PermissionError("locked")
+            return original_read_bytes(path)
+
+        with mock.patch.object(Path, "read_bytes", unreadable), \
+             mock.patch("praukron.validate.Snapshot.capture", side_effect=AssertionError("full capture")):
+            findings = validate.check(project)
+        self.assertNotIn("invalid-archive-input", {finding.code for finding in findings})
+
+        archive_dir = self.authority / "archive/P1"
+        archive_dir.mkdir(parents=True)
+        original_iterdir = Path.iterdir
+
+        def inaccessible(path):
+            if path == archive_dir:
+                raise PermissionError("archive locked")
+            return original_iterdir(path)
+
+        with mock.patch.object(Path, "iterdir", inaccessible):
+            findings = validate.check(project)
+        bad_input = [finding for finding in findings if finding.code == "invalid-archive-input"]
+        self.assertEqual(len(bad_input), 1)
+        self.assertEqual(bad_input[0].severity, "error")
 
     def test_invalid_invocations_return_coded_json(self):
         before = self.snapshot(self.root)
@@ -655,7 +696,7 @@ class TestArchiveApply(ArchivePlanCase):
                 self.assertIn("archive/P1/TASKS.md", result["changedFiles"])
                 self.assertIn("archive/P1/ACCEPTANCE.md", result["createdFiles"])
                 self.assertEqual(compiler.load(self.root).task("T-ONE").source.file, "archive/P1/TASKS.md")
-                respond.refresh(self.root)
+                self.refresh_commands()
                 self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
 
     def test_shared_contract_across_three_runs_moves_only_with_last_working_user(self):

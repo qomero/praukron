@@ -531,6 +531,8 @@ class _JournalOrderState:
     warnings: list[str] = field(default_factory=list)
     counts: dict[str, int] = field(default_factory=dict)
     history: list[str] = field(default_factory=list)
+    files: dict[str, str] = field(default_factory=dict)
+    sections: dict[str, list[tuple[str, int, int]]] = field(default_factory=dict)
     newline: str = "\n"
 
 
@@ -544,8 +546,9 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
     original = sidecar if sidecar is not None else snapshot.original("JOURNAL.md") or b""
     state = _JournalOrderState(newline="\r\n" if b"\r\n" in original else "\n")
     files = _journal_files(snapshot)
-    sequences = [[h for h, _, _ in _journal_sections(text)]
-                 for text in files.values()]
+    state.files = files
+    state.sections = {name: _journal_sections(text) for name, text in files.items()}
+    sequences = [[h for h, _, _ in sections] for sections in state.sections.values()]
     working = next((i for i, name in enumerate(files) if name == snapshot.resolve("JOURNAL.md")), None)
     counts = state.counts
     for sequence in sequences:

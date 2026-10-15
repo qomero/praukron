@@ -685,7 +685,7 @@ class TestArchiveRestore(RecoveryCase):
                 self.assertFalse(result["refreshed"])
                 self.assertTrue(Path(result["recovery"]["backup"]).is_dir())
                 self.assertFalse((self.authority / "archive/P1/TASKS.md").exists())
-                mutate.refresh(self.root)
+                self.refresh_commands()
                 self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
 
 

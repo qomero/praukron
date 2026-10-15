@@ -168,10 +168,10 @@ def trace_findings(project: Project) -> list[Finding]:
             if reference == event.id:
                 findings.append(Finding("error", "self-referencing-event", f"{field_name} names the event itself", where))
         if event.task and event.task not in {t.id for t in project.tasks}:
-            findings.append(Finding("error", "unknown-event-task", f"names task {event.task}, which does not exist", where))
+            findings.append(Finding("warning", "unknown-event-task", f"names task {event.task}, which does not exist", where))
         for reference in event.affects:
             if reference not in known:
-                findings.append(Finding("error", "unknown-event-affects", f"affects {reference}, which is not in the chronicle", where))
+                findings.append(Finding("warning", "unknown-event-affects", f"affects {reference}, which is not in the chronicle", where))
         if event.time and not _TIME.match(event.time):
             findings.append(Finding("warning", "invalid-event-time", f"'{event.time}' is not an ISO date or time", where))
         text = " ".join(filter(None, (
@@ -367,7 +367,7 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
     entries. A captured/proposed authority must never be checked against disk.
     """
     from .archive import (_JOURNAL, _JOURNAL_ORDER, _NAMED, _ORDER_REPAIR,
-                          _journal_files, _journal_order_state, _journal_sections)
+                          _journal_order_state)
 
     if snapshot is None and project.journal_validation is not None:
         return list(project.journal_validation)
@@ -392,8 +392,8 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
                  | {assumption.id for assumption in project.assumptions}
                  | {debt.id for debt in project.debts}
                  | {event.id for event in project.events})
-        for name, text in _journal_files(captured).items():
-            for heading, start, end in _journal_sections(text):
+        for name, text in state.files.items():
+            for heading, start, end in state.sections[name]:
                 where = f"{name}#{heading}"
                 if name.casefold().startswith(f"{ARCHIVE_DIR}/") and not _JOURNAL.fullmatch(heading):
                     findings.append(Finding("error", "invalid-journal-heading",
@@ -411,17 +411,46 @@ def archive_findings(project: Project, snapshot: Snapshot | None = None) -> list
     """Archive paths and placement that the normal record parsers cannot express."""
     from .archive import RECORD_RULES
 
-    captured = snapshot or Snapshot.capture(Path(project.root) / AUTHORITY_DIR)
     allowed = {rule.filename.casefold() for rule in RECORD_RULES}
     findings: list[Finding] = []
-    for name in captured.files:
+    if snapshot is not None:
+        names = [name for name in snapshot.files
+                 if len(name.split("/")) == 3
+                 and name.split("/")[0].casefold() == ARCHIVE_DIR
+                 and name.split("/")[2].casefold().endswith(".md")]
+    else:
+        names = []
+        archive_root = Path(project.root) / AUTHORITY_DIR / ARCHIVE_DIR
+        try:
+            phases = tuple(archive_root.iterdir())
+        except FileNotFoundError:
+            phases = ()
+        except OSError as error:
+            findings.append(Finding("error", "invalid-archive-input",
+                                    f"cannot inspect archive inputs: {error}", ARCHIVE_DIR))
+            phases = ()
+        for phase in phases:
+            try:
+                records = tuple(phase.iterdir())
+            except NotADirectoryError:
+                continue
+            except OSError as error:
+                where = phase.relative_to(archive_root.parent).as_posix()
+                findings.append(Finding("error", "invalid-archive-input",
+                                        f"cannot inspect archive inputs: {error}", where))
+                continue
+            for record in records:
+                if record.suffix.casefold() != ".md":
+                    continue
+                try:
+                    if record.is_file():
+                        names.append(record.relative_to(archive_root.parent).as_posix())
+                except OSError as error:
+                    where = record.relative_to(archive_root.parent).as_posix()
+                    findings.append(Finding("error", "invalid-archive-input",
+                                            f"cannot inspect archive inputs: {error}", where))
+    for name in names:
         parts = name.split("/")
-        if not parts or parts[0].casefold() != ARCHIVE_DIR:
-            continue
-        if name.casefold() == f"{ARCHIVE_DIR}/journal.order.json":
-            continue
-        if len(parts) != 3 or not parts[2].casefold().endswith(".md"):
-            continue
         if parts[2].casefold() not in allowed:
             findings.append(Finding("error", "invalid-archive-file",
                                     "archive files must be known record files under archive/<phase>/", name))
