@@ -6,6 +6,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -34,6 +35,7 @@ class SplitNoteRule(archive.IdRule):
 class ArchivePlanCase(FixtureCase):
     def setUp(self):
         super().setUp()
+        self.root = self.root.resolve()
         self.authority = self.root / layout.AUTHORITY_DIR
         self.rewrite("PHASES.md", "Status:\nACTIVE", "Status:\nCOMPLETE")
 
@@ -588,6 +590,54 @@ archive.archive(Path(sys.argv[3]), "P1", digest=sys.argv[4])
 
 
 class TestArchiveReviewRoundTwo(ArchivePlanCase):
+    @unittest.skipUnless(os.name == "posix", "POSIX symlinked archive root")
+    def test_symlinked_root_uses_one_resolved_snapshot_write_and_recovery_identity(self):
+        directory = tempfile.TemporaryDirectory(prefix="archive-root-alias-")
+        self.addCleanup(directory.cleanup)
+        alias = Path(directory.name).resolve() / "project"
+        alias.symlink_to(self.root, target_is_directory=True)
+        self.assertNotEqual(alias, self.root)
+        self.assertEqual(alias.resolve(), self.root)
+
+        def canonical_mode(root):
+            self.assertEqual(root, self.root)
+            return "nogit"
+
+        with mock.patch.object(archive, "archive_mode", side_effect=canonical_mode):
+            preview = archive.preview(alias, "P1")
+            direct = archive.preview(self.root, "P1")
+            self.assertEqual(preview.digest, direct.digest)
+            self.assertEqual(preview.writes, direct.writes)
+            self.assertEqual(preview.snapshot.authority, self.authority)
+            self.assertEqual(archive._prepare_writes(alias, preview), direct.writes)
+            self.assertEqual(archive.plan(compiler.load(alias), "P1", alias).writes, direct.writes)
+            for path in preview.writes:
+                self.assertEqual(path, path.resolve())
+            dry = archive.archive(alias, "P1", dry_run=True, digest=preview.digest)
+            self.assertEqual(dry.writes, preview.writes)
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(cli.main(["-C", str(alias), "archive", "plan", "P1", "--json"]), 0)
+            self.assertEqual(json.loads(out.getvalue())["digest"], preview.digest)
+            before = self.snapshot()
+            real_replace = archive._replace
+
+            def killed(path, data):
+                self.assertEqual(path, path.resolve())
+                real_replace(path, data)
+                raise SystemExit("interrupted through a symlinked project root")
+
+            with mock.patch.object(archive, "_replace", killed), self.assertRaises(SystemExit):
+                archive.archive(alias, "P1", digest=preview.digest)
+            with self.assertRaises(archive.ArchiveError) as error:
+                archive.archive(self.root, "P1", digest=preview.digest)
+            self.assertEqual(error.exception.code, "recovered-write")
+            self.assertEqual(self.snapshot(), before)
+            self.assertEqual(archive.preview(alias, "P1").digest, preview.digest)
+            result = archive.archive(alias, "P1", digest=preview.digest)
+            self.assertEqual(result.writes, preview.writes)
+            self.assertEqual(compiler.load(self.root).task("T-ONE").source.file, "archive/P1/TASKS.md")
+
     def require_case_insensitive_filesystem(self):
         try:
             insensitive = (self.authority / "tasks.md").samefile(self.authority / "TASKS.md")

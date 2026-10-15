@@ -28,10 +28,12 @@ class Snapshot:
     directories: frozenset[str]
     insensitive_directories: frozenset[str] = frozenset()
     aliases: Mapping[tuple[str, str], str] = field(default_factory=dict, repr=False, compare=False)
+    authority: Path | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def capture(cls, authority: Path) -> Snapshot:
         """The caller holds the shared write lock throughout capture and planning."""
+        authority = authority.resolve()
         files, directories = {}, {""}
         for path in sorted(authority.rglob("*")):
             name = path.relative_to(authority).as_posix()
@@ -51,7 +53,7 @@ class Snapshot:
         aliases = {(parent, name.casefold()): name for parent, names in children.items()
                    if parent in insensitive for name in names}
         return cls(MappingProxyType(files), frozenset(directories), frozenset(insensitive),
-                   MappingProxyType(aliases))
+                   MappingProxyType(aliases), authority=authority)
 
     def resolve(self, name: str) -> str:
         """Resolve native case aliases while retaining captured spellings in the inventory."""

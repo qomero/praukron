@@ -21,6 +21,7 @@ people arriving from a release page.
   full-heading section locators and directory recovery support later lifecycle rules.
   Preserve native filesystem case aliases in captured lookups, and record exact replacement
   staging paths so recovery also handles a kill after the temporary file is flushed.
+  Resolve the project and captured authority roots consistently for symlinked temp paths.
 
 - Document the structured writes: a "Structured writes" section in the specification (pipeline,
   field permissions, freeze and owner rules, revisions, results, exit codes and retry semantics),

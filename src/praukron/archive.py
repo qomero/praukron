@@ -272,6 +272,7 @@ def _plan_digest(root: Path, result: Plan) -> str:
 
 def plan(project: Project, phase_id: str, root: Path | None = None, *, snapshot: Snapshot | None = None) -> Plan:
     if root is not None and snapshot is None:
+        root = root.resolve()
         with _locked(root):
             return _captured_plan(root, phase_id)[1]
     selection = Selection(phase_id)
@@ -297,7 +298,7 @@ def plan(project: Project, phase_id: str, root: Path | None = None, *, snapshot:
                 result.kept.append((candidate.id, candidate.reason))
     if root is not None:
         result.writes = _prepare_writes(root, result)
-        result.changed_files = sorted(p.relative_to(root / AUTHORITY_DIR).as_posix() for p in result.writes)
+        result.changed_files = sorted(p.relative_to(snapshot.authority).as_posix() for p in result.writes)
         result.created_files = [name for name in result.changed_files if not snapshot.is_file(name)]
         result.mode, result.version = archive_mode(root), layout.version()
         result.digest = _plan_digest(root, result)
@@ -308,6 +309,7 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
     writes: dict[Path, str] = {}
     cuts: dict[str, list[tuple[int, int]]] = {}
     snapshot = result.snapshot
+    authority = snapshot.authority
     result.moved_bytes = 0
     for rule in RECORD_RULES:
         groups: dict[tuple[str, str], list[str]] = {}
@@ -315,7 +317,7 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
             if candidate.kind == rule.kind and candidate.moves:
                 groups.setdefault((candidate.source, candidate.destination), []).append(candidate.id)
         for (source, destination), ids in groups.items():
-            target = root / AUTHORITY_DIR / snapshot.resolve(destination)
+            target = authority / snapshot.resolve(destination)
             text = snapshot.text(source)
             locations = rule.sections(text)
             archived_text = writes.get(target)
@@ -329,7 +331,7 @@ def _prepare_writes(root: Path, result: Plan) -> dict[Path, str]:
             result.moved_bytes += size
             writes[target] = new_archive
     for source, spans in cuts.items():
-        working = root / AUTHORITY_DIR / snapshot.resolve(source)
+        working = authority / snapshot.resolve(source)
         if working in writes:
             raise ArchiveError(f"a destination is also a working source: {source}", "invalid-target")
         writes[working] = _cut(snapshot.text(source), spans)[0]
@@ -363,6 +365,7 @@ def _captured_plan(root: Path, phase_id: str) -> tuple[Project, Plan]:
 
 def preview(root: Path, phase_id: str) -> Plan:
     """Capture under the lock; leave no recovery record, manifest or projections."""
+    root = root.resolve()
     try:
         with _locked(root):
             project, result = _captured_plan(root, phase_id)
@@ -421,7 +424,7 @@ def _records(project: Project) -> dict[str, object]:
 
 
 def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | None = None) -> Plan:
-    authority = root / AUTHORITY_DIR
+    root = root.resolve()
     with _locked(root):
         if recover_archive(root):
             raise ArchiveError("an interrupted archive was rolled back; try again", "recovered-write")
@@ -441,6 +444,7 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
         if dry_run:
             return result
         before = _records(project)
+        authority = result.snapshot.authority
         originals = {path: result.snapshot.original(path.relative_to(authority).as_posix()) for path in writes}
         created = set()
         for path in writes:
