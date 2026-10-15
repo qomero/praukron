@@ -69,6 +69,8 @@ class RecoveryCase(ArchivePlanCase):
         records = self.add_all_record_files()
         rules = []
         for filename, (record_id, _) in records.items():
+            if any(rule.filename == filename for rule in archive.RECORD_RULES):
+                continue
             class Rule(archive.IdRule):
                 def candidates(self, context):
                     yield archive.Candidate(self.record_id, self.kind, self.filename,
@@ -602,6 +604,9 @@ class TestArchiveRestore(RecoveryCase):
         (self.authority / "RESPONSES.md").write_bytes(response)
         result = archive.restore(self.root, "P1")
         self.assertEqual(len(result.candidates), 6)
+        self.assertEqual(result.assumptions, ["A-CLOSED"])
+        self.assertEqual(result.debts, ["TD-CLOSED"])
+        self.assertEqual(result.events, ["EV-DONE"])
         for filename, data in saved.items():
             self.assertIn(data, (self.authority / filename).read_bytes())
             self.assertIn(b"Later unrelated edit", (self.authority / filename).read_bytes())
@@ -773,6 +778,8 @@ root, operation, boundary = Path(sys.argv[1]), sys.argv[2], int(sys.argv[3])
 rules = []
 for filename, record_id in [("ASSUMPTIONS.md", "A-CLOSED"), ("TECH_DEBT.md", "TD-CLOSED"),
                             ("TRACE.md", "EV-DONE"), ("JOURNAL.md", "2026-10-15 — Completed")]:
+    if any(rule.filename == filename for rule in archive.RECORD_RULES):
+        continue
     class Rule(archive.IdRule):
         def candidates(self, context):
             yield archive.Candidate(self.record_id, self.kind, self.filename,

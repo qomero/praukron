@@ -662,14 +662,9 @@ class _RestoreLocator:
 
 
 def _restore_rules() -> list:
-    # The parallel record rules can override these locators without restore
-    # duplicating their section format or their apply-only eligibility logic.
-    defaults = (TaskRule(), ContractRule(),
-                _RestoreLocator("ASSUMPTIONS.md", "assumption", re.compile(r"(A-[A-Za-z0-9.\-]+): ")),
-                _RestoreLocator("TECH_DEBT.md", "debt", re.compile(r"(TD-[A-Za-z0-9.\-]+): ")),
-                _RestoreLocator("TRACE.md", "event", re.compile(r"(EV-[A-Za-z0-9.\-]+): ")),
-                _RestoreLocator("JOURNAL.md", "journal"))
-    rules = {rule.filename: rule for rule in (*defaults, *RECORD_RULES)}
+    # Lifecycle records use the production rules; journal history only needs
+    # a full-heading locator until its eligibility rule is installed.
+    rules = {rule.filename: rule for rule in (_RestoreLocator("JOURNAL.md", "journal"), *RECORD_RULES)}
     return list(rules.values())
 
 
@@ -708,6 +703,12 @@ def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan
                 result.tasks.append(record_id)
             elif rule.kind == "contract":
                 result.contracts.append(record_id)
+            elif rule.kind == "assumption":
+                result.assumptions.append(record_id)
+            elif rule.kind == "debt":
+                result.debts.append(record_id)
+            elif rule.kind == "event":
+                result.events.append(record_id)
         if restored:
             newline = b"\r\n" if b"\r\n" in (working or archived_bytes) else b"\n"
             combined = working
