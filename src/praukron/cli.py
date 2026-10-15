@@ -323,6 +323,21 @@ def cmd_journal_append(root: Path, args: argparse.Namespace) -> int:
     return 0 if result.get("ok", args.schema) else 1
 
 
+def cmd_task_update(root: Path, args: argparse.Namespace) -> int:
+    from . import mutate, task_update
+
+    if args.schema:
+        result = {"schema": task_update.SCHEMA, "example": task_update.EXAMPLE}
+    else:
+        try:
+            payload = mutate.load_payload(args.input, task_update.SCHEMA)
+            result = task_update.update(root, payload, dry_run=args.dry_run)
+        except mutate.WriteError as error:
+            result = mutate.refusal("task.update", error)
+    print(json.dumps(result, separators=(",", ":")))
+    return 0 if result.get("ok", args.schema) else 1
+
+
 def cmd_respond(root: Path, args: argparse.Namespace) -> int:
     """Append the owner's response to RESPONSES.md, validated and atomic (ADR-055)."""
     from . import respond
@@ -636,6 +651,12 @@ def build_parser() -> argparse.ArgumentParser:
     append_entry = journal_commands.add_parser("append", help="append one unique journal section")
     write_options(append_entry)
     append_entry.set_defaults(handler=cmd_journal_append, write_operation="journal.append")
+
+    task = subparsers.add_parser("task", help="structured task writes")
+    task_commands = task.add_subparsers(dest="task_command", required=True)
+    update_task = task_commands.add_parser("update", help="change a task's status, owner, claim or evidence")
+    write_options(update_task)
+    update_task.set_defaults(handler=cmd_task_update, write_operation="task.update")
 
     answer = subparsers.add_parser(
         "respond", help="append the owner's response to RESPONSES.md"
