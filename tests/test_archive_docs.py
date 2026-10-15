@@ -105,12 +105,20 @@ class ArchiveDocs(unittest.TestCase):
         self.assertIn("archive restore", bounded)
         self.assertIn("journal entries", bounded)
 
-    def test_pending_verify_blocks_are_balanced_and_easy_to_find(self):
-        for name in ("docs/GUIDE.md", "docs/SPEC.md"):
-            text = doc(name)
-            self.assertEqual(text.count("T-ARCH-VERIFY-01-PENDING start"), 1, name)
-            self.assertEqual(text.count("T-ARCH-VERIFY-01-PENDING end"), 1, name)
-            self.assertLess(text.index("PENDING start"), text.index("PENDING end"), name)
+    def test_verify_findings_named_in_the_docs_exist_with_the_documented_severity(self):
+        code = source()
+        text = doc("docs/GUIDE.md") + doc("docs/SPEC.md")
+        self.assertNotIn("PENDING", text)
+        severities = {"invalid-archive-file": "error", "invalid-archive-input": "error",
+                      "case-mismatched-archive-filename": "warning", "invalid-journal-heading": "error",
+                      "duplicate-journal-heading": "warning", "unknown-journal-reference": "warning",
+                      "invalid-journal-order": "warning", "interrupted-archive": "error",
+                      "wrong-archive-phase": "warning", "unknown-event-task": "warning",
+                      "unknown-event-affects": "warning"}
+        for name, severity in severities.items():
+            self.assertTrue(f"`{name}`" in text, name)
+            self.assertRegex(code, rf'Finding\(\s*"{severity}",\s*"{name}"')
+        self.assertIn('error("duplicate-task"', code)
 
 
 if __name__ == "__main__":

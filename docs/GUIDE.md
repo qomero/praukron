@@ -260,31 +260,36 @@ return it in the `recovery` field of `--json`. Which one depends on the
 
 #### Checking an archive with `validate`
 
-<!-- T-ARCH-VERIFY-01-PENDING start: written from the task brief while that PR is
-unmerged. Re-check every line of this section against the code, then delete
-these markers. -->
-
 There is no separate `archive verify` command: `praukron validate` checks the
 permanent invariants of the archives, and never checks eligibility again,
-because eligibility is decided once, when a move is made.
+because eligibility is decided once, when a move is made. It reads the working
+files and every `archive/<phase>/` together.
 
-- every `archive/<phase>/*.md` parses;
-- no record id appears in more than one place across the working files and
-  every archive, and no journal heading appears twice;
-- every reference (dependencies, `AC:`, `Governed by:`, an assumption's tasks, a
-  debt's tasks, an event's task, an id named in a journal entry) resolves across
-  the working files and the archives;
-- no recovery record is left over (`interrupted-write`);
-- an archived record in a directory that is not its own phase (for records that
-  belong to one phase) is a warning, not an error.
+| Invariant | Finding |
+|---|---|
+| every file in `archive/<phase>/` is a known record file | error `invalid-archive-file`; an archive input that cannot be read: error `invalid-archive-input` |
+| the loader will read the file (right letter case) | warning `case-mismatched-archive-filename` (the file is ignored) |
+| every record parses | the load fails with the file and record named |
+| no id exists twice across working files and archives | errors `duplicate-task`, `duplicate-event`, `duplicate-assumption`, `duplicate-debt` (a duplicate contract fails the load) |
+| references resolve across both | errors such as `unknown-dependency`, `unknown-contract`, `unknown-decision`, `unknown-assumption-reference`, `unknown-debt-reference`; an event naming a missing task or affected record is a warning (`unknown-event-task`, `unknown-event-affects`) |
+| every archived journal heading reads `## YYYY-MM-DD — <title>` | error `invalid-journal-heading` |
+| no journal heading appears twice across journals | warning `duplicate-journal-heading` |
+| every id a journal entry names exists | warning `unknown-journal-reference` |
+| the journal order file agrees with the journals | warning `invalid-journal-order` |
+| no recovery record is left behind | error `interrupted-archive` |
+| a task sits in its own phase's directory | warning `wrong-archive-phase` |
 
 A dependency, response or journal entry written *after* an archive may point at
-an archived record without error. If the move succeeded but a refresh of
-`INDEX.md`, the compiled views, the graphs or the dashboard failed, the result
-says `written: true`, `refreshed: false` with the error and exits nonzero;
-re-running only the refresh completes it, and a second `apply` is never needed.
+an archived record without any finding: the archived record is still authority.
 
-<!-- T-ARCH-VERIFY-01-PENDING end -->
+If an `apply` or `restore` wrote the move but refreshing afterwards failed, the
+result is `ok: false` with `error.code` `refresh-failed`, `written: true` and
+`refreshed: false`, the plan fields (`digest`, `changedFiles`, ...) still
+present, and exit code 1. The move is complete and stays. The refresh runs
+`compile` (which writes `INDEX.md` and the compiled data), then the graphs, then
+the dashboard, so run `praukron compile`, `praukron graph` and `praukron
+dashboard` and do nothing else. Never run `apply` again: the plan's digest no
+longer matches, and the records are already moved.
 
 #### Journal ordering and repair
 

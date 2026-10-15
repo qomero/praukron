@@ -429,17 +429,23 @@ new files, `git revert <archive-commit>`), for POSIX sh and PowerShell. Otherwis
 `.praukron/backup/<UTC timestamp>-<id>/` with a manifest before any write, and the
 result carries the command that restores it.
 
-<!-- T-ARCH-VERIFY-01-PENDING start: from the task brief, unmerged; re-check against the code. -->
 **Permanent invariants (`validate`).** Archives are checked for what must always
-hold, never for eligibility: every `archive/<phase>/*.md` parses; no record id is
-in more than one place and no journal heading appears twice; every reference
-resolves across the working files and the archives; no recovery record is left; a
-record in a directory that is not its own phase is a warning. Later references to
-archived records are never errors. A successful move refreshes `INDEX.md`, the
-compiled views, the graphs and the dashboard; if only the refresh fails the
-result is `written:true`, `refreshed:false` with a nonzero exit, and only the
-refresh is re-run.
-<!-- T-ARCH-VERIFY-01-PENDING end -->
+hold, never for eligibility, and there is no separate `archive verify`. Across the
+working files and every archive: archive files are known record files
+(`invalid-archive-file`, `invalid-archive-input` errors; `case-mismatched-archive-filename`
+warning); records parse; ids are unique (`duplicate-task`, `duplicate-event`,
+`duplicate-assumption`, `duplicate-debt`; a duplicate contract fails the load);
+references resolve (`unknown-dependency`, `unknown-contract`, `unknown-decision`,
+`unknown-assumption-reference`, `unknown-debt-reference` errors; an event's missing
+task or affected record is a warning); archived journal headings are well formed
+(`invalid-journal-heading` error), unique (`duplicate-journal-heading` warning) and
+name existing ids (`unknown-journal-reference` warning); no recovery record is left
+(`interrupted-archive` error); a task in the wrong phase directory is a warning
+(`wrong-archive-phase`). Later references to archived records are never findings.
+A successful `apply` or `restore` refreshes `INDEX.md` and the compiled data
+(`compile`), then the graphs, then the dashboard. If only that refresh fails the
+result is `ok:false`, `error.code` `refresh-failed`, `written:true`, `refreshed:false`
+with exit 1; run `compile`, `graph` and `dashboard`, never `apply` again.
 
 ## 3. Entry modes
 
