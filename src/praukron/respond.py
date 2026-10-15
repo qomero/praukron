@@ -10,15 +10,19 @@ else in the chronicle is touched; compiled views are refreshed afterwards.
 from __future__ import annotations
 
 import datetime as _dt
+import base64
+import ctypes
+import json
 import os
 import re
+import secrets
 import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from . import analytics, compile as compiler, dashboard, mermaid, validate
-from .layout import AUTHORITY_DIR, COMPILED_DIR
+from .layout import AUTHORITY_DIR, COMPILED_DIR, RECOVERY_DIR
 from .model import RESPONSE_ACTIONS, RESPONSE_STATUS
 
 FILE = "RESPONSES.md"
@@ -35,6 +39,23 @@ class RespondError(Exception):
     """A response was refused, or a write failed and was undone."""
 
 
+@dataclass(frozen=True)
+class Lock:
+    """The lock identity this process created."""
+
+    path: Path
+    pid: int
+    token: str
+
+    def release(self) -> None:
+        try:
+            owner = self.path.read_text(encoding="utf-8").strip().split()
+        except FileNotFoundError:
+            return
+        if owner == [str(self.pid), self.token]:
+            self.path.unlink(missing_ok=True)
+
+
 @dataclass
 class Item:
     target: str
@@ -42,21 +63,69 @@ class Item:
     text: str
 
 
-def _lock(root: Path):
+def _pid_alive(pid: int) -> bool:
+    """Whether a process still owns a valid lock PID."""
+    if pid <= 0:
+        return False
+    if os.name != "nt":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() == 5  # ERROR_ACCESS_DENIED: it is still running.
+    try:
+        code = wintypes.DWORD()
+        return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
+    finally:
+        kernel32.CloseHandle(handle)
+
+
+def _owner(path: Path) -> tuple[int, str] | None:
+    try:
+        pid, token = path.read_text(encoding="utf-8").strip().split()
+        return int(pid), token
+    except (FileNotFoundError, OSError, UnicodeDecodeError, ValueError):
+        return None
+
+
+def _lock(root: Path) -> Lock:
     """An exclusive lock beside the compiled views, never inside the chronicle."""
     directory = root / COMPILED_DIR
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / _LOCK
     deadline = time.monotonic() + 10
     while True:
+        pid, token = os.getpid(), secrets.token_hex(16)
         try:
             handle = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(handle, str(os.getpid()).encode())
-            os.close(handle)
-            return path
+            try:
+                os.write(handle, f"{pid} {token}\n".encode())
+                os.fsync(handle)
+            finally:
+                os.close(handle)
+            return Lock(path, pid, token)
         except FileExistsError:
             try:
-                if time.time() - path.stat().st_mtime > _STALE_SECONDS:
+                owner = _owner(path)
+                stale = time.time() - path.stat().st_mtime > _STALE_SECONDS
+                if owner is not None and not _pid_alive(owner[0]):
+                    path.unlink()
+                    continue
+                if owner is None and stale:
                     path.unlink()
                     continue
             except FileNotFoundError:
@@ -64,6 +133,34 @@ def _lock(root: Path):
             if time.monotonic() > deadline:
                 raise RespondError("another response is being written; try again")
             time.sleep(0.05)
+
+
+def _recovery_records(root: Path) -> list[Path]:
+    return sorted((root / RECOVERY_DIR).glob("archive-*.json"))
+
+
+def recover_archive(root: Path) -> bool:
+    """Restore an interrupted archive, if its write-ahead record remains."""
+    records = _recovery_records(root)
+    if not records:
+        return False
+    root = root.resolve()
+    for record in records:
+        try:
+            entries = json.loads(record.read_text(encoding="utf-8"))["files"]
+            for entry in entries:
+                path = (root / entry["path"]).resolve()
+                if root not in path.parents:
+                    raise ValueError("recovery path is outside the project")
+                if entry.get("absent"):
+                    path.unlink(missing_ok=True)
+                else:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    _replace(path, base64.b64decode(entry["bytes"]))
+        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as failure:
+            raise RespondError(f"cannot restore interrupted archive: {failure}") from failure
+        record.unlink()
+    return True
 
 
 def _replace(path: Path, data: bytes) -> None:
@@ -135,6 +232,8 @@ def append(root: Path, items: list[Item], by: str, via: str = "cli",
         raise RespondError(f"{date} is not a YYYY-MM-DD date")
     lock = _lock(root)
     try:
+        if recover_archive(root):
+            raise RespondError("an interrupted archive was rolled back; try again")
         project = compiler.load(root)
         _check(project, items, by)
         before = _errors(project)
@@ -164,10 +263,10 @@ def append(root: Path, items: list[Item], by: str, via: str = "cli",
             detail = "; ".join(f"{code}: {message}" for code, _, message in sorted(introduced))
             raise RespondError(f"nothing was recorded: {detail}")
     finally:
-        lock.unlink(missing_ok=True)
+        lock.release()
     if recompile:
         refresh(root)
     return ids
 
 
-__all__ = ["FILE", "Item", "RespondError", "append", "refresh"]
+__all__ = ["FILE", "Item", "RespondError", "append", "recover_archive", "refresh"]

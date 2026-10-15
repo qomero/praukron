@@ -2996,6 +2996,35 @@ class TestArchive(FixtureCase):
         self.assertNotIn("AC-T-TWO", plan.contracts)
         self.assertIn("AC-T-THREE", plan.contracts)
 
+    def test_a_contract_moves_after_its_last_working_task_moves(self) -> None:
+        from praukron import archive
+
+        phases = self.authority / "PHASES.md"
+        phases.write_text(phases.read_text(encoding="utf-8").replace(
+            "---\n\n# Gates", "## P2 — Follow-up\n\nOutcome:\nMove the shared work.\n\n"
+            "Entry:\n- P1 complete.\n\nExit:\n- T-TWO complete.\n\nExit authority:\nT-TWO\n\n"
+            "Status:\nACTIVE\n\n---\n\n# Gates"), encoding="utf-8")
+        modules = self.authority / "MODULES.md"
+        modules.write_text(modules.read_text(encoding="utf-8").replace(
+            "## M-UPKEEP", "## M-FOLLOW-UP — Follow-up\n- Phase: P2\n- Outcome: The shared work moves.\n\n## M-UPKEEP"),
+            encoding="utf-8")
+        tasks = self.authority / "TASKS.md"
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace(
+            "- Module: M-FOUNDATION\n- Validation: UNTESTED\n- Dependencies: T-ONE\n- Owner: unassigned\n- AC: AC-T-TWO",
+            "- Module: M-FOLLOW-UP\n- Validation: UNTESTED\n- Dependencies: T-ONE\n- Owner: unassigned\n- AC: AC-T-ONE"), encoding="utf-8")
+
+        first = archive.archive(self.root, "P1")
+        self.assertEqual(first.contracts, [])
+        self.rewrite("TASKS.md", "## T-TWO: Build on it\n- Status: TODO", "## T-TWO: Build on it\n- Status: DONE")
+        phases.write_text(phases.read_text(encoding="utf-8").replace("Status:\nACTIVE", "Status:\nCOMPLETE"),
+                          encoding="utf-8")
+        before = archive._records(compiler.load(self.root))
+        second = archive.archive(self.root, "P2")
+        self.assertEqual(second.contracts, ["AC-T-ONE"])
+        project = compiler.load(self.root)
+        self.assertEqual(archive._records(project), before)
+        self.assertEqual(project.contracts["AC-T-ONE"].source.file, "archive/P2/ACCEPTANCE.md")
+
     def test_dry_run_and_a_failed_check_leave_every_byte(self) -> None:
         from praukron import archive
 
@@ -3016,6 +3045,35 @@ class TestArchive(FixtureCase):
                 archive.archive(self.root, "P1")
         self.assertEqual(self.snapshot(), before)
         self.assertFalse((self.authority / "archive").exists())
+
+    def test_an_interrupted_archive_is_rolled_back_on_the_next_command(self) -> None:
+        from praukron import archive
+
+        self.close_all()
+        before = self.snapshot()
+        real = archive._replace
+        calls = 0
+
+        def interrupted(path, data):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                raise SystemExit("simulated power loss")
+            return real(path, data)
+
+        with mock.patch.object(archive, "_replace", interrupted):
+            with self.assertRaises(SystemExit):
+                archive.archive(self.root, "P1")
+        recovery = self.root / layout.RECOVERY_DIR
+        self.assertTrue(list(recovery.glob("archive-*.json")))
+        # Records hold whole chronicle files; the directory keeps itself out of Git.
+        self.assertEqual((recovery / ".gitignore").read_text(encoding="utf-8"), "*\n")
+        partial = compiler.load(self.root)
+        self.assertIn("interrupted-archive", [f.code for f in validate.errors(validate.check(partial))])
+        with self.assertRaisesRegex(archive.ArchiveError, "interrupted archive was rolled back"):
+            archive.archive(self.root, "P1")
+        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(list(recovery.glob("archive-*.json")), [])
 
     def test_validation_errors_refuse_the_archive(self) -> None:
         from praukron import archive
@@ -3044,6 +3102,23 @@ class TestArchive(FixtureCase):
         with redirect_stderr(io.StringIO()):
             self.rewrite("PHASES.md", "Status:\nCOMPLETE", "Status:\nACTIVE")
             self.assertEqual(cli.main(["-C", str(self.root), "archive", "P1"]), 1)
+
+
+class TestJournalPointers(FixtureCase):
+    def test_a_full_journal_heading_from_the_index_resolves_to_the_first_match(self) -> None:
+        journal = self.root / layout.AUTHORITY_DIR / "JOURNAL.md"
+        heading = "2026-10-12 — AuxVol live run 3"
+        journal.write_text(
+            f"# Journal\n\n## {heading}\nFirst entry.\n\n## {heading}\nSecond entry.\n",
+            encoding="utf-8",
+        )
+        project = compiler.load(self.root)
+        compiler.write(self.root, project)
+        index_text = (self.root / layout.AUTHORITY_DIR / "INDEX.md").read_text(encoding="utf-8")
+        pointer = next(line.rsplit("#", 1)[1] for line in index_text.splitlines() if "JOURNAL.md#" in line)
+        section = retrieve.Chronicle(self.root).section("JOURNAL.md", pointer)
+        self.assertIn("First entry.", section)
+        self.assertNotIn("Second entry.", section)
 
 
 class TestOutputEncoding(FixtureCase):

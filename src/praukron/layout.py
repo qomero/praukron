@@ -20,6 +20,7 @@ FALLBACK_VERSION = "0.4.3"
 HOME_DIR = ".praukron"
 AUTHORITY_DIR = f"{HOME_DIR}/chronicle"
 COMPILED_DIR = f"{HOME_DIR}/compiled"
+RECOVERY_DIR = f"{HOME_DIR}/recovery"
 RUNTIME_DIR = f"{HOME_DIR}/runtime"
 COMMANDS_DIR = f"{HOME_DIR}/commands"
 ENTRY_POINT = f"{HOME_DIR}/praukron"
@@ -41,6 +42,7 @@ __all__ = [
     "AUTHORITY_DIR",
     "COMMANDS_DIR",
     "COMPILED_DIR",
+    "RECOVERY_DIR",
     "ENTRY_POINT",
     "HOME_DIR",
     "RUNTIME_DIR",

@@ -135,7 +135,7 @@ class Chronicle:
             self._cache[name] = _sections(path.read_text(encoding="utf-8"), "##") if path.is_file() else []
         for heading, body in self._cache[name]:
             head = re.split(r":| — ", heading, maxsplit=1)[0].strip()
-            if head == anchor:
+            if heading == anchor or head == anchor:
                 return f"## {heading}\n{body}"
         return None
 
