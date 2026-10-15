@@ -734,7 +734,9 @@ class TestKilledArchiveRecovery(RecoveryCase):
         # Register synthetic rules through the planner's extension seam, as the
         # records/journal workers do, to cover all six files without their PRs.
         for operation in ("apply", "restore"):
-            for boundary in range(1, 12):
+            # Six records have a source and destination, plus shared journal
+            # ordering metadata: thirteen writes, hence twelve boundaries.
+            for boundary in range(1, 13):
                 with self.subTest(operation=operation, boundary=boundary):
                     self.setUp()
                     rules = self.extra_rules()

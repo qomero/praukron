@@ -30,6 +30,9 @@ people arriving from a release page.
   all are archived or moving; entries naming nothing, only ADRs, an open or unknown record, or a duplicate
   heading stay and are reported; a read-back check covers journal sections; `retrieve` resolves
   `JOURNAL.md#<heading>` pointers into archives.
+- Preserve same-date journal order across phase archive and restore operations with shared
+  `archive/JOURNAL.order.json` heading metadata, written with each move and covered by plan digests,
+  backups and durable recovery; preserve journal sections verbatim and retain the exact-span parity check.
 - Redesign the dashboard to put attention first: a "Needs attention" band (blocked tasks, failing
   work, owner input, review gaps, debt at its trigger, unresolved operational failures) above progress;
   cross-filtering Status, Domain, Validation, Phase and Module charts that narrow every chart, table,
