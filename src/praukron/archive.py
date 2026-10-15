@@ -476,6 +476,17 @@ class JournalRule:
         return archived
 
 
+    def restore(self, working: str, entries: list[tuple[str, str]], newline: str) -> str:
+        """Return archived sections to the working journal by the same placement, ahead of same-date entries."""
+        text = working if working else f"# Journal{newline}"
+        try:
+            for heading, section in reversed(entries):
+                text = _insert_entry(text, heading, section, newline, before_ties=True)
+        except _Unplaceable as problem:
+            raise ArchiveError(f"cannot restore journal entry: {problem}", "restore-refused") from problem
+        return text
+
+
 def _journal_files(snapshot: Snapshot) -> dict[str, str]:
     """The working journal and every archived one, by captured name."""
     found = {}
@@ -499,13 +510,14 @@ class _Unplaceable(Exception):
     """Placing a section would alter authored bytes."""
 
 
-def _insert_entry(text: str, heading: str, section: str, newline: str) -> str:
+def _insert_entry(text: str, heading: str, section: str, newline: str, before_ties: bool = False) -> str:
     """Insert a section, byte for byte, after the last archived entry dated no later than it."""
     existing = _journal_sections(text)
     if not existing:
         return text.rstrip("\r\n") + newline * 2 + section
     date = _entry_date(heading)
-    earlier = [end for h, _, end in existing if _entry_date(h) <= date]
+    earlier = [end for h, _, end in existing
+               if (_entry_date(h) < date if before_ties else _entry_date(h) <= date)]
     point = earlier[-1] if earlier else existing[0][1]
     if not text[:point].endswith("\n"):
         raise _Unplaceable("the archived entry before it has no final line ending")
@@ -882,7 +894,7 @@ def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan
             working_ids.add(record_id)
             start, end = spans[0]
             data = archived[start:end].encode("utf-8")
-            restored.append((start, data))
+            restored.append((start, data, record_id))
             result.moved_bytes += len(data)
             result.candidates.append(Candidate(record_id, rule.kind, captured.key, target_name))
             if rule.kind == "task":
@@ -895,10 +907,15 @@ def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan
                 result.debts.append(record_id)
             elif rule.kind == "event":
                 result.events.append(record_id)
-        if restored:
+        if restored and hasattr(rule, "restore"):
+            newline = "\r\n" if b"\r\n" in (working or archived_bytes) else "\n"
+            entries = [(heading, data.decode("utf-8")) for _, data, heading in sorted(restored)]
+            writes[target] = rule.restore(working.decode("utf-8"), entries, newline).encode("utf-8")
+            writes[source] = None
+        elif restored:
             newline = b"\r\n" if b"\r\n" in (working or archived_bytes) else b"\n"
             combined = working
-            for _, data in sorted(restored):
+            for _, data, _ in sorted(restored):
                 if combined and not combined.endswith(newline * 2):
                     combined += newline if combined.endswith(newline) else newline * 2
                 combined += data.replace(b"\r\n", b"\n").replace(b"\n", newline)

@@ -285,6 +285,47 @@ class TestJournalApply(JournalCase):
                 self.assertLess(archived.index(b"First"), archived.index(b"Second"))
                 self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
 
+    def test_archive_then_restore_round_trips_journals_byte_for_byte(self):
+        a, b, c = "2026-01-01 — Done", "2026-01-02 — Open", "2026-01-03 — Done again"
+        cases = {
+            "retained final entry ends in one newline": f"# Journal\n\n## {a}\nT-ONE.\n\n## {b}\nT-TWO.\n",
+            "retained final entry is unterminated": f"# Journal\n\n## {a}\nT-ONE.\n\n## {b}\nT-TWO.",
+            "adjacent sections move together": f"# Journal\n\n## {a}\nT-ONE.\n\n## 2026-01-01 — Done too\nAC-T-ONE.\n\n## {b}\nT-TWO.\n",
+            "moved final entry is unterminated": f"# Journal\n\n## {b}\nT-TWO.\n\n## {c}\nT-ONE.",
+            "moved final entry ends in one newline": f"# Journal\n\n## {b}\nT-TWO.\n\n## {c}\nT-ONE.\n",
+            "extra blank lines between entries": f"# Journal\n\n## {a}\nT-ONE.\n\n\n\n## {b}\nT-TWO.\n\n\n",
+        }
+        for newline in (b"\n", b"\r\n"):
+            for label, text in cases.items():
+                with self.subTest(newline=newline, case=label):
+                    self.setUp()
+                    original = self.write_journal(text, newline).read_bytes()
+                    archive.archive(self.root, "P1")
+                    self.assertNotEqual((self.authority / "JOURNAL.md").read_bytes(), original)
+                    archive.restore(self.root, "P1")
+                    self.assertEqual((self.authority / "JOURNAL.md").read_bytes(), original)
+                    self.assertFalse((self.authority / "archive/P1/JOURNAL.md").exists())
+                    self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+
+    def test_restore_places_same_date_entries_ahead_of_retained_ones_in_order(self):
+        first, second, kept = "2026-01-01 — First", "2026-01-01 — Second", "2026-01-01 — Kept"
+        text = f"# Journal\n\n## {first}\nT-ONE.\n\n## {second}\nAC-T-ONE.\n\n## {kept}\nT-TWO.\n"
+        original = self.write_journal(text).read_bytes()
+        archive.archive(self.root, "P1")
+        archive.restore(self.root, "P1")
+        self.assertEqual((self.authority / "JOURNAL.md").read_bytes(), original)
+
+    def test_restore_refuses_rather_than_alter_an_unterminated_retained_entry(self):
+        later, kept = "2026-01-05 — Later", "2026-01-02 — Kept"
+        self.write_journal(f"# Journal\n\n## {later}\nT-ONE.\n\n## {kept}\nT-TWO.")
+        archive.archive(self.root, "P1")
+        self.write_journal(f"# Journal\n\n## 2026-01-01 — New\nNothing.\n\n## 2026-01-02 — Last\nOpen.")
+        before = self.snapshot()
+        with self.assertRaises(archive.ArchiveError) as error:
+            archive.restore(self.root, "P1")
+        self.assertIn("cannot restore journal entry", str(error.exception))
+        self.assertEqual(self.snapshot(), before)
+
     def test_index_and_old_pointers_resolve_through_retrieve(self):
         self.write_journal(entries())
         project = compiler.load(self.root)
