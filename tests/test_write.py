@@ -233,6 +233,31 @@ class TestJournalWrite(WriteCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(json.loads(result.stdout)["error"]["code"], "invalid-json")
 
+    def test_non_ascii_stdin_is_verbatim_under_a_non_utf8_encoding(self):
+        """AC-T-RESPOND-STDIN-01-02."""
+        env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+        command = [sys.executable, str(Path(cli.__file__).resolve().parents[2] / ".praukron/praukron"),
+                   "-C", str(self.root), "journal", "append", "--input", "-"]
+        payload = {**self.payload, "title": "Tiếp tục", "body": "Đã ghi nhận — kết quả tốt."}
+        result = subprocess.run(command, input=json.dumps(payload, ensure_ascii=False).encode(),
+                                capture_output=True, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(payload["body"], self.journal.read_text(encoding="utf-8"))
+        result = subprocess.run(command, input=b'{"title":"caf\xe9"}', capture_output=True, env=env)
+        self.assertEqual(result.returncode, 1)
+        error = json.loads(result.stdout)["error"]
+        self.assertEqual(error["code"], "invalid-json")
+        self.assertIn("not valid UTF-8", error["message"])
+
+    def test_every_stdin_read_goes_through_the_shared_utf8_helper(self):
+        """AC-T-RESPOND-STDIN-01-02."""
+        source = Path(cli.__file__).resolve().parent
+        for path in source.glob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if path.name != "mutate.py":
+                self.assertNotIn("sys.stdin.read", text, path.name)
+                self.assertNotIn("sys.stdin.buffer", text, path.name)
+
     def test_payload_bom_is_accepted_from_file_and_text_or_binary_stdin(self):
         for source in ("file", "text-stdin", "binary-stdin"):
             with self.subTest(source=source):

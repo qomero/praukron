@@ -10,6 +10,10 @@ people arriving from a release page.
   `Extra 11`); every view now uses one event order (`model.event_order`), checked across context, retrieve,
   analytics and the dashboard before archive, after archive and after restore. `validate` now warns
   (`unsupported-archive-path`) about any path in `archive/<phase>/` that `restore` would refuse.
+- Fixed: `respond` and every `--input -` write command now read stdin as strict UTF-8 bytes (optional BOM)
+  instead of the console code page, so non-ASCII text no longer fails with UnicodeEncodeError on Windows;
+  invalid UTF-8 is refused with a clear error.
+
 - Validate permanent archive invariants: archive paths and records, task phase placement, journal headings,
   and journal-named references now validate across working and archived files; archive apply and restore both
   report a committed authoritative move when any projection refresh step fails.
