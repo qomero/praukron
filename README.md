@@ -514,7 +514,7 @@ For OpenCode setup, see its [providers](https://opencode.ai/docs/providers),
 
 ## Releases
 
-The current release is v1.3.0. `VERSION` holds it and [`CHANGELOG.md`](CHANGELOG.md) summarises
+The current release is v2.0.0. `VERSION` holds it and [`CHANGELOG.md`](CHANGELOG.md) summarises
 what changed. Every release from v0.4.6 is archived and citable:
 [`10.5281/zenodo.22897871`](https://doi.org/10.5281/zenodo.22897871) always resolves to the latest one, and
 [`CITATION.cff`](CITATION.cff) is what GitHub's *Cite this repository* reads.
