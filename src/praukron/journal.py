@@ -29,12 +29,6 @@ def append(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
     try:
         mutate.validate_payload(payload, SCHEMA)
         date = payload.get("date", dt.date.today().isoformat())
-        try:
-            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
-                raise ValueError("expected YYYY-MM-DD")
-            dt.date.fromisoformat(date)
-        except ValueError as error:
-            raise mutate.WriteError("invalid-date", "date must be a valid YYYY-MM-DD date", "date") from error
         title, body = payload["title"], payload["body"]
         if not title.strip() or len(title.splitlines()) != 1 or title.endswith(("\r", "\n")):
             raise mutate.WriteError("invalid-title", "title must be non-empty and one line", "title")

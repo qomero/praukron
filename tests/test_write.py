@@ -229,6 +229,106 @@ class TestJournalWrite(WriteCase):
         self.assertEqual(result.returncode, 1)
         self.assertEqual(json.loads(result.stdout)["error"]["code"], "invalid-json")
 
+    def test_payload_bom_is_accepted_from_file_and_text_or_binary_stdin(self):
+        for source in ("file", "text-stdin", "binary-stdin"):
+            with self.subTest(source=source):
+                payload = {**self.payload, "title": f"BOM {source}"}
+                raw = json.dumps(payload, ensure_ascii=False)
+                if source == "file":
+                    path = self.root / "bom.json"
+                    path.write_text(raw, encoding="utf-8-sig")
+                    code, result = self.run_cli("--input", str(path))
+                elif source == "text-stdin":
+                    code, result = self.run_cli("--input", "-", raw="\ufeff" + raw)
+                else:
+                    out, err = io.StringIO(), io.StringIO()
+                    with io.TextIOWrapper(io.BytesIO(raw.encode("utf-8-sig")), encoding="cp1252") as stdin:
+                        with redirect_stdout(out), redirect_stderr(err), mock.patch("sys.stdin", stdin):
+                            code = cli.main(["-C", str(self.root), "journal", "append", "--input", "-"])
+                    self.assertEqual(err.getvalue(), "")
+                    result = json.loads(out.getvalue())
+                self.assertEqual(code, 0, result)
+                expected_heading = f"2026-10-15 — BOM {source}"
+                self.assertEqual(result["recordId"], expected_heading)
+                resolved = retrieve.Chronicle(self.root).section("JOURNAL.md", expected_heading)
+                self.assertIn(self.payload["body"], resolved)
+
+    def test_append_with_earlier_longer_titles_returns_exact_section_and_revision(self):
+        for newline in (b"\n", b"\r\n"):
+            with self.subTest(newline=newline):
+                original = ("# Journal\n\n## 2026-10-15 — Progress — detail\n\nOlder dash.\n\n"
+                            "## 2026-10-15 — Progress: detail\n\nOlder colon.\n\n").encode().replace(b"\n", newline)
+                expected = f"## {self.heading}\n\n{self.payload['body']}\n".encode().replace(b"\n", newline)
+                self.journal.write_bytes(original)
+                with self.assertRaises(mutate.WriteError) as missing:
+                    mutate.section(original, self.heading)
+                self.assertEqual(missing.exception.code, "record-not-found")
+                code, result = self.run_cli("--input", "-")
+                self.assertEqual(code, 0, result)
+                self.assertEqual(self.journal.read_bytes(), original + expected)
+                expected_hash = hashlib.sha256(expected.rstrip(b"\r\n")).hexdigest()[:16]
+                self.assertEqual(result["revision"], expected_hash)
+                for found in (mutate.section(original + expected, self.heading),
+                              mutate.working_section(self.root, Source("JOURNAL.md", self.heading))):
+                    self.assertEqual(found.data, expected)
+                    self.assertEqual(found.span, (len(original), len(original) + len(expected)))
+                    self.assertEqual(found.revision, expected_hash)
+
+    def test_append_keeps_previous_record_revision_stable(self):
+        for newline in (b"\n", b"\r\n"):
+            for trailing in (b"", newline, newline * 3):
+                with self.subTest(newline=newline, trailing=trailing):
+                    header = b"# Journal" + newline * 2
+                    record = "## 2026-01-01 — Start\n\nEarlier.".encode().replace(b"\n", newline) + trailing
+                    self.journal.write_bytes(header + record)
+                    expected_hash = hashlib.sha256(record.rstrip(b"\r\n")).hexdigest()[:16]
+                    before = mutate.section(self.journal.read_bytes(), "2026-01-01 — Start")
+                    self.assertEqual(before.data, record)
+                    self.assertEqual(before.revision, expected_hash)
+                    self.assertTrue(journal.append(self.root, self.payload)["ok"])
+                    after = mutate.section(self.journal.read_bytes(), "2026-01-01 — Start")
+                    self.assertEqual(after.revision, expected_hash)
+                    self.assertEqual(after.revision, before.revision)
+                    self.assertEqual(mutate.revision(record + b"\r\n\r\n"), expected_hash)
+                    self.assertNotEqual(mutate.revision(record.rstrip(b"\r\n") + b" "), expected_hash)
+
+    def test_lock_release_failure_after_commit_retains_written_metadata(self):
+        original = self.journal.read_bytes()
+        entry = f"## {self.heading}\n\n{self.payload['body']}\n".encode()
+        expected = original + b"\n" + entry
+        lock_path = self.root / layout.COMPILED_DIR / "respond.lock"
+        for method in ("read_text", "unlink"):
+            with self.subTest(method=method):
+                self.journal.write_bytes(original)
+                before = self.snapshot()
+                real = getattr(Path, method)
+
+                def fail_release(path, *args, **kwargs):
+                    if path == lock_path:
+                        raise PermissionError(f"injected lock {method} failure")
+                    return real(path, *args, **kwargs)
+
+                try:
+                    with mock.patch.object(Path, method, fail_release), mock.patch.object(mutate, "refresh") as refresh:
+                        code, result = self.run_cli("--input", "-")
+                    self.assertEqual(code, 1)
+                    self.assertEqual(result, {
+                        "ok": False, "operation": "journal.append", "recordId": self.heading,
+                        "source": f"JOURNAL.md#{self.heading}",
+                        "revision": hashlib.sha256(entry.rstrip(b"\r\n")).hexdigest()[:16],
+                        "validation": "passed", "written": True, "refreshed": False,
+                        "error": {"code": "lock-release-failed", "message": f"injected lock {method} failure"},
+                    })
+                    self.assertEqual(self.snapshot(), {**before, Path("JOURNAL.md"): expected})
+                    self.assertEqual(mutate._recovery_records(self.root), [])
+                    refresh.assert_not_called()
+                finally:
+                    lock_path.unlink(missing_ok=True)
+                code, result = self.run_cli("--input", "-")
+                self.assertEqual(code, 1)
+                self.assertEqual(result["error"]["code"], "duplicate-heading")
+                self.assertEqual(self.journal.read_bytes(), expected)
+
     def test_concurrent_identical_appends_serialize_and_refuse_the_retry(self):
         barrier = threading.Barrier(2)
         results = []
@@ -366,7 +466,7 @@ class TestMutationPipeline(WriteCase):
         found = mutate.section(data, "T-ONE")
         self.assertEqual(found.data, data[found.span[0]:found.span[1]])
         self.assertEqual(found.data, "## T-ONE: Một\r\nBody\r\n### Child\r\nNested\r\n".encode())
-        self.assertEqual(found.revision, hashlib.sha256(found.data).hexdigest()[:16])
+        self.assertEqual(found.revision, hashlib.sha256(found.data.rstrip(b"\r\n")).hexdigest()[:16])
         self.assertEqual(mutate.revision(found.data), mutate.revision(bytes(found.data)))
         self.assertNotEqual(found.revision, mutate.revision(found.data + b"x"))
         with self.assertRaises(mutate.WriteError):
@@ -401,6 +501,41 @@ class TestMutationPipeline(WriteCase):
             with self.assertRaises(mutate.WriteError):
                 mutate.validate_payload(payload, schema)
 
+    def test_section_id_lookup_uses_only_the_first_delimiter(self):
+        for record_id, delimiter in (("T-ONE", ": "), ("AC-T-ONE", " — ")):
+            for newline in (b"\n", b"\r\n"):
+                with self.subTest(record_id=record_id, newline=newline):
+                    prefix = f"# Records\n\n## {record_id}X{delimiter}Other\n\nEarlier.\n\n".encode().replace(b"\n", newline)
+                    expected = f"## {record_id}{delimiter}Alpha: detail — more\n\nNội dung.\n\n".encode().replace(b"\n", newline)
+                    suffix = b"# Boundary" + newline + b"Outside." + newline
+                    data = prefix + expected + suffix
+                    found = mutate.section(data, record_id)
+                    self.assertEqual(found.data, expected)
+                    self.assertEqual(found.span, (len(prefix), len(prefix) + len(expected)))
+                    self.assertEqual(found.revision, hashlib.sha256(expected.rstrip(b"\r\n")).hexdigest()[:16])
+                    for missing in (record_id[:-1], f"{record_id}{delimiter}Alpha",
+                                    f"{record_id}{delimiter}Alpha: detail"):
+                        with self.assertRaises(mutate.WriteError):
+                            mutate.section(data, missing)
+
+    def test_published_schema_enforces_min_length_and_date_format(self):
+        for patch, field, code in (({"title": ""}, "title", "invalid-value"),
+                                   ({"date": "2026-02-29"}, "date", "invalid-date"),
+                                   ({"date": "20261015"}, "date", "invalid-date"),
+                                   ({"date": "2026-W42-4"}, "date", "invalid-date"),
+                                   ({"date": "2026-1-01"}, "date", "invalid-date")):
+            with self.subTest(patch=patch):
+                with self.assertRaises(mutate.WriteError) as refused:
+                    mutate.validate_payload({**self.payload, **patch}, journal.SCHEMA)
+                self.assertEqual(refused.exception.field, field)
+                self.assertEqual(refused.exception.code, code)
+        valid = {**self.payload, "date": "2024-02-29", "title": "Đ"}
+        self.assertEqual(mutate.validate_payload(valid, journal.SCHEMA), valid)
+        schema = {"properties": {"text": {"type": "string", "minLength": 2}}}
+        self.assertEqual(mutate.validate_payload({"text": "Đã"}, schema), {"text": "Đã"})
+        with self.assertRaises(mutate.WriteError):
+            mutate.validate_payload({"text": "Đ"}, schema)
+
     def test_pipeline_and_existing_writers_share_the_same_lock(self):
         self.assertIs(mutate._lock, respond._lock)
         self.assertIs(archive._lock, respond._lock)
@@ -410,8 +545,12 @@ class TestMutationPipeline(WriteCase):
             with mock.patch.object(respond.time, "monotonic", side_effect=(0, 11)):
                 result = journal.append(self.root, self.payload)
             self.assertFalse(result["ok"])
+            self.assertEqual(result["error"], {"code": "locked", "message": "another write is in progress; try again"})
             self.assertEqual(self.snapshot(), before)
             self.assertTrue(lock.path.is_file())
+            with mock.patch.object(respond.time, "monotonic", side_effect=(0, 11)):
+                with self.assertRaisesRegex(respond.RespondError, "another write is in progress; try again"):
+                    respond._lock(self.root)
         finally:
             lock.release()
 

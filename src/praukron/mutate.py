@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import datetime as dt
 import hashlib
 import json
 import re
@@ -17,7 +18,7 @@ from .layout import ARCHIVE_DIR, AUTHORITY_DIR, COMPILED_DIR, RECOVERY_DIR
 from .model import Project, Source
 # Keep the low-level primitives at their existing import and inspection surface.
 # respond's public writers delegate recovery and refresh here through lazy imports.
-from .respond import Lock, RespondError, _lock, _replace
+from .respond import RespondError, _lock, _replace
 
 
 class WriteError(Exception):
@@ -53,6 +54,17 @@ def validate_payload(payload: object, schema: dict) -> dict:
         expected = types[spec["type"]]
         if not isinstance(value, expected) or (isinstance(value, bool) and spec["type"] in ("integer", "number")):
             raise WriteError("wrong-type", f"{name} must be {spec['type']}", name)
+        if spec["type"] == "string":
+            minimum = spec.get("minLength", 0)
+            if len(value) < minimum:
+                raise WriteError("invalid-value", f"{name} must contain at least {minimum} characters", name)
+            if spec.get("format") == "date":
+                try:
+                    if not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+                        raise ValueError("expected YYYY-MM-DD")
+                    dt.date.fromisoformat(value)
+                except ValueError as error:
+                    raise WriteError("invalid-date", f"{name} must be a valid YYYY-MM-DD date", name) from error
         if "enum" in spec and value not in spec["enum"]:
             raise WriteError("invalid-value", f"{name} must be one of {', '.join(spec['enum'])}", name)
         if spec["type"] == "object" and "properties" in spec:
@@ -78,9 +90,9 @@ def load_payload(path: str | None, schema: dict) -> dict:
     try:
         if path == "-":
             stream = getattr(sys.stdin, "buffer", None)
-            text = stream.read().decode("utf-8") if stream is not None else sys.stdin.read()
+            text = stream.read().decode("utf-8-sig") if stream is not None else sys.stdin.read().removeprefix("\ufeff")
         else:
-            text = Path(path).read_text(encoding="utf-8")
+            text = Path(path).read_text(encoding="utf-8-sig")
         payload = json.loads(text, object_pairs_hook=unique, parse_constant=invalid_constant)
     except (ValueError, OSError) as error:
         raise WriteError("invalid-json", f"cannot read JSON payload: {error}") from error
@@ -88,7 +100,8 @@ def load_payload(path: str | None, schema: dict) -> dict:
 
 
 def revision(section_bytes: bytes) -> str:
-    return hashlib.sha256(section_bytes).hexdigest()[:16]
+    """Hash record content without its trailing CR/LF separators."""
+    return hashlib.sha256(section_bytes.rstrip(b"\r\n")).hexdigest()[:16]
 
 
 @dataclass(frozen=True)
@@ -105,7 +118,8 @@ def section(data: bytes, record_id: str) -> Section:
     """Find a full journal heading or an ID, retaining exact byte offsets."""
     for match in re.finditer(rb"(?m)^## ([^\r\n]+)\r?$", data):
         heading = match.group(1).decode("utf-8").strip()
-        if heading != record_id and not heading.startswith((record_id + ": ", record_id + " — ")):
+        parsed_id = re.split(r": | — ", heading, maxsplit=1)[0]
+        if heading != record_id and parsed_id != record_id:
             continue
         following = re.search(rb"(?m)^#{1,2} ", data[match.end():])
         end = match.end() + following.start() if following else len(data)
@@ -225,8 +239,12 @@ class Plan:
 def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], *, dry_run: bool = False) -> dict:
     """Plan under the lock, verify, commit or restore, then refresh once."""
     root = root.resolve()
+    result = None
     try:
-        lock = _lock(root)
+        try:
+            lock = _lock(root)
+        except RespondError as error:
+            raise WriteError("locked", "another write is in progress; try again") from error
         try:
             if recover_write(root):
                 raise WriteError("interrupted-write", "an interrupted write was rolled back; try again")
@@ -258,16 +276,18 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
                     detail = "; ".join(f"{code}: {message}" for code, _, message in sorted(introduced))
                     raise WriteError("validation-failed", f"nothing was written: {detail}")
                 recovery.unlink()
+                result["written"] = True
             except Exception:
                 recover_write(root)
                 raise
         finally:
             lock.release()
-    except WriteError as error:
-        return refusal(operation, error)
     except Exception as error:
-        return refusal(operation, WriteError("write-failed", str(error)))
-    result["written"] = True
+        if result is not None and result["written"]:
+            return {**result, "ok": False,
+                    "error": {"code": "lock-release-failed", "message": str(error)}}
+        return refusal(operation, error if isinstance(error, WriteError)
+                       else WriteError("write-failed", str(error)))
     try:
         refresh(root)
     except Exception as error:

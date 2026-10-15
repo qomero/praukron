@@ -129,7 +129,7 @@ def _lock(root: Path) -> Lock:
             except FileNotFoundError:
                 continue
             if time.monotonic() > deadline:
-                raise RespondError("another response is being written; try again")
+                raise RespondError("another write is in progress; try again")
             time.sleep(0.05)
 
 

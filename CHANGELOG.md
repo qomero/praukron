@@ -6,6 +6,8 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Structured writes now preserve committed results on lock-release failure, resolve full journal headings exactly,
+  keep revisions stable across appends, and accept UTF-8 BOM payloads.
 - Add `praukron journal append` with strict JSON payloads, dry runs, and shared recoverable write transactions.
 - Locks no longer reclaim live writers or release another writer's lock.
 - Archiving now moves a shared contract once every working task that uses it has moved.
