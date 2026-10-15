@@ -6,10 +6,26 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Fixed: the dashboard sorted events and chose an operation's latest event lexically (`Extra 9` after
+  `Extra 11`); every view now uses one event order (`model.event_order`), checked across context, retrieve,
+  analytics and the dashboard before archive, after archive and after restore. `validate` now warns
+  (`unsupported-archive-path`) about any path in `archive/<phase>/` that `restore` would refuse.
 - Validate permanent archive invariants: archive paths and records, task phase placement, journal headings,
   and journal-named references now validate across working and archived files; archive apply and restore both
   report a committed authoritative move when any projection refresh step fails.
 
+- Fixed: `context`'s `events.recent` (and every view that takes the last N events) depended on which file held
+  an event, so archiving or restoring a phase could change it. Events are now ordered at load by their own
+  time, then the number in their id, then the id; an event without a time sorts first.
+- Document the archive lifecycle in the owner guide, specification (§2.7), README, `AGENTS.md`, the product
+  thesis and the chronicle README template: `archive plan`, `apply --plan` and `restore`; eligibility per record
+  type on the phase axis; destinations; what is never archived and why; and the exact Git (unstaged, staged,
+  committed) and no-Git (byte-exact backup) recovery procedures. The permanent archive invariants (with their findings and severities) and the
+  refresh contract of T-ARCH-VERIFY-01 are documented from the merged code.
+- Add archive parity tests on a synthetic large chronicle (every record type, many phases, `P-NONE`, Vietnamese
+  text, LF and CRLF) comparing records, derived facts, `context` and `retrieve` before and after archive and
+  restore, an `install.sh` runtime-module check, and `tests/bench_archive.py`, whose Git and no-Git results on a
+  real chronicle copy are added to the benchmarks page.
 - Add Git-aware archive recovery with a clean-chronicle guard and exact undo commands,
   persistent byte-exact backups outside Git, and `archive restore <phase>` after later edits;
   apply and restore share durable rollback across all record files. Detect partial ignores and nested

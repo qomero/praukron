@@ -302,6 +302,16 @@ class Policy:
                 "decision": self.decision, "default": self.decision is None}
 
 
+def event_order(event_id: str, time: str | None) -> tuple:
+    """The one order of events: own time, then the number ending the id, then the id.
+
+    Where an event is stored must never decide which events are the latest, so every
+    view that sorts events or takes the last N uses this key.
+    """
+    number = re.search(r"(\d+)$", event_id)
+    return (time or "", int(number.group(1)) if number else -1, event_id)
+
+
 @dataclass
 class TraceEvent:
     """One operational event: a tool call, command, mini-action, mutation,

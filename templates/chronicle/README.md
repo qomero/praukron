@@ -14,9 +14,10 @@ review, advice, and continuity between people as well as agents.
 .praukron/chronicle/   authored by people and agents; the only source of truth
                       (except INDEX.md, which Praukron generates, and
                       RESPONSES.md, which `praukron respond` appends to;
-                      archive/<phase>/ holds closed phases' tasks and
-                      contracts, moved there by `praukron archive`, and is
-                      authority like the rest)
+                      archive/<phase>/ holds closed phases' tasks, contracts,
+                      assumptions, debt, trace events and journal entries,
+                      moved there by `praukron archive`, and is authority like
+                      the rest; RESPONSES.md and ADR/ are never archived)
 .praukron/compiled/    compiled by Praukron; safe to delete and regenerate
 ```
 

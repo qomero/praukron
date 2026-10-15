@@ -17,7 +17,7 @@ import json
 import re
 
 from .analytics import Report
-from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATIONS, Project
+from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATIONS, Project, event_order
 from . import mermaid, review
 
 MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"
@@ -2006,7 +2006,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 
     # --- Operations --------------------------------------------------------
     om = operations["metrics"]
-    all_events = sorted(operations["events"], key=lambda e: (e["time"] or "", e["id"]))
+    all_events = sorted(operations["events"], key=lambda e: event_order(e["id"], e["time"]))
     affects_execution = set(om["affectingExecution"])
     ops_tasks = project.operations_tasks
     blocked_ids = set(compiled["blocked"])
@@ -2048,7 +2048,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         task = tasks[task_id]
         blocking = sorted(t for t, blockers in execution["externalBlockers"].items() if task_id in blockers)
         trace = [events[e] for e in task["events"] if e in events]
-        latest = max(trace, key=lambda e: (e["time"] or "", e["id"])) if trace else None
+        latest = max(trace, key=lambda e: event_order(e["id"], e["time"])) if trace else None
         return (
             f'<details class="group op" id="op-{esc(task_id)}"{" open" if blocking else ""}>'
             f'<summary>{_pill(task["status"])} <code>{esc(task_id)}</code> {esc(task["title"])}'

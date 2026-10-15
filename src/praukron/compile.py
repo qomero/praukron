@@ -13,7 +13,7 @@ from pathlib import Path
 from . import analytics, domain, index, views
 from . import layout
 from .layout import AUTHORITY_DIR, COMPILED_DIR
-from .model import Project
+from .model import Project, event_order
 from .snapshot import SnapshotPath
 from .parse import (
     ParseError,
@@ -99,7 +99,18 @@ def _archived_records(authority: Path | SnapshotPath, phases: list) -> tuple[lis
                 raise ParseError(record.source.file, record.id,
                                  f"duplicate {label}; also in {seen[record.id].source.file}")
             seen.setdefault(record.id, record)
-    return assumptions, debts, events
+    return assumptions, debts, _chronological(events)
+
+
+def _chronological(events: list) -> list:
+    """Order events by their own time, then the number in their id, then the id.
+
+    Where an event lives (a working file or an archive) must not decide which events
+    are "the last N" in any view, so the order cannot follow load order. Ids are
+    unique, so the order is total and file order never decides. An event without a
+    time sorts before every timed one.
+    """
+    return sorted(events, key=lambda event: event_order(event.id, event.time))
 
 
 def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project:
