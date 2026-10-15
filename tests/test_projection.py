@@ -8,6 +8,7 @@ roadmap, UNTESTED on exercised work, and PLANNED phases full of finished work.
 from __future__ import annotations
 
 import io
+import re
 import shutil
 import sys
 import tempfile
@@ -172,7 +173,9 @@ class TestProjection(ProjectionCase):
         self.assertEqual((p2["status"], p2["waitsOn"], p2["progress"]["done"]), ("PLANNED", "P1", 3))
         self.assertIsNone(next(p for p in self.compiled["phases"] if p["id"] == "P1")["waitsOn"])
         self.assertIn("P2           3 / 5 · PLANNED · exit waits on P1", self.status())
-        self.assertIn("3 / 5 execution tasks · exit authority T-P2-EXIT · exit waits on P1", self.html())
+        # The figures carry cross-filter hooks, so the line is read as shown text.
+        shown = re.sub(r"<[^>]+>", "", self.html())
+        self.assertIn("3 / 5 execution tasks · exit authority T-P2-EXIT · exit waits on P1", shown)
         self.assertEqual([p.status for p in self.project.phases], ["ACTIVE", "PLANNED"])
 
     def test_work_ahead_of_phase_closure_is_described(self) -> None:

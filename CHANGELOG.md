@@ -16,6 +16,15 @@ people arriving from a release page.
 - Archive eligible P-NONE tasks and closed, reconciled assumptions, technical debt and trace events;
   load and retrieve those lifecycle records from phase archives while preserving their provenance.
 
+- Dashboard review fixes: every figure that counts tasks (progress cards, phase progress, module
+  counts, the Governance validation table, operations counts, the attention band and group counts)
+  now follows the cross-filters; the live Needs you count uses the submit rule, so Feedback without
+  words is not answered and an owner item with no form no longer holds it above zero; filtered-out
+  chart marks keep their colour as an outline at 3:1 instead of fading; long chart labels no longer
+  scroll the page sideways on phones; the submit bar stays pinned on phones; removing the last filter
+  keeps focus visible; and in-page links keep the filters in the address. A contract shared by
+  several tasks counts once while any of them passes the filters; Clear all, Escape and Show all
+  keep focus visible; shares round half up in both the compiler and the page.
 - Redesign the dashboard to put attention first: a "Needs attention" band (blocked tasks, failing
   work, owner input, review gaps, debt at its trigger, unresolved operational failures) above progress;
   cross-filtering Status, Domain, Validation, Phase and Module charts that narrow every chart, table,

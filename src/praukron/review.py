@@ -46,6 +46,8 @@ details.acard.is-answered > summary::after, ul.owner-list > li.is-answered::afte
   content: "Answered, not yet submitted"; flex: 1 0 100%; font-size: 12px; font-weight: 600;
   color: var(--good); }
 ul.owner-list > li.is-answered::after { display: block; margin-top: 6px; }
+ul.owner-list > li.is-offpage::after { content: "Needs work outside this page"; display: block;
+  margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
 """
 
 SCRIPT = """
@@ -92,6 +94,14 @@ function reviewItems(entries) {
   }
   return items;
 }
+
+// A form is answered when submitting now would record something from it:
+// words for Guide and Feedback, an opened or reviewed card for OK. The live
+// count uses this, so it never calls a card done that submit would refuse.
+function formAnswered(e) {
+  if (e.guide || e.choice === 'FEEDBACK') return Boolean(e.text.trim());
+  return Boolean(e.seen || e.reviewed);
+}
 """
 
 # Only the served page carries this: the static file never contains a write.
@@ -114,30 +124,33 @@ if (reviewBars.length) {
     const feedback = form.querySelector('input[value="FEEDBACK"]');
     if (feedback && area.value.trim()) feedback.checked = true;
   }));
+  function entryOf(form) {
+    const card = form.closest('details.acard');
+    const radio = form.querySelector('input[type="radio"]:checked');
+    const select = form.querySelector('select');
+    const reviewed = form.querySelector('.reviewed');
+    return { target: form.dataset.target, guide: !!form.dataset.guide,
+             text: form.querySelector('textarea').value,
+             choice: radio ? radio.value : 'CONFIRM', action: select ? select.value : 'REVISE',
+             seen: !!card && card.dataset.seen === '1', reviewed: !!reviewed && reviewed.checked };
+  }
   function collect() {
-    return reviewItems([...document.querySelectorAll('.aform')].map(form => {
-      const card = form.closest('details.acard');
-      const radio = form.querySelector('input[type="radio"]:checked');
-      const select = form.querySelector('select');
-      const reviewed = form.querySelector('.reviewed');
-      return { target: form.dataset.target, guide: !!form.dataset.guide,
-               text: form.querySelector('textarea').value,
-               choice: radio ? radio.value : 'CONFIRM', action: select ? select.value : 'REVISE',
-               seen: !!card && card.dataset.seen === '1', reviewed: !!reviewed && reviewed.checked };
-    }));
+    return reviewItems([...document.querySelectorAll('.aform')].map(entryOf));
   }
   // The panel is where the owner answers, so it is marked live, and its count
-  // falls as cards are answered: opened, marked reviewed, or given words.
+  // falls as items are answered by the same rule submit applies. An item with
+  // no form (an owner-held blocker nobody here can guide) is work outside
+  // this page: it is labelled, and never holds the count above zero.
   const needsPanel = document.getElementById('needs-you');
   const remaining = needsPanel && needsPanel.querySelector('.review-bar .remaining');
   if (remaining) {
     needsPanel.classList.add('is-live');
     const badge = needsPanel.querySelector('.needcount');
-    const items = [...needsPanel.querySelectorAll('details.acard, ul.owner-list > li')];
-    const answered = item => (item.matches('details.acard') && item.dataset.seen === '1')
-      || [...item.querySelectorAll('.aform')].some(form =>
-        form.querySelector('textarea').value.trim()
-        || (form.querySelector('.reviewed') && form.querySelector('.reviewed').checked));
+    const all = [...needsPanel.querySelectorAll('details.acard, ul.owner-list > li')];
+    const items = all.filter(item => item.querySelector('.aform'));
+    const elsewhere = all.length - items.length;
+    all.forEach(item => item.classList.toggle('is-offpage', !item.querySelector('.aform')));
+    const answered = item => [...item.querySelectorAll('.aform')].some(form => formAnswered(entryOf(form)));
     const recount = () => {
       let left = 0;
       items.forEach(item => {
@@ -147,9 +160,10 @@ if (reviewBars.length) {
       });
       badge.textContent = left;
       badge.classList.toggle('zero', !left);
-      remaining.textContent = left
-        ? `${left} of ${items.length} still need${left === 1 ? 's' : ''} a response`
-        : `All ${items.length} answered. Submit to record them.`;
+      const outside = elsewhere ? ` · ${elsewhere} need${elsewhere === 1 ? 's' : ''} work outside this page` : '';
+      remaining.textContent = (!items.length ? 'Nothing here takes an answer'
+        : left ? `${left} of ${items.length} still need${left === 1 ? 's' : ''} a response`
+        : `All ${items.length} answered. Submit to record them.`) + outside;
     };
     needsPanel.addEventListener('input', recount);
     needsPanel.addEventListener('change', recount);
