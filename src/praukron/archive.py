@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path, PurePosixPath
 from typing import Iterable, Protocol
 
-from . import analytics, compile as compiler, layout, validate
+from . import analytics, archive_recovery, compile as compiler, layout, validate
 from .layout import ARCHIVE_DIR, AUTHORITY_DIR
 from .model import DEBT_CLOSED, NO_PHASE, Project
 from .mutate import (RespondError, _lock, _replace, _spans, _write_recovery, recover_archive,
@@ -95,6 +95,8 @@ class Plan:
     digest: str | None = None
     mode: str | None = None
     version: str | None = None
+    operation: str = "archive"
+    recovery: dict = field(default_factory=dict)
     snapshot: Snapshot | None = field(default=None, repr=False, compare=False)
     writes: dict[Path, str] = field(default_factory=dict, repr=False, compare=False)
     changed_files: list[str] = field(default_factory=list)
@@ -108,11 +110,13 @@ class Plan:
             "candidates": [c.as_json() for c in self.candidates],
             "digest": self.digest, "mode": self.mode, "version": self.version,
             "changedFiles": self.changed_files, "createdFiles": self.created_files,
+            "operation": self.operation, "recovery": self.recovery,
         }
 
     def render(self, applied: bool) -> str:
         verb = "Moved" if applied else "Would move"
-        target = f"{AUTHORITY_DIR}/{ARCHIVE_DIR}/{self.phase}/"
+        target = (f"{AUTHORITY_DIR}/" if self.operation == "restore" else
+                  f"{AUTHORITY_DIR}/{ARCHIVE_DIR}/{self.phase}/")
         moving = [candidate for candidate in self.candidates if candidate.moves]
         counts = ", ".join(
             f"{len(records)} {label}" for label, records in (
@@ -140,6 +144,7 @@ class Plan:
             lines.append("  created: " + ", ".join(self.created_files))
         if self.digest:
             lines.append(f"Plan: {self.digest} (mode: {self.mode}, version: {self.version})")
+        lines.extend(archive_recovery.describe(self.recovery))
         return "\n".join(lines) + "\n"
 
 
@@ -406,9 +411,10 @@ def _why_kept(project: Project, task_id: str, unresolved: set[str], waiting: set
     return None
 
 
-def archive_mode(root: Path) -> str:
-    """Mode placeholder; lifecycle recovery will replace this with Git detection."""
-    return "nogit"
+def archive_mode(root: Path, snapshot: Snapshot | None = None, destinations: Iterable[str] = ()) -> str:
+    """Git recovery requires every captured and prospective file to be trackable."""
+    names = snapshot.files if snapshot is not None else None
+    return archive_recovery.mode(root, names, destinations)
 
 
 def _inventory(snapshot: Snapshot, destinations: Iterable[str]) -> list[dict[str, str]]:
@@ -468,7 +474,7 @@ def plan(project: Project, phase_id: str, root: Path | None = None, *, snapshot:
         result.writes = _prepare_writes(root, result)
         result.changed_files = sorted(p.relative_to(snapshot.authority).as_posix() for p in result.writes)
         result.created_files = [name for name in result.changed_files if not snapshot.is_file(name)]
-        result.mode, result.version = archive_mode(root), layout.version()
+        result.mode, result.version = archive_mode(root, snapshot, result.changed_files), layout.version()
         result.digest = _plan_digest(root, result)
     return result
 
@@ -594,6 +600,133 @@ def _records(project: Project) -> dict[str, object]:
     }
 
 
+def _execute(root: Path, project: Project, result: Plan, writes: dict[Path, bytes | None]) -> None:
+    """Archive and restore share the same byte-exact, write-ahead transaction."""
+    if result.mode == "git":
+        archive_recovery.require_clean(root)
+    if not writes:
+        return
+    authority = result.snapshot.authority
+    originals = {path: result.snapshot.original(path.relative_to(authority).as_posix()) for path in writes}
+    created = set()
+    for path in writes:
+        directory = path.parent
+        while directory != authority:
+            name = directory.relative_to(authority).as_posix()
+            if result.snapshot.is_dir(name):
+                break
+            created.add(directory)
+            directory = directory.parent
+    created = sorted(created, key=lambda p: (len(p.parts), p.as_posix()))
+    if result.mode == "git":
+        result.recovery = archive_recovery.instructions(root, originals, result.phase, result.operation, directories=created)
+    else:
+        result.recovery = archive_recovery.backup(root, originals)
+    before = _records(project)
+    recovery = _write_recovery(root, originals, directories=created)
+    try:
+        for directory in created:
+            directory.mkdir(exist_ok=True)
+        with staged_replacements(root, recovery):
+            for path, data in writes.items():
+                if data is None:
+                    path.unlink()
+                else:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    _replace(path, data)
+        after = compiler.load(root)
+        if _records(after) != before:
+            raise ArchiveError("the records read back differently after the move")
+        introduced = [finding for finding in validate.errors(validate.check(after))
+                      if finding.code != "interrupted-archive"]
+        if introduced:
+            raise ArchiveError("the move introduced validation errors: "
+                               + "; ".join(f"{f.code}: {f.message}" for f in introduced))
+        recovery.unlink()
+    except Exception as failure:
+        recover_archive(root)
+        if isinstance(failure, ArchiveError):
+            raise ArchiveError(f"nothing was moved: {failure}") from failure
+        raise
+
+
+def _restore_writes(root: Path, phase_id: str, snapshot: Snapshot) -> tuple[Plan, dict[Path, bytes | None]]:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.\-]*", phase_id) or ".." in phase_id:
+        raise ArchiveError("invalid archive phase", "invalid-selection")
+    authority = root / AUTHORITY_DIR
+    directory = authority / ARCHIVE_DIR / phase_id
+    if f"{ARCHIVE_DIR}/{phase_id}" not in snapshot.directories:
+        raise ArchiveError(f"no archive for {phase_id}", "unknown-archive")
+    # Independent of eligibility rules: closed history may gain new references.
+    names = {"TASKS.md": "task", "ACCEPTANCE.md": "contract", "ASSUMPTIONS.md": "assumption",
+             "TECH_DEBT.md": "debt", "TRACE.md": "event", "JOURNAL.md": "journal"}
+    result = Plan(phase_id, snapshot=snapshot, version=layout.version(), operation="restore")
+    writes = {}
+    for captured in snapshot.path(f"{ARCHIVE_DIR}/{phase_id}").iterdir():
+        source = authority / captured.key
+        if source.name not in names or not captured.is_file():
+            raise ArchiveError(f"unsupported archive path: {source.name}", "invalid-archive")
+        target = authority / source.name
+        archived = captured.read_bytes()
+        working = snapshot.files.get(source.name, b"")
+        sections = list(re.finditer(rb"(?m)^## ([^\r\n]+)\r?$", archived))
+        working_ids = {_restore_id(m.group(1), source.name) for m in
+                       re.finditer(rb"(?m)^## ([^\r\n]+)\r?$", working)}
+        restored = []
+        for heading in sections:
+            record_id = _restore_id(heading.group(1), source.name)
+            if record_id in working_ids:
+                raise ArchiveError(f"record already exists: {record_id}", "id-collision")
+            working_ids.add(record_id)
+            following = re.search(rb"(?m)^#{1,2} ", archived[heading.end():])
+            end = heading.end() + following.start() if following else len(archived)
+            data = archived[heading.start():end]
+            restored.append(data)
+            result.moved_bytes += len(data)
+            kind = names[source.name]
+            result.candidates.append(Candidate(record_id, kind,
+                source.relative_to(authority).as_posix(), source.name))
+            if kind == "task":
+                result.tasks.append(record_id)
+            elif kind == "contract":
+                result.contracts.append(record_id)
+        if restored:
+            newline = b"\r\n" if b"\r\n" in (working or archived) else b"\n"
+            combined = working
+            for data in restored:
+                if combined and not combined.endswith(newline * 2):
+                    combined += newline if combined.endswith(newline) else newline * 2
+                combined += data.replace(b"\r\n", b"\n").replace(b"\n", newline)
+            writes[target] = combined
+            writes[source] = None
+    if not writes:
+        raise ArchiveError(f"no records in archive for {phase_id}", "unknown-archive")
+    result.changed_files = sorted(p.relative_to(authority).as_posix() for p in writes)
+    result.created_files = [name for name in result.changed_files if name not in snapshot.files]
+    result.mode = archive_mode(root, snapshot, result.changed_files)
+    return result, writes
+
+
+def _restore_id(heading: bytes, filename: str) -> str:
+    text = heading.decode("utf-8")
+    return text if filename == "JOURNAL.md" else re.split(r": | — ", text, maxsplit=1)[0]
+
+
+def restore(root: Path, phase_id: str, dry_run: bool = False) -> Plan:
+    """Owner-only return of archived records, without rechecking eligibility."""
+    root = root.resolve()
+    with _locked(root):
+        if recover_archive(root):
+            raise ArchiveError("an interrupted archive was rolled back; try again", "recovered-write")
+        snapshot = Snapshot.capture(root / AUTHORITY_DIR)
+        result, writes = _restore_writes(root, phase_id, snapshot)
+        project = compiler.load(root, authority=snapshot.path())
+        _check_valid(project)
+        if not dry_run:
+            _execute(root, project, result, writes)
+        return result
+
+
 def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | None = None) -> Plan:
     root = root.resolve()
     with _locked(root):
@@ -609,48 +742,10 @@ def archive(root: Path, phase_id: str, dry_run: bool = False, *, digest: str | N
         if digest is not None and digest != result.digest:
             raise ArchiveError("plan no longer matches the chronicle; run archive plan again", "stale-plan")
         _check_valid(project)
-        writes = result.writes
-        if not writes:
-            return result
-        if dry_run:
-            return result
-        before = _records(project)
-        authority = result.snapshot.authority
-        originals = {path: result.snapshot.original(path.relative_to(authority).as_posix()) for path in writes}
-        created = set()
-        for path in writes:
-            directory = path.parent
-            while directory != authority:
-                name = directory.relative_to(authority).as_posix()
-                if result.snapshot.is_dir(name):
-                    break
-                created.add(directory)
-                directory = directory.parent
-        created = sorted(created, key=lambda p: (len(p.parts), p.as_posix()))
-        recovery = _write_recovery(root, originals, directories=created)
-        try:
-            for directory in created:
-                directory.mkdir(exist_ok=True)
-            with staged_replacements(root, recovery):
-                for path, text in writes.items():
-                    _replace(path, text.encode("utf-8"))
-            after = compiler.load(root)
-            if _records(after) != before:
-                raise ArchiveError("the records read back differently after the move")
-            introduced = [finding for finding in validate.errors(validate.check(after))
-                          if finding.code != "interrupted-archive"]
-            if introduced:
-                raise ArchiveError("the move introduced validation errors: "
-                                   + "; ".join(f"{f.code}: {f.message}" for f in introduced))
-        except Exception as failure:
-            recover_archive(root)
-            if isinstance(failure, ArchiveError):
-                raise ArchiveError(f"nothing was moved: {failure}") from failure
-            raise
-        recovery.unlink()
+        if not dry_run:
+            _execute(root, project, result, {p: text.encode("utf-8") for p, text in result.writes.items()})
         return result
-
 
 __all__ = ["ArchiveError", "Candidate", "EligibilityContext", "Plan", "RecordRule",
            "RECORD_RULES", "IdRule", "Selection", "Snapshot", "latest_phase", "section_locations",
-           "archive", "archive_mode", "plan", "preview"]
+           "archive", "archive_mode", "plan", "preview", "restore"]

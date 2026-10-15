@@ -6,6 +6,10 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Add Git-aware archive recovery with a clean-chronicle guard and exact undo commands,
+  persistent byte-exact backups outside Git, and `archive restore <phase>` after later edits;
+  apply and restore share durable rollback across all record files.
+
 - Archive eligible P-NONE tasks and closed, reconciled assumptions, technical debt and trace events;
   load and retrieve those lifecycle records from phase archives while preserving their provenance.
 

@@ -285,7 +285,7 @@ def cmd_context(root: Path, args: argparse.Namespace) -> int:
 def cmd_archive(root: Path, args: argparse.Namespace) -> int:
     from . import archive, respond
 
-    action = args.phase if args.phase in ("plan", "apply") else "archive"
+    action = args.phase if args.phase in ("plan", "apply", "restore") else "archive"
     phase = args.selection if action != "archive" else args.phase
 
     def refused(code: str, message: str, *, written: bool = False) -> int:
@@ -299,13 +299,14 @@ def cmd_archive(root: Path, args: argparse.Namespace) -> int:
         return _fail(f"{code}: {message}")
 
     if not phase or (action == "archive" and args.selection):
-        return refused("invalid-selection", "use archive [plan|apply] <phase>")
+        return refused("invalid-selection", "use archive [plan|apply|restore] <phase>")
     if action == "apply" and not args.plan_digest:
         return refused("missing-plan", "archive apply requires --plan <digest>; run archive plan first")
     if action != "apply" and args.plan_digest is not None:
         return refused("invalid-option", "--plan requires archive apply <phase>")
     try:
         plan = (archive.preview(root, phase) if action == "plan" else
+                archive.restore(root, phase, dry_run=args.dry_run) if action == "restore" else
                 archive.archive(root, phase, dry_run=args.dry_run, digest=args.plan_digest))
     except archive.ArchiveError as error:
         return refused(error.code, str(error))
@@ -740,8 +741,8 @@ def build_parser() -> argparse.ArgumentParser:
         "archive",
         help="owner only: archive eligible lifecycle records for a COMPLETE phase or P-NONE (ADR-070)",
     )
-    shelve.add_argument("phase", help="a COMPLETE phase or P-NONE, or plan/apply followed by one")
-    shelve.add_argument("selection", nargs="?", help="phase for archive plan/apply, e.g. P3")
+    shelve.add_argument("phase", help="a COMPLETE phase or P-NONE, or plan/apply/restore followed by one")
+    shelve.add_argument("selection", nargs="?", help="phase for archive plan/apply/restore, e.g. P3")
     shelve.add_argument("--plan", dest="plan_digest", metavar="DIGEST",
                         help="apply only if the locked chronicle matches this plan digest")
     shelve.add_argument("--dry-run", action="store_true", help="show what would move; write nothing")
