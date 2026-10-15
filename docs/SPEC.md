@@ -378,7 +378,7 @@ owner's command and agents never run it (ADR-067, ADR-070).
 
 | Command | Effect |
 |---|---|
-| `archive plan <phase>` | Read-only. Per-record `moves`/`stays` with the reason, `changedFiles`, `createdFiles`, `mode`, `recovery` and a SHA-256 `digest` over every chronicle file, the phase, the mode and the version. |
+| `archive plan <phase>` | Read-only. Per-record `moves`/`stays` with the reason, `changedFiles`, `createdFiles`, `mode`, a `recovery` that is empty until `apply` or `restore` fills it, and a SHA-256 `digest` over every chronicle file, the phase, the mode and the version. |
 | `archive apply <phase> --plan <digest>` | Under the shared write lock, plans again and applies only if the digest matches (`stale-plan`); `missing-plan` without `--plan`. |
 | `archive <phase> [--dry-run]` | The one-step form: plan and apply without a digest. |
 | `archive restore <phase> [--dry-run]` | Returns every record in `archive/<phase>/` to the working files without checking eligibility; `id-collision` if an id already exists there, `unknown-archive` if there is nothing to return. |
@@ -390,7 +390,8 @@ owner's command and agents never run it (ADR-067, ADR-070).
 `COMPLETE` (`unknown-phase`, `incomplete-phase`). `archive` is refused unless the
 chronicle validates cleanly; `restore` validates the state it would write.
 
-**Eligibility** is evaluated once, when a move is made, on the phase axis only: a
+**Eligibility** is evaluated once, when `apply` (or the one-step form) runs, and not
+again by `restore` or `validate`, on the phase axis only: a
 task's phase is its module's, and its `Domain` never changes eligibility. No
 identifier prefix is ever interpreted.
 
@@ -414,13 +415,14 @@ recovery record, then read back: authored records must equal their originals
 except `source`, journal sections must equal byte for byte, and `validate` must
 introduce no error; otherwise everything is restored and the command reports
 `nothing was moved`. A process that dies mid-move is rolled back by the next
-write command. Derived facts equal the originals as sets; `events.recent` in
-`context` lists the last events in load order, so which of two events in
-different files comes last can differ.
+write command. Derived facts equal the originals as sets. `context` is not fully
+preserved: `events.recent` is the last five related events in load order
+(archives first, then the working file), and archiving regroups events across
+files, so both its order and its membership can change (§ benchmarks).
 
 **Recovery.** `mode` is `git` when the chronicle is in a Git work tree, none of
 its paths is ignored and no checkout conversion (`core.autocrlf`, `filter`,
-`eol`, `text`, `ident`, `working-tree-encoding`) applies; the chronicle must then
+`eol`, `text`, `crlf`, `ident`, `working-tree-encoding`) applies; the chronicle must then
 be clean (`dirty-chronicle`) and the result carries commands for the unstaged,
 staged and committed states (`git restore --source=HEAD`, `git rm --cached` for
 new files, `git revert <archive-commit>`), for POSIX sh and PowerShell. Otherwise

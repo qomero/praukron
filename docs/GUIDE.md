@@ -181,8 +181,10 @@ cannot edit an archived record; only `restore` brings one back.
   `compile && graph && dashboard`, never the archive. A move that cannot be
   verified is undone, byte for byte, before the command returns.
 
-**What moves.** Eligibility is checked once, when `apply` or `restore` runs, and
-only on the phase axis: a task's phase comes from its module (`P-NONE` for
+**What moves.** Eligibility is checked once, when `apply` (or the one-step
+`archive <phase>`) runs; `restore` never checks it again, and checks only that
+no id collides, that the journal order can be kept, and that the restored
+chronicle validates. Eligibility looks only at the phase axis: a task's phase comes from its module (`P-NONE` for
 phase-independent work), and `Domain: execution` or `operations` never changes
 it. No id prefix such as `T-OPS-` means anything to it.
 
@@ -224,17 +226,28 @@ return it in the `recovery` field of `--json`. Which one depends on the
 
 - **Git mode** is used when the chronicle is inside a Git work tree, none of its
   paths is ignored, and no checkout conversion could change its bytes
-  (`core.autocrlf`, `filter`, `eol`, `text`, `ident` or `working-tree-encoding`
+  (`core.autocrlf`, `filter`, `eol`, `text`, `crlf`, `ident` or `working-tree-encoding`
   attributes). The chronicle must be clean first: modified, staged or untracked
   files stop the command with `dirty-chronicle`. Commit them, then apply. After
   the move, undo it according to where it is:
-  - *unstaged:* `git restore --source=HEAD --worktree -- <changed files>`, then
-    delete the newly created archive files (the printed command does both);
-  - *staged:* the same with `--staged`, plus `git rm --cached` for the new files;
+  - *unstaged:* from the project root, `git restore --source=HEAD --worktree --
+    <recovery.changedTrackedFiles>`, then delete every file in
+    `recovery.createdFiles` (and any archive directory left empty);
+  - *staged:* the same with `--staged` added to the restore, and
+    `git rm --cached --ignore-unmatch -- <recovery.createdFiles>` before deleting
+    them;
   - *committed:* `git revert <archive-commit>`. The suggested commit message is
     `Archive <phase> chronicle records` (`Restore <phase> chronicle records`
     after a restore).
-  Each command is printed for POSIX sh and for PowerShell with exact paths.
+
+  The two lists are different and must stay apart. `recovery.changedTrackedFiles`
+  holds the existing files Git knows, as paths from the project root.
+  `recovery.createdFiles` holds the files the move created, which Git does not
+  know yet. The plan's top-level `changedFiles` (relative to `chronicle/`) holds
+  both, so passing it to `git restore` fails on the new archive paths: never use
+  it for recovery. The exact commands, in `recovery.commands.unstaged`, `.staged`
+  and `.committed` and printed for POSIX sh and for PowerShell, are the safest
+  way; they use the right list in each place.
 - **No-Git mode** is used otherwise, including when conversion could change
   bytes. Before writing, the command copies every original file byte for byte to
   `.praukron/backup/<UTC timestamp>-<id>/`, with a `manifest.json`, and prints a

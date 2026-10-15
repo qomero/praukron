@@ -79,6 +79,17 @@ class ArchiveDocs(unittest.TestCase):
         for fragment in ('"restore", "--source=HEAD"', '"--staged"', '"--cached"', '"revert"', "manifest.json"):
             self.assertIn(fragment, code)
 
+    def test_git_recovery_names_the_exact_result_fields_and_attributes(self):
+        guide, spec = doc("docs/GUIDE.md"), doc("docs/SPEC.md")
+        for fragment in ("recovery.changedTrackedFiles", "recovery.createdFiles", "never use"):
+            self.assertTrue(fragment in guide, fragment)
+        for text in (guide, spec):
+            self.assertTrue("`crlf`" in text and "`eol`" in text)
+        code = source()
+        for key in ('"changedTrackedFiles"', '"createdFiles"', b"crlf".decode()):
+            self.assertIn(key, code)
+        self.assertNotIn("eligibility is checked once, when `apply` or `restore`", guide.lower())
+
     def test_agents_block_states_owner_only_and_immutability_briefly(self):
         agents = doc("AGENTS.md")
         sentence = re.search(r"`archive plan\|apply\|restore <phase>`.*?\); and", agents, re.S).group(0)

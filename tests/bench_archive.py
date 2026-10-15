@@ -193,9 +193,11 @@ def render(runs: list[dict], meta: dict) -> str:
         out += [f"### {run['label']}", "",
                 f"Archived {len(run['archived'])} runs ({stats['records']} records moved; recovery mode "
                 f"`{'/'.join(stats['mode'])}`); apply took a median {statistics.median(stats['seconds']):.2f} s per run "
-                f"including the refresh. Archive files: {run['after']['archive_bytes']:,} bytes.", "",
-                "| Working file | Bytes before | Bytes after | Change | Agent reads: whole file (~tokens) | "
-                "Targeted append (~tokens) | Targeted edit (~tokens) |",
+                f"including the refresh. Archive files: {run['after']['archive_bytes']:,} bytes. "
+                f"The six measured working files total {sum(run['before'][n]['bytes'] for n in FILES if n in run['before']):,} "
+                f"bytes before and {sum(run['after'][n]['bytes'] for n in FILES if n in run['after']):,} after.", "",
+                "| Working file | Bytes before | Bytes after | Change | Whole-file read: bytes (~tokens) | "
+                "Targeted append read: bytes (~tokens) | Targeted edit read: bytes (~tokens) |",
                 "|---|---:|---:|---:|---:|---:|---:|"]
         for name in FILES:
             if name not in run["before"]:
@@ -203,7 +205,8 @@ def render(runs: list[dict], meta: dict) -> str:
             b, a = run["before"][name], run["after"][name]
             out.append(f"| `{name}` | {b['bytes']:,} | {a['bytes']:,} | {pct(b['bytes'], a['bytes'])} | "
                        f"{b['full']:,} → {a['full']:,} ({tokens(b['full']):,} → {tokens(a['full']):,}) | "
-                       f"{b['append']:,} → {a['append']:,} | {b['edit']:,} → {a['edit']:,} |")
+                       f"{b['append']:,} → {a['append']:,} ({tokens(b['append']):,} → {tokens(a['append']):,}) | "
+                       f"{b['edit']:,} → {a['edit']:,} ({tokens(b['edit']):,} → {tokens(a['edit']):,}) |")
         out += ["", "| Command | Before (range) | After (range) | Change in median |", "|---|---:|---:|---:|"]
         for name in ("compile", "validate"):
             b, a = run["time_before"][name], run["time_after"][name]

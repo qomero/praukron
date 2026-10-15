@@ -155,7 +155,8 @@ because Git mode requires a clean chronicle. It measures:
   blocked, work in progress, gates, phase progress, unresolved failures, owner
   responses awaiting reconciliation, open debt and assumptions) equal as sets;
   and `context <task>` and `retrieve` results for a sample of 25 records equal
-  record by record, apart from the `source` paths. The script exits 1 and lists
+  record by record, apart from the `source` paths and the order of `events.recent`
+  (see below). The script exits 1 and lists
   the failure before any figure if any of them differs, or if an archive step
   fails.
 
@@ -175,39 +176,39 @@ Failures, reported before any aggregate: none
 
 ### Git mode
 
-Archived 13 runs (248 records moved; recovery mode `git`); apply took a median 0.52 s per run including the refresh. Archive files: 268,437 bytes.
+Archived 13 runs (248 records moved; recovery mode `git`); apply took a median 0.59 s per run including the refresh. Archive files: 268,437 bytes. The six measured working files total 309,954 bytes before and 49,042 after.
 
-| Working file | Bytes before | Bytes after | Change | Agent reads: whole file (~tokens) | Targeted append (~tokens) | Targeted edit (~tokens) |
+| Working file | Bytes before | Bytes after | Change | Whole-file read: bytes (~tokens) | Targeted append read: bytes (~tokens) | Targeted edit read: bytes (~tokens) |
 |---|---:|---:|---:|---:|---:|---:|
-| `TASKS.md` | 54,979 | 3,654 | -93% | 54,979 → 3,654 (13,745 → 914) | 809 → 619 | 466 → 555 |
-| `ACCEPTANCE.md` | 187,709 | 16,481 | -91% | 187,709 → 16,481 (46,928 → 4,121) | 1,243 → 1,555 | 1,438 → 657 |
-| `JOURNAL.md` | 27,522 | 13,536 | -51% | 27,522 → 13,536 (6,881 → 3,384) | 1,123 → 745 | 743 → 749 |
-| `ASSUMPTIONS.md` | 8,420 | 6,085 | -28% | 8,420 → 6,085 (2,105 → 1,522) | 726 → 726 | 682 → 932 |
-| `TECH_DEBT.md` | 19,534 | 6,684 | -66% | 19,534 → 6,684 (4,884 → 1,671) | 1,529 → 1,110 | 1,201 → 1,196 |
-| `TRACE.md` | 11,790 | 2,602 | -78% | 11,790 → 2,602 (2,948 → 651) | 745 → 610 | 485 → 633 |
+| `TASKS.md` | 54,979 | 3,654 | -93% | 54,979 → 3,654 (13,745 → 914) | 809 → 619 (203 → 155) | 466 → 555 (117 → 139) |
+| `ACCEPTANCE.md` | 187,709 | 16,481 | -91% | 187,709 → 16,481 (46,928 → 4,121) | 1,243 → 1,555 (311 → 389) | 1,438 → 657 (360 → 165) |
+| `JOURNAL.md` | 27,522 | 13,536 | -51% | 27,522 → 13,536 (6,881 → 3,384) | 1,123 → 745 (281 → 187) | 743 → 749 (186 → 188) |
+| `ASSUMPTIONS.md` | 8,420 | 6,085 | -28% | 8,420 → 6,085 (2,105 → 1,522) | 726 → 726 (182 → 182) | 682 → 932 (171 → 233) |
+| `TECH_DEBT.md` | 19,534 | 6,684 | -66% | 19,534 → 6,684 (4,884 → 1,671) | 1,529 → 1,110 (383 → 278) | 1,201 → 1,196 (301 → 299) |
+| `TRACE.md` | 11,790 | 2,602 | -78% | 11,790 → 2,602 (2,948 → 651) | 745 → 610 (187 → 153) | 485 → 633 (122 → 159) |
 
 | Command | Before (range) | After (range) | Change in median |
 |---|---:|---:|---:|
-| `compile` (median of 9) | 0.22 s (0.21–0.28) | 0.23 s (0.22–0.23) | +1% |
-| `validate` (median of 9) | 0.20 s (0.19–0.20) | 0.20 s (0.19–0.21) | +0% |
+| `compile` (median of 9) | 0.24 s (0.22–0.56) | 0.24 s (0.23–0.24) | +0% |
+| `validate` (median of 9) | 0.21 s (0.20–0.21) | 0.20 s (0.20–0.23) | -2% |
 
 ### No-Git mode
 
-Archived 13 runs (248 records moved; recovery mode `nogit`); apply took a median 0.46 s per run including the refresh. Archive files: 268,437 bytes.
+Archived 13 runs (248 records moved; recovery mode `nogit`); apply took a median 0.48 s per run including the refresh. Archive files: 268,437 bytes. The six measured working files total 309,954 bytes before and 49,042 after.
 
-| Working file | Bytes before | Bytes after | Change | Agent reads: whole file (~tokens) | Targeted append (~tokens) | Targeted edit (~tokens) |
+| Working file | Bytes before | Bytes after | Change | Whole-file read: bytes (~tokens) | Targeted append read: bytes (~tokens) | Targeted edit read: bytes (~tokens) |
 |---|---:|---:|---:|---:|---:|---:|
-| `TASKS.md` | 54,979 | 3,654 | -93% | 54,979 → 3,654 (13,745 → 914) | 809 → 619 | 466 → 555 |
-| `ACCEPTANCE.md` | 187,709 | 16,481 | -91% | 187,709 → 16,481 (46,928 → 4,121) | 1,243 → 1,555 | 1,438 → 657 |
-| `JOURNAL.md` | 27,522 | 13,536 | -51% | 27,522 → 13,536 (6,881 → 3,384) | 1,123 → 745 | 743 → 749 |
-| `ASSUMPTIONS.md` | 8,420 | 6,085 | -28% | 8,420 → 6,085 (2,105 → 1,522) | 726 → 726 | 682 → 932 |
-| `TECH_DEBT.md` | 19,534 | 6,684 | -66% | 19,534 → 6,684 (4,884 → 1,671) | 1,529 → 1,110 | 1,201 → 1,196 |
-| `TRACE.md` | 11,790 | 2,602 | -78% | 11,790 → 2,602 (2,948 → 651) | 745 → 610 | 485 → 633 |
+| `TASKS.md` | 54,979 | 3,654 | -93% | 54,979 → 3,654 (13,745 → 914) | 809 → 619 (203 → 155) | 466 → 555 (117 → 139) |
+| `ACCEPTANCE.md` | 187,709 | 16,481 | -91% | 187,709 → 16,481 (46,928 → 4,121) | 1,243 → 1,555 (311 → 389) | 1,438 → 657 (360 → 165) |
+| `JOURNAL.md` | 27,522 | 13,536 | -51% | 27,522 → 13,536 (6,881 → 3,384) | 1,123 → 745 (281 → 187) | 743 → 749 (186 → 188) |
+| `ASSUMPTIONS.md` | 8,420 | 6,085 | -28% | 8,420 → 6,085 (2,105 → 1,522) | 726 → 726 (182 → 182) | 682 → 932 (171 → 233) |
+| `TECH_DEBT.md` | 19,534 | 6,684 | -66% | 19,534 → 6,684 (4,884 → 1,671) | 1,529 → 1,110 (383 → 278) | 1,201 → 1,196 (301 → 299) |
+| `TRACE.md` | 11,790 | 2,602 | -78% | 11,790 → 2,602 (2,948 → 651) | 745 → 610 (187 → 153) | 485 → 633 (122 → 159) |
 
 | Command | Before (range) | After (range) | Change in median |
 |---|---:|---:|---:|
-| `compile` (median of 9) | 0.22 s (0.22–0.27) | 0.23 s (0.22–0.23) | +3% |
-| `validate` (median of 9) | 0.19 s (0.19–0.20) | 0.20 s (0.19–0.21) | +4% |
+| `compile` (median of 9) | 0.23 s (0.22–0.30) | 0.24 s (0.23–0.26) | +4% |
+| `validate` (median of 9) | 0.19 s (0.19–0.20) | 0.20 s (0.20–0.21) | +4% |
 
 Reads are UTF-8 bytes of what an agent must read to edit the file: the whole file; the last section when appending; the median section when changing one record in place. Searches to locate a section are not counted. Times include Python start-up, the whole-chronicle load and, for `compile`, writing every compiled view. Parity compared authored records (except `source`), derived facts as sets, and `context` and `retrieve` results on a sample of records, before and after archiving.
 
@@ -230,11 +231,17 @@ Reads are UTF-8 bytes of what an agent must read to edit the file: the whole fil
   at this size (a quarter of a second, most of it interpreter start-up). The
   expectation was no change, and none was found. A saving in compile time is not
   claimed.
-- **One thing that does change.** `context <task>` reports `events.recent`, the
-  last few events in load order: working files first, then each archive. When a
-  task's events straddle two files, which of two events is listed last can differ
-  after archiving. The set is the same, and the parity check compares it as a
-  set.
+- **`context` is not fully preserved.** `context <task>` reports `events.recent`,
+  the last five related events in load order, and the loader reads each archive
+  first and the working file last. Archiving regroups events across those files, so
+  when a task has more than five related events split between records that move and
+  records that stay, both the order and the membership of that list can change
+  (a synthetic case in `tests/test_archive_parity.py` shows it: the list goes from
+  `EV-X7…EV-X11` to `EV-X3, X5, X7, X9, X11`, with validation clean). The parity
+  check on the real copy compared that list as a set over a sample of 25 records
+  and found no difference there; that is a statement about the sample, not a
+  guarantee. The case is recorded as an expected failure and reported as a defect in
+  the code, not worked around.
 - Not measured: real agent sessions; a chronicle much larger than this one; how
   the cost grows with many more phases; the Git mode on a repository with
   conversion attributes, which uses backups instead. Figures are one project on

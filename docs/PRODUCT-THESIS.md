@@ -303,8 +303,8 @@ history. Five mechanisms do it, and none involves a model.
   read back, undone if it differs, and recoverable through Git or a byte-exact
   backup. Archived records stay authority and the compiler still reads them, so
   it shortens what an agent reads to edit a working file but not compile time.
-  On a real 349 KB chronicle it cut `TASKS.md` by 93% and `ACCEPTANCE.md` by
-  91%, with `compile` and `validate` unchanged within noise (see
+  On a real chronicle whose six measured working files totalled 310 KB it cut
+  `TASKS.md` by 93% and `ACCEPTANCE.md` by 91% (those files to 49 KB in all), with `compile` and `validate` unchanged within noise (see
   [benchmarks](benchmarks.md)).
 - Structured writes cost the size of the record: a payload and a one-line result,
   where a direct edit first reads the file it edits. Measured figures, with their

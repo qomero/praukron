@@ -162,19 +162,70 @@ class ArchiveParity(unittest.TestCase):
         self.assertEqual(packets(self.root, after), reads)
         self.assertTrue(all(t.source.file == "TASKS.md" for t in after.tasks))
 
-    def test_journal_entries_round_trip_byte_for_byte(self):
-        def entries():
-            return archive._journal_entries(archive.Snapshot.capture(self.authority))
+    def journals(self):
+        """Every entry's exact bytes, by journal file then full heading."""
+        out = {}
+        for path in [self.authority / "JOURNAL.md", *sorted((self.authority / "archive").glob("*/JOURNAL.md"))]:
+            if path.is_file():
+                data = path.read_bytes().decode("utf-8")
+                out[path.relative_to(self.authority).as_posix()] = {
+                    heading: data[start:end] for heading, start, end in archive._journal_sections(data)}
+        return out
 
-        before = entries()
-        self.assertGreater(len(before), 10)
+    def test_journal_entries_round_trip_byte_for_byte(self):
+        before = self.journals()
+        self.assertEqual(list(before), ["JOURNAL.md"])
+        original = before["JOURNAL.md"]
+        self.assertGreater(len(original), 10)
         for phase in [*COMPLETE, "P-NONE"]:
             self.apply(phase)
-        archived = entries()
-        self.assertEqual(sorted(archived), sorted(before))
-        for phase in reversed(COMPLETE):
-            self.run_cli("restore", phase)
-        self.assertEqual(entries(), before)
+        moved = self.journals()
+        self.assertIn("archive/P1/JOURNAL.md", moved)
+        self.assertLess(len(moved["JOURNAL.md"]), len(original))
+        union = {}
+        for file, entries in moved.items():
+            for heading, section in entries.items():
+                self.assertNotIn(heading, union, heading)
+                union[heading] = section
+        self.assertEqual(union, original)  # no entry changed or was lost, wherever it now lives
+        for phase in ["P-NONE", *reversed(COMPLETE)]:
+            code, restored = self.run_cli("restore", phase)
+            self.assertEqual(code, 0, restored)
+        after = self.journals()
+        self.assertEqual(list(after), ["JOURNAL.md"])  # every archive journal emptied and removed
+        self.assertEqual(after["JOURNAL.md"], original)
+        self.assertEqual(list(after["JOURNAL.md"]), list(original))  # and in the original order
+
+
+class ContextRecentEvents(unittest.TestCase):
+    """KNOWN DEFECT (reported, not worked around): `context` changes after archiving.
+
+    `analytics._event_summary` takes the last five related events in load order, and
+    the loader reads archives before the working file. When a task's related events
+    are split between a movable task and a retained one, archiving changes which five
+    are listed. Authored records and validation are unaffected.
+    """
+
+    @unittest.expectedFailure
+    def test_recent_events_survive_archive_when_the_window_spans_files(self):
+        with tempfile.TemporaryDirectory(prefix="praukron-recent-") as scratch:
+            root = synth_chronicle.build(Path(scratch).resolve(), phases_count=PHASES)
+            trace = root / layout.AUTHORITY_DIR / "TRACE.md"
+            extra = "".join(
+                chr(10).join(["", f"## EV-X{i}: Extra {i}", "- Type: command",
+                           f"- Task: {'T-P1-01' if i % 2 == 0 else 'T-P6-01'}",
+                           "- Outcome: success", "- Affects: T-P1-01", ""])
+                for i in range(12))
+            trace.write_text(trace.read_text(encoding="utf-8") + extra, encoding="utf-8")
+
+            def recent():
+                return analytics.context(compiler.load(root), "T-P1-01")["events"]["recent"]
+
+            before = recent()
+            plan = archive.preview(root, "P1")
+            archive.archive(root, "P1", digest=plan.digest)
+            self.assertEqual(validate.errors(validate.check(compiler.load(root))), [])
+            self.assertEqual(recent(), before)
 
 
 class ArchiveParityCrlf(ArchiveParity):
