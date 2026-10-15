@@ -503,6 +503,29 @@ class TestArchiveApply(ArchivePlanCase):
         self.assertEqual(findings["invalid-journal-heading"].severity, "error")
         self.assertEqual(findings["unknown-journal-reference"].severity, "warning")
 
+    def test_validate_reports_case_mismatched_archive_record_filenames(self):
+        archive.archive(self.root, "P1")
+        captured = archive.Snapshot.capture(self.authority)
+        files = dict(captured.files)
+        task_bytes = files.pop("archive/P1/TASKS.md")
+        files["archive/P1/tasks.md"] = b"\xffignored by a case-sensitive loader"
+        sensitive = archive.Snapshot(files, captured.directories)
+        project = compiler.load(self.root, authority=sensitive.path())
+        findings = validate.check(project, snapshot=sensitive)
+        mismatch = [f for f in findings if f.code == "case-mismatched-archive-filename"]
+        self.assertEqual(len(mismatch), 1)
+        self.assertEqual(mismatch[0].severity, "warning")
+        self.assertIn("TASKS.md", mismatch[0].message)
+
+        files["archive/P1/tasks.md"] = task_bytes
+        insensitive = archive.Snapshot(
+            files, captured.directories, frozenset({"archive/P1"}),
+            {("archive/P1", "tasks.md"): "tasks.md"},
+        )
+        project = compiler.load(self.root, authority=insensitive.path())
+        findings = validate.check(project, snapshot=insensitive)
+        self.assertFalse(any(f.code == "case-mismatched-archive-filename" for f in findings))
+
     def test_validate_ignores_unreadable_nonrecord_and_reports_archive_input_errors(self):
         stray = self.authority / "attachments/locked.bin"
         stray.parent.mkdir()

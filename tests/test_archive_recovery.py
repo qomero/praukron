@@ -624,6 +624,12 @@ class TestArchiveRestore(RecoveryCase):
                     "- Via: test\n\n> Confirmed again.\n")
         path = self.authority / "RESPONSES.md"
         path.write_text(path.read_text(encoding="utf-8") + response, encoding="utf-8")
+        trace = self.authority / "TRACE.md"
+        trace.write_text(trace.read_text(encoding="utf-8") +
+                         "\n## EV-LATER: Follow-up\n- Type: note\n- Task: T-ONE\n"
+                         "- Affects: A-CLOSED, TD-CLOSED, EV-CLOSED\n", encoding="utf-8")
+        self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+        archive.restore(self.root, "P1")
         self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
 
     def test_collision_and_traversal_refused_without_writes(self):

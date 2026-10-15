@@ -149,6 +149,9 @@ def trace_findings(project: Project) -> list[Finding]:
         | {d.id for d in project.decisions}
         | set(project.contracts)
         | {c.id for contract in project.contracts.values() for c in contract.criteria}
+        | {a.id for a in project.assumptions}
+        | {d.id for d in project.debts}
+        | {e.id for e in project.events}
     )
     event_ids = {e.id for e in project.events}
     for event in project.events:
@@ -411,10 +414,12 @@ def archive_findings(project: Project, snapshot: Snapshot | None = None) -> list
     """Archive paths and placement that the normal record parsers cannot express."""
     from .archive import RECORD_RULES
 
-    allowed = {rule.filename.casefold() for rule in RECORD_RULES}
+    allowed = {rule.filename.casefold(): rule.filename for rule in RECORD_RULES}
     findings: list[Finding] = []
     if snapshot is not None:
-        names = [name for name in snapshot.files
+        names = [(name, snapshot.resolve(f"{ARCHIVE_DIR}/{name.split('/')[1]}/"
+                                        f"{allowed.get(name.split('/')[2].casefold(), '')}") == name)
+                 for name in snapshot.files
                  if len(name.split("/")) == 3
                  and name.split("/")[0].casefold() == ARCHIVE_DIR
                  and name.split("/")[2].casefold().endswith(".md")]
@@ -444,16 +449,22 @@ def archive_findings(project: Project, snapshot: Snapshot | None = None) -> list
                     continue
                 try:
                     if record.is_file():
-                        names.append(record.relative_to(archive_root.parent).as_posix())
+                        expected = phase / allowed.get(record.name.casefold(), "")
+                        names.append((record.relative_to(archive_root.parent).as_posix(),
+                                      expected.is_file() and expected.samefile(record)))
                 except OSError as error:
                     where = record.relative_to(archive_root.parent).as_posix()
                     findings.append(Finding("error", "invalid-archive-input",
                                             f"cannot inspect archive inputs: {error}", where))
-    for name in names:
+    for name, parsed in names:
         parts = name.split("/")
-        if parts[2].casefold() not in allowed:
+        expected = allowed.get(parts[2].casefold())
+        if expected is None:
             findings.append(Finding("error", "invalid-archive-file",
                                     "archive files must be known record files under archive/<phase>/", name))
+        elif not parsed:
+            findings.append(Finding("warning", "case-mismatched-archive-filename",
+                                    f"loader expects archive/<phase>/{expected}; this file is ignored", name))
     for task in project.tasks:
         parts = task.source.file.split("/")
         if len(parts) == 3 and parts[0].casefold() == ARCHIVE_DIR and parts[1] != task.phase:
