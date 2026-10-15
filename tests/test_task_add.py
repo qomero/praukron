@@ -22,6 +22,7 @@ from test_praukron import FixtureCase
 class CreationCase(FixtureCase):
     def setUp(self):
         super().setUp()
+        self.root = self.root.resolve()
         self.authority = self.root / layout.AUTHORITY_DIR
         self.tasks = self.authority / "TASKS.md"
         self.acceptance = self.authority / "ACCEPTANCE.md"
