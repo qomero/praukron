@@ -300,7 +300,8 @@ the whole-chronicle check runs only on a real write. `--help`, and the
 
 **Pipeline.** Payload schema → governance rules → the target resolved by ID → one
 section built → the shared write lock (owner-checked, never reclaimed from a live
-holder) → a durable recovery record of the original bytes → atomic replacement →
+holder) → a durable recovery record of the original bytes, removed once the
+write commits with only the directory and ignore file it created → atomic replacement →
 `compile.load` and `validate` again → refresh of `INDEX.md`, the compiled views,
 the graphs and the dashboard. A write that introduces a validation error that
 was not already present is undone byte for byte and reported as
@@ -355,7 +356,11 @@ learn a revision for the first time, send sixteen zeros and read the refusal.
 "revision","validation":"passed","written":true,"refreshed":true}`; a dry run
 adds `dryRun` and `wouldWrite` and has `written:false`. A refusal is
 `{"ok":false,"operation","error":{"code","message","field"?,…},"written":false}`;
-the message names the rule and the next valid step (the two failures after a
+the message names the rule and the next valid step. A refusal of the payload's
+shape (`unknown-field`, `missing-field`, `misplaced-field` for a field beside
+the object it belongs in, with `expected` naming its place, `wrong-type`,
+`invalid-json`, `invalid-contract`, `empty-set`) also carries `example`, a
+minimal accepted payload built from the command's schema (the two failures after a
 commit, `lock-release-failed` and `refresh-failed`, carry `written:true`: the write
 stands and is not repeated). The exit status is 0 for a
 success (and for `--schema`), 1 for any refusal or failure, and 2 for a usage

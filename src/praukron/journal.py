@@ -14,8 +14,9 @@ SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
         "date": {"type": "string", "format": "date", "description": "YYYY-MM-DD; defaults to today"},
-        "title": {"type": "string", "minLength": 1, "description": "Non-empty, one line"},
-        "body": {"type": "string", "description": "Markdown without level one or two headings"},
+        "title": {"type": "string", "minLength": 1, "description": "Non-empty, one line", "examples": ["Progress"]},
+        "body": {"type": "string", "description": "Markdown without level one or two headings",
+                 "examples": ["Recorded the result."]},
     },
     "required": ["title", "body"],
 }
@@ -23,6 +24,7 @@ EXAMPLE = {"title": "Progress", "body": "Recorded the result."}
 
 
 SCHEMA["description"] = "\n".join(mutate.GUIDANCE["journal.append"])
+mutate.SCHEMAS["journal.append"] = (SCHEMA, ())
 
 
 def append(root: Path, payload: dict, *, dry_run: bool = False) -> dict:

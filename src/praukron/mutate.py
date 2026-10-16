@@ -84,9 +84,10 @@ GUIDANCE = {
 
 # The next valid step for refusals whose message does not already carry one.
 NEXT_STEP = {
-    "wrong-type": "send a JSON object whose fields have the types `--schema` shows",
-    "unknown-field": "remove it; `--schema` lists the supported fields",
-    "missing-field": "add it; `--schema` lists the required fields",
+    "wrong-type": "send a JSON object whose fields have the types `example` shows",
+    "unknown-field": "remove it; `example` is a minimal accepted payload and `--schema` lists every field",
+    "misplaced-field": "move it to where `example` shows it",
+    "missing-field": "add it; `example` is a minimal accepted payload",
     "invalid-value": "correct the named field (see `--schema`) and retry",
     "invalid-date": "use a real date written YYYY-MM-DD",
     "invalid-json": "send one valid JSON object without duplicate keys",
@@ -122,12 +123,65 @@ NEXT_STEP = {
 }
 
 
+# Each command registers its payload schema so a refusal can show an accepted payload,
+# with the dotted paths of the optional fields that payload needs beyond `required`.
+SCHEMAS: dict[str, tuple[dict, tuple[str, ...]]] = {}
+# Refusals about the payload's shape, which carry a minimal accepted payload.
+SHAPE_CODES = {"wrong-type", "unknown-field", "misplaced-field", "missing-field", "invalid-json",
+               "invalid-contract", "empty-set"}
+
+
+def example(schema: dict, paths: tuple[str, ...] = ()) -> dict:
+    """The smallest payload the schema accepts, built from the schema alone.
+
+    It holds the required fields and each dotted path in `paths`, valued by the
+    field's `examples`, its first enum value, or an empty value of its type.
+    """
+    properties = schema["properties"]
+    nested: dict[str, list[str]] = {}
+    for path in paths:
+        head, _, rest = path.partition(".")
+        if head in properties:
+            nested.setdefault(head, []).extend([rest] if rest else [])
+    names = set(schema.get("required", [])) | set(nested)
+    return {name: _example_value(spec, tuple(nested.get(name, ())))
+            for name, spec in properties.items() if name in names}
+
+
+def _example_value(spec: dict, paths: tuple[str, ...]):
+    if spec["type"] == "object" and "properties" in spec:
+        return example(spec, paths)
+    if "examples" in spec:
+        return spec["examples"][0]
+    if "enum" in spec:
+        return spec["enum"][0]
+    if spec.get("format") == "date":
+        return dt.date.today().isoformat()
+    return {"object": {}, "array": [], "boolean": False, "integer": 0, "number": 0}.get(spec["type"], "")
+
+
+def _nested_path(schema: dict, name: str) -> str | None:
+    """Where an unknown top-level field is defined further down, if anywhere."""
+    for key, spec in schema["properties"].items():
+        if spec.get("type") == "object" and "properties" in spec:
+            if name in spec["properties"]:
+                return f"{key}.{name}"
+            deeper = _nested_path(spec, name)
+            if deeper:
+                return f"{key}.{deeper}"
+    return None
+
+
 def refusal(operation: str, error: WriteError) -> dict:
     step = NEXT_STEP.get(error.code)
     detail = {"code": error.code, "message": f"{error}; {step}" if step else str(error)}
     if error.field is not None:
         detail["field"] = error.field
     detail.update(error.details)
+    if error.code in SHAPE_CODES and operation in SCHEMAS:
+        schema, needed = SCHEMAS[operation]
+        expected = detail.get("expected")
+        detail["example"] = example(schema, (*needed, *([expected] if expected else [])))
     return {"ok": False, "operation": operation, "error": detail, "written": False}
 
 
@@ -138,6 +192,11 @@ def validate_payload(payload: object, schema: dict) -> dict:
     properties = schema["properties"]
     for name in payload:
         if name not in properties:
+            nested = _nested_path(schema, name)
+            if nested:
+                parent = nested.rsplit(".", 1)[0]
+                raise WriteError("misplaced-field", f"{name} belongs inside {parent}, not beside it", name,
+                                 {"expected": nested})
             raise WriteError("unknown-field", f"unsupported field: {name}", name)
     for name in schema.get("required", []):
         if name not in payload:
@@ -314,11 +373,32 @@ def recover_write(root: Path) -> bool:
                     path.rmdir()
         except (KeyError, TypeError, ValueError, OSError) as failure:
             raise RespondError(f"cannot restore interrupted write: {failure}") from failure
-        record.unlink()
+        _discard_recovery(record)
     return True
 
 
+def _discard_recovery(record: Path) -> None:
+    """Remove a finished record, then whatever its own write created and nothing else.
+
+    A committed write so leaves nothing new for git status, while a recovery
+    directory or ignore file that existed before the write is kept.
+    """
+    try:
+        created = set(json.loads(record.read_text(encoding="utf-8")).get("created", []))
+    except (OSError, ValueError, AttributeError):
+        created = set()
+    record.unlink()
+    directory = record.parent
+    ignore = directory / ".gitignore"
+    if ("ignore" in created and {path.name for path in directory.iterdir()} == {".gitignore"}
+            and ignore.read_bytes() == _IGNORE):
+        ignore.unlink()
+    if "directory" in created and not any(directory.iterdir()):
+        directory.rmdir()
+
+
 recover_archive = recover_write
+_IGNORE = b"*\n"
 
 
 def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str = "archive", *,
@@ -326,10 +406,13 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
     """Persist originals before replacing any authoritative file."""
     root = root.resolve()
     directory = root / RECOVERY_DIR
+    # What this write creates, so discarding its record removes only that.
+    created = [] if directory.is_dir() else ["directory"]
     directory.mkdir(parents=True, exist_ok=True)
     ignore = directory / ".gitignore"
     if not ignore.is_file():
-        ignore.write_text("*\n", encoding="utf-8")
+        ignore.write_bytes(_IGNORE)
+        created.append("ignore")
     record = directory / f"{prefix}-{time.time_ns()}.json"
     files = []
     for number, (path, original) in enumerate(originals.items()):
@@ -342,6 +425,8 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
             item["bytes"] = base64.b64encode(original).decode("ascii")
         files.append(item)
     payload = {"files": files}
+    if created:
+        payload["created"] = created
     if directories:
         payload["directories"] = [path.resolve().relative_to(root).as_posix() for path in directories]
     _replace(record, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
@@ -429,7 +514,7 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
                 if introduced:
                     detail = "; ".join(f"{code}: {message}" for code, _, message in sorted(introduced))
                     raise WriteError("validation-failed", f"nothing was written: {detail}")
-                recovery.unlink()
+                _discard_recovery(recovery)
                 result["written"] = True
             except Exception:
                 recover_write(root)

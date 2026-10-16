@@ -12,10 +12,10 @@ from .model import DOMAINS, TASK_AUTHORITIES, VALIDATIONS, Project
 SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
-        "id": {"type": "string", "description": "T- identifier"},
-        "title": {"type": "string", "minLength": 1},
-        "module": {"type": "string"},
-        "domain": {"type": "string", "enum": list(DOMAINS)},
+        "id": {"type": "string", "description": "T- identifier", "examples": ["T-NEW"]},
+        "title": {"type": "string", "minLength": 1, "examples": ["New work"]},
+        "module": {"type": "string", "examples": ["M-FOUNDATION"]},
+        "domain": {"type": "string", "enum": list(DOMAINS), "examples": ["execution"]},
         "dependencies": {"type": "array", "description": "Task IDs"},
         "validation": {"type": "string", "enum": [v for v in VALIDATIONS if v != "HUMAN_VERIFIED"]},
         "governedBy": {"type": "array", "description": "ADR IDs"},
@@ -35,6 +35,7 @@ EXAMPLE = {
 
 
 SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.add"]) + "\nPAYLOAD: give exactly one of contract (a new definition) and ac (an existing contract ID)"
+mutate.SCHEMAS["task.add"] = (SCHEMA, ("contract",))
 
 
 def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:

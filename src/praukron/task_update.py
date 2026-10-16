@@ -15,17 +15,19 @@ from .parse import _fields
 SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
-        "id": {"type": "string", "minLength": 1, "description": "Task id, e.g. T-EXAMPLE-01"},
+        "id": {"type": "string", "minLength": 1, "description": "Task id, e.g. T-EXAMPLE-01", "examples": ["T-EXAMPLE-01"]},
         "expectRevision": {"type": "string", "minLength": 16,
-                           "description": "16 hex revision of the task section, from the last result or a stale-revision refusal"},
+                           "description": "16 hex revision of the task section, from the last result or a stale-revision refusal",
+                           "examples": ["0123456789abcdef"]},
         "set": {
             "type": "object", "additionalProperties": False,
             "properties": {
-                "status": {"type": "string", "enum": ["TODO", "WIP", "DONE", "BLOCKED"]},
-                "owner": {"type": "string", "minLength": 1, "description": "One line"},
+                "status": {"type": "string", "enum": ["TODO", "WIP", "DONE", "BLOCKED"], "examples": ["WIP"]},
+                "owner": {"type": "string", "minLength": 1, "description": "One line", "examples": ["worker"]},
                 "claimed": {"type": "string", "format": "date", "description": "YYYY-MM-DD"},
                 "evidence": {"type": "string", "minLength": 1,
-                             "description": "Single spaces, no blank line, no leading or trailing em dash; caller line breaks become spaces; the text is re-wrapped"},
+                             "description": "Single spaces, no blank line, no leading or trailing em dash; caller line breaks become spaces; the text is re-wrapped",
+                             "examples": ["unit tests pass"]},
                 "validation": {"type": "string", "enum": [v for v in VALIDATIONS if v != "HUMAN_VERIFIED"],
                                "description": "Validation strength; HUMAN_VERIFIED is never set by a command"},
             },
@@ -47,6 +49,7 @@ _WIDTH = 100
 
 
 SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"])
+mutate.SCHEMAS["task.update"] = (SCHEMA, ("set.status", "set.owner"))
 
 
 def _lines(name: str, value: str, single: bool) -> list[str]:

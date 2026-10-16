@@ -23,6 +23,14 @@ people arriving from a release page.
   id they span; `unknown-journal-reference` names only the members that do not exist, and a range that cannot be
   read (different stems or tail widths, backwards, non-numeric, or more than 100 ids) is one warning naming it.
   Archive journal eligibility reads the same expansion, so an entry moves only when every member is archived.
+- **Writes take fewer turns.** `AGENTS.md` now gives a one-line minimal payload for each write command,
+  tested against a synthetic chronicle. It says the commands validate and refresh every view themselves, so
+  `validate` and `compile && graph && dashboard` follow only a direct edit, and that a write naming its record
+  may go straight to `context <task>`. A payload refused for its shape carries `example`, a minimal accepted
+  payload built from the command's schema. A field beside the object it belongs in, such as `status` beside
+  `set`, is refused as `misplaced-field` and shown in its place. `--schema` gains the `examples` annotation.
+  Writes no longer leave `__pycache__` under `.praukron/runtime`, and a committed write removes its recovery
+  record and only the recovery directory and ignore file it created (T-WRITE-GUIDE-01, T-WRITE-REFUSAL-01).
 
 ## 2.0.0 — 2026-10-16
 

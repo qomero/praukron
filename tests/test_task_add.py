@@ -503,7 +503,9 @@ class TestCreationCLI(CreationCase):
                 self.assert_valid()
 
     def test_published_schemas_only_use_supported_validation_keywords(self):
-        supported = {"type", "properties", "additionalProperties", "required", "enum", "minLength", "description"}
+        # `examples` is an annotation: it feeds the accepted payload a refusal carries.
+        supported = {"type", "properties", "additionalProperties", "required", "enum", "minLength", "description",
+                     "examples"}
 
         def check(schema):
             self.assertLessEqual(set(schema), supported)

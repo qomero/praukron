@@ -22,19 +22,21 @@ CRITERION_SCHEMA = {
 DEFINITION_SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
-        "id": {"type": "string", "description": "AC-T- identifier"},
-        "title": {"type": "string", "minLength": 1},
+        "id": {"type": "string", "description": "AC-T- identifier", "examples": ["AC-T-NEW"]},
+        "title": {"type": "string", "minLength": 1, "examples": ["New work"]},
         "inherits": {"type": "array", "description": "Contract IDs"},
-        "criteria": {"type": "array", "description": "Non-empty list of {text: one-line paragraph, class: TEST|MUTATION|INSPECTION|RUNTIME|MANUAL}"},
+        "criteria": {"type": "array", "description": "Non-empty list of {text: one-line paragraph, class: TEST|MUTATION|INSPECTION|RUNTIME|MANUAL}",
+                     "examples": [[{"text": "Given a request, When it runs, Then it succeeds.", "class": "TEST"}]]},
     },
     "required": ["id", "title", "criteria"],
 }
 SCHEMA = {
     **DEFINITION_SCHEMA,
     "properties": {
-        **DEFINITION_SCHEMA["properties"], "task": {"type": "string"},
+        **DEFINITION_SCHEMA["properties"], "task": {"type": "string", "examples": ["T-NEW"]},
         "expectTaskRevision": {"type": "string",
-                               "description": "Observed task revision: 16 lowercase hex characters"},
+                               "description": "Observed task revision: 16 lowercase hex characters",
+                               "examples": ["0123456789abcdef"]},
     },
     "required": [*DEFINITION_SCHEMA["required"], "task", "expectTaskRevision"],
 }
@@ -46,6 +48,7 @@ EXAMPLE = {
 
 
 SCHEMA["description"] = "\n".join(mutate.GUIDANCE["contract.add"])
+mutate.SCHEMAS["contract.add"] = (SCHEMA, ())
 
 
 def single_line(value: str, field: str) -> None:
