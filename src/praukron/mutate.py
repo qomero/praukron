@@ -553,15 +553,16 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
                 if resolved in changes:
                     raise WriteError("duplicate-target", "multiple changes resolve to the same chronicle file")
                 changes[resolved] = data
-            result = {"ok": True, "operation": operation, "validation": "passed",
-                      "written": False, "refreshed": False}
             if plan.results is None:
                 name, anchor = plan.source.split("#", 1)
                 target = (root / AUTHORITY_DIR / name).resolve()
-                result.update(recordId=plan.record_id, source=plan.source,
-                              revision=section(changes[target], anchor).revision)
+                result = {"ok": True, "operation": operation, "recordId": plan.record_id,
+                          "source": plan.source, "revision": section(changes[target], anchor).revision,
+                          "validation": "passed", "written": False, "refreshed": False}
             else:
-                result.update(results=plan.results, revisions=plan.revisions)
+                result = {"ok": True, "operation": operation, "results": plan.results,
+                          "revisions": plan.revisions, "validation": "passed",
+                          "written": False, "refreshed": False}
             if plan.proposed is not None:
                 introduced = _errors(plan.proposed) - before
                 if introduced:
