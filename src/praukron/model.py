@@ -113,6 +113,23 @@ class Contract:
 
 
 @dataclass
+class ChangeRequest:
+    """An Acceptance Change Request from the log in ACCEPTANCE.md (ADR-076)."""
+
+    id: str
+    number: int
+    criterion: str
+    current: str | None
+    proposed: str | None
+    decision: str
+    source: Source
+
+    @property
+    def accepted(self) -> bool:
+        return self.decision.startswith("ACCEPTED")
+
+
+@dataclass
 class Schedule:
     start: str | None = None
     end: str | None = None
@@ -156,6 +173,8 @@ class Task:
     legacy_phase: str | None = None
     # `owner` marks work only a named person can finish (ADR-054).
     authority: str | None = None
+    # The contract's fingerprint from when the task became WIP (ADR-078), as authored.
+    frozen: str | None = None
 
     @property
     def owner_held(self) -> bool:
@@ -510,6 +529,7 @@ class Project:
     responses: list[Response] = field(default_factory=list)
     conventions: list[Convention] = field(default_factory=list)
     briefs: list[Brief] = field(default_factory=list)
+    change_requests: list[ChangeRequest] = field(default_factory=list)
     # Exact bytes parsed for writable records; never serialized into compiled views.
     record_bytes: dict[str, bytes] = field(default_factory=dict, repr=False, compare=False)
     journal_validation: list[Finding] | None = field(default=None, repr=False, compare=False)

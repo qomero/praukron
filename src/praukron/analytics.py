@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import layout
+from . import freeze, layout
 import re
 
 from .model import EXERCISED_CLASSES, RESPONSE_STATUS, Obstacle, Project, Task
@@ -1008,6 +1008,7 @@ def _problems(project: Project, task) -> list[str]:
     else:
         problems += [f"inherited contract {name} is not in ACCEPTANCE.md"
                      for name in contract.inherits if name not in project.contracts]
+    problems += [f"{code}: {message}" for code, message in freeze.differences(project, task)]
     return problems
 
 

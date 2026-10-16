@@ -14,6 +14,7 @@ from .snapshot import glob_paths
 from .model import (
     Assumption,
     Brief,
+    ChangeRequest,
     Contract,
     Convention,
     Criterion,
@@ -166,6 +167,7 @@ def parse_tasks(path: Path, modules: list[Module] | None = None, name: str | Non
                 module=module_id,
                 legacy_phase=legacy_phase,
                 authority=(fields.get("Authority") or "").strip().lower() or None,
+                frozen=fields.get("Frozen") or None,
             )
         )
     return tasks
@@ -241,6 +243,28 @@ def parse_acceptance(path: Path, name: str | None = None) -> dict[str, Contract]
             source=Source(name, contract_id),
         )
     return contracts
+
+
+def parse_change_requests(path: Path, name: str | None = None) -> list[ChangeRequest]:
+    """The `### ACR-<n>` records of an ACCEPTANCE.md log (ADR-076). A record
+    missing a field is kept with that field empty; nothing here is required."""
+    name = name or path.name
+    found: list[ChangeRequest] = []
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "###"):
+        match = re.match(r"(ACR-([0-9]+))\b", heading)
+        if not match:
+            continue
+        fields = _fields(body)
+        found.append(ChangeRequest(
+            id=match.group(1),
+            number=int(match.group(2)),
+            criterion=(fields.get("Criterion") or "").strip("`").strip(),
+            current=_named(fields.get("Current contract")),
+            proposed=_named(fields.get("Proposed contract")),
+            decision=(fields.get("Decision") or "").strip(),
+            source=Source(name, match.group(1)),
+        ))
+    return found
 
 
 def _block(body: str, label: str) -> str:

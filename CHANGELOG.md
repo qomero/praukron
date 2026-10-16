@@ -40,6 +40,12 @@ people arriving from a release page.
   in order under one lock with one validation and one refresh, all or nothing. A record's revision read before the batch
   serves every operation on it, so recording several criteria needs no revision round trip per criterion (T-WRITE-BATCH-01).
 - Task context, explain and retrieve carry write revisions; task packets report whether DONE is allowed and why.
+- **`validate` detects a frozen criterion changed by hand** (ADR-078). `task update` records a `Frozen:`
+  fingerprint of each criterion's id, class and text when a task becomes `WIP`. `validate`, `compile`, the
+  write commands and `context` report a `WIP` or `DONE` task whose criterion text or class changed, or whose
+  criteria were added or removed, naming the task and criterion; state and evidence are not covered. Accepted
+  Acceptance Change Requests are replayed, so an accepted change applied in place passes. Tasks without a
+  fingerprint are not checked, so existing chronicles upgrade without errors (T-WRITE-FREEZE-01).
 
 ## 2.0.0 — 2026-10-16
 

@@ -462,7 +462,9 @@ $ echo '{"id":"T-DOCS-01","expectRevision":"9101852277a8233c","set":{"status":"W
 
 `WIP` dates the claim. The task's contract is now frozen: `contract add` for it
 is refused with `frozen-contract`, and no command changes a criterion's text or
-class. A criterion's state and evidence stay writable.
+class. The task gains a `Frozen:` line, a fingerprint of each criterion, so a
+hand edit of a criterion's text or class, or an added or removed criterion,
+fails `validate` (ADR-078). A criterion's state and evidence stay writable.
 
 Two more fields can be set in the same way (ADR-074). `{"id":"T-DOCS-01",
 "expectRevision":"<revision>","set":{"validation":"AI_REVIEWED"}}` records a
