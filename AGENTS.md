@@ -64,7 +64,7 @@ people a state the chronicle no longer holds. The tool writes only: the generate
 `respond` (the owner's responses); `archive plan|apply|restore <phase>` (owner
 only: moves a COMPLETE phase's, or P-NONE's, eligible closed records, verbatim,
 into `chronicle/archive/<phase>/`, where they stay authority and the write
-commands cannot change them; `RESPONSES.md`, `COORDINATION.md` and ADRs never move); and five validated, atomic structured writes (ADR-068, amended by ADR-074). Use these
+commands cannot change them; `RESPONSES.md`, `COORDINATION.md` and ADRs never move); and six validated, atomic structured writes (ADR-068, amended by ADR-074, ADR-076). Use these
 instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 
 ```sh
@@ -73,6 +73,7 @@ instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 .praukron/praukron task add --input -         # a task and its new contract
 .praukron/praukron contract add --input -     # the contract of a TODO task
 .praukron/praukron task update --input -      # status, owner, claimed, evidence, validation (never HUMAN_VERIFIED), addGovernedBy (ADR-074)
+.praukron/praukron acr add --input -          # an Acceptance Change Request for a frozen criterion
 ```
 
 Minimal payloads, accepted as written once `<rev>` is the record's revision:
@@ -83,6 +84,7 @@ criterion set   {"criterion":"AC-T-1-01","state":"PASS","evidence":"unit tests p
 task add        {"id":"T-2","title":"Export","module":"M-CORE","domain":"execution","dependencies":[],"contract":{"id":"AC-T-2","title":"Export","criteria":[{"text":"Given data, When exported, Then a file exists.","class":"TEST"}]}}
 contract add    {"task":"T-3","expectTaskRevision":"<rev>","id":"AC-T-3","title":"Import","criteria":[{"text":"Given a file, When imported, Then its rows load.","class":"TEST"}]}
 task update     {"id":"T-1","expectRevision":"<rev>","set":{"status":"WIP","owner":"agent","claimed":"2026-10-16"}}
+acr add         {"task":"T-4","criterion":"AC-T-4-01","proposed":"Given a file, When saved, Then it is valid.","reason":"Untestable as written."}
 ```
 
 Each validates before and after it writes and refreshes every compiled view
@@ -95,7 +97,8 @@ refused with the current revision to retry with (send 16 zeros to learn it).
 `criterion set` records state and evidence on any task's criteria, `WIP`
 included. The commands never set `HUMAN_VERIFIED`, close an `Authority: owner`
 task, change a criterion's text or class, add a contract once the task is `WIP`
-or `DONE` (raise an Acceptance Change Request), or touch `archive/`.
+or `DONE` (raise an Acceptance Change Request with `acr add`), decide a request, or
+touch `archive/`.
 
 For any other direct edit of a chronicle file, do not read the whole file. Read
 only the record you change: locate its `## <id>` heading (a search for the id),

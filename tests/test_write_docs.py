@@ -17,6 +17,7 @@ from praukron import cli, mutate
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = (
     ("journal", "append"), ("criterion", "set"), ("task", "add"), ("contract", "add"), ("task", "update"),
+    ("acr", "add"),
 )
 PARTS = ("WHEN:", "WHEN NOT:", "RETURNS:", "EXAMPLE:")
 
@@ -65,7 +66,8 @@ def schema_output(*command: str) -> dict:
 
 # Codes whose message already names the next step where it is raised.
 INLINE_STEP = {"stale-revision", "frozen-contract", "owner-held", "owner-required", "unresolved-acceptance",
-               "evidence-required", "duplicate-heading", "locked", "interrupted-write", "missing-input"}
+               "evidence-required", "duplicate-heading", "locked", "interrupted-write", "missing-input",
+               "duplicate-request"}
 
 
 class RefusalText(unittest.TestCase):
@@ -82,7 +84,7 @@ class RefusalText(unittest.TestCase):
 
     def test_every_refusal_code_has_a_next_step(self):
         codes = set()
-        for name in ("mutate", "journal", "criterion", "task", "contract", "task_update", "cli"):
+        for name in ("mutate", "journal", "criterion", "task", "contract", "task_update", "acr", "cli"):
             source = (ROOT / "src" / "praukron" / f"{name}.py").read_text(encoding="utf-8")
             codes |= set(re.findall(r'WriteError\(\s*"([a-z-]+)"', source))
         missing = codes - set(mutate.NEXT_STEP) - INLINE_STEP

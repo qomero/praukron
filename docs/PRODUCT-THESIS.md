@@ -175,10 +175,10 @@ inside `chronicle/` is a short list, and each entry is validated and governed:
 - the owner's answers, appended to `RESPONSES.md` by `respond` (ADR-055);
 - `archive`, which moves a closed phase's records verbatim into
   `archive/<phase>/` and back, only when the owner asks (ADR-067, ADR-070);
-- five structured writes, `journal append`, `criterion set`, `task add`,
-  `contract add` and `task update`, which check the rules before and after,
+- six structured writes, `journal append`, `criterion set`, `task add`,
+  `contract add`, `task update` and `acr add`, which check the rules before and after,
   refuse stale revisions, and undo themselves byte for byte on any new
-  validation error (ADR-068, ADR-069).
+  validation error (ADR-068, ADR-069, ADR-076).
 
 Nothing else is written. People and agents may still edit the Markdown by hand;
 the parser stays the single definition of the format.

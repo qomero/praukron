@@ -359,6 +359,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron contract add --input -` | Give a `TODO` task its acceptance contract. |
 | `praukron criterion set --input -` | Record one criterion's state and one-line evidence. |
 | `praukron journal append --input -` | Append one dated journal entry; a repeat is refused. |
+| `praukron acr add --input -` | Record an Acceptance Change Request against a frozen criterion, for the owner to decide (ADR-076). |
 | `praukron codegraph status` | Optional: whether CodeGraph is available to add code structure after the records. |
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
@@ -366,7 +367,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron dashboard` | The local page above, in six tabs: overview, execution, graph, governance, decisions, all tasks. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
 
-The five write commands take a JSON payload (`--schema` prints it, `--dry-run`
+The six write commands take a JSON payload (`--schema` prints it, `--dry-run`
 previews), validate before and after, and refuse stale revisions; agents use them
 instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`. See the
 [guide](docs/GUIDE.md#writing-records-without-editing-files).

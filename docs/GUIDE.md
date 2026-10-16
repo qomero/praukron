@@ -353,8 +353,8 @@ alone, so retain its history and backups.
 
 ### Writing records without editing files
 
-Agents record tasks, criterion results, status changes and journal entries with
-five commands. Each reads a small JSON payload and prints one JSON line, so the
+Agents record tasks, criterion results, status changes, journal entries and
+Acceptance Change Requests with six commands. Each reads a small JSON payload and prints one JSON line, so the
 cost of a write follows the size of the record, not of `TASKS.md` or
 `ACCEPTANCE.md` ([SPEC §2.6](SPEC.md#26-structured-writes), measured in
 [benchmarks](benchmarks.md)). `--schema` prints a command's payload and an
@@ -484,6 +484,22 @@ $ echo '{"date":"2026-10-15","title":"Progress","body":"Wrote the guide."}' | pr
 $ echo '{"date":"2026-10-15","title":"Progress","body":"Wrote the guide."}' | praukron journal append --input -
 {"ok":false,"operation":"journal.append","error":{"code":"duplicate-heading","message":"journal heading already exists: 2026-10-15 \u2014 Progress; the entry is already recorded, or change the title or date"},"written":false}
 ```
+
+**7. Ask to change a frozen criterion.** `T-DOCS-01` is `DONE`, so its
+contract is frozen. `acr add` records an Acceptance Change Request for the owner
+and leaves the criterion as it is. The tool assigns the id, and a second
+undecided request for the same criterion is refused.
+
+```console
+$ echo '{"task":"T-DOCS-01","criterion":"AC-T-DOCS-01-01","proposed":"Given a refused write, When the guide is read, Then the next step and its command are clear.","reason":"Naming the step without its command still costs a lookup."}' | praukron acr add --input -
+{"ok":true,"operation":"acr.add","recordId":"ACR-001","source":"ACCEPTANCE.md#ACR-001","revision":"43ec7fe3e6d22d2a","validation":"passed","written":true,"refreshed":true}
+
+$ echo '{"task":"T-DOCS-01","criterion":"AC-T-DOCS-01-01","proposed":"Given a refused write, When the guide is read, Then the next step and its command are clear.","reason":"Naming the step without its command still costs a lookup."}' | praukron acr add --input -
+{"ok":false,"operation":"acr.add","error":{"code":"duplicate-request","message":"ACR-001 for AC-T-DOCS-01-01 is still undecided; wait for the owner's decision, or add to that request by hand","field":"criterion","openRequest":"ACR-001"},"written":false}
+```
+
+The owner decides by editing the request's `Decision:` line, and edits the
+criterion only if the request is accepted.
 
 A refusal changes nothing and exits 1. If a write succeeds but its refresh
 fails (`"written":true,"refreshed":false`), do not repeat it; run

@@ -726,7 +726,7 @@ def build_parser() -> argparse.ArgumentParser:
     write_options(append_entry, "journal.append")
     append_entry.set_defaults(handler=cmd_journal_append, write_operation="journal.append")
 
-    from . import contract, task
+    from . import acr, contract, task
 
     tasks = subparsers.add_parser("task", help="structured task writes")
     task_commands = tasks.add_subparsers(dest="task_command", required=True)
@@ -747,6 +747,11 @@ def build_parser() -> argparse.ArgumentParser:
     set_criterion = criterion_commands.add_parser("set", help="set one criterion state and evidence")
     write_options(set_criterion, "criterion.set")
     set_criterion.set_defaults(handler=cmd_criterion_set, write_operation="criterion.set")
+    requests = subparsers.add_parser("acr", help="record Acceptance Change Requests")
+    request_commands = requests.add_subparsers(dest="acr_command", required=True)
+    add_request = request_commands.add_parser("add", help="record a change request against a frozen criterion")
+    write_options(add_request, "acr.add")
+    add_request.set_defaults(handler=acr.command, write_operation="acr.add")
 
     answer = subparsers.add_parser(
         "respond", help="append the owner's response to RESPONSES.md"

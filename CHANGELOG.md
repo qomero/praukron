@@ -31,6 +31,11 @@ people arriving from a release page.
   `set`, is refused as `misplaced-field` and shown in its place. `--schema` gains the `examples` annotation.
   Writes no longer leave `__pycache__` under `.praukron/runtime`, and a committed write removes its recovery
   record and only the recovery directory and ignore file it created (T-WRITE-GUIDE-01, T-WRITE-REFUSAL-01).
+- **`acr add` records an Acceptance Change Request** (ADR-076). For a criterion of a `WIP` or `DONE` task's
+  own contract, it appends a `### ACR-<n>` record to the `## Acceptance Change Requests` log of `ACCEPTANCE.md`,
+  with the template's seven fields and `Decision: PENDING`. The tool assigns the id. The criterion never changes, and
+  the owner still decides the request. A `TODO` task, an inherited invariant, an unknown task or criterion, and a
+  second undecided request for the same criterion are refused (T-WRITE-ACR-01).
 
 ## 2.0.0 — 2026-10-16
 
