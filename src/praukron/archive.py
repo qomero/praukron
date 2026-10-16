@@ -399,7 +399,65 @@ class TraceRule(IdRule):
 
 _JOURNAL = re.compile(r"(\d{4}-\d{2}-\d{2} — .+)")
 _NAMED = re.compile(r"(?<![A-Za-z0-9_\-])((?:AC|ADR|TD|EV|A|T)-[A-Za-z0-9.\-]*[A-Za-z0-9])")
+_NUMBERED = re.compile(r"(.*\D)(\d+)")
+RANGE_BOUND = 100
 _JOURNAL_ORDER = f"{ARCHIVE_DIR}/JOURNAL.order.json"
+
+
+@dataclass(frozen=True)
+class JournalReference:
+    """One id or range as an entry writes it, and the ids it stands for."""
+
+    text: str
+    ids: tuple[str, ...]
+    problem: str | None = None
+
+
+def journal_references(text: str) -> list[JournalReference]:
+    """Every distinct id or range named in journal text, in order of first mention.
+
+    `T-P0-01..05`, `ADR-003..005` and `T-P0-01..T-P0-05` span each id between
+    their ends: both ends share the stem before a numeric tail of the same
+    width, the lower end is not above the upper, and at most RANGE_BOUND ids are
+    spanned. Any other range stands for no id and carries the problem instead.
+    Every reader of journal references (archive eligibility, validation) goes
+    through this function so they never disagree on what an entry names.
+    """
+    references = []
+    for named in dict.fromkeys(_NAMED.findall(text)):
+        if ".." not in named:
+            references.append(JournalReference(named, (named,)))
+            continue
+        ids, problem = _expand_range(named)
+        references.append(JournalReference(named, ids, problem))
+    return references
+
+
+def _expand_range(named: str) -> tuple[tuple[str, ...], str | None]:
+    ends = named.split("..")
+    if len(ends) != 2:
+        return (), "it has more than two ends"
+    low, high = _NUMBERED.fullmatch(ends[0]), ends[1]
+    if low is None:
+        return (), "its lower end has no numeric tail"
+    stem, low_tail = low.groups()
+    if _NAMED.fullmatch(high):
+        upper = _NUMBERED.fullmatch(high)
+        if upper is None:
+            return (), "its upper end has no numeric tail"
+        if upper.group(1) != stem:
+            return (), "its ends have different prefixes"
+        high = upper.group(2)
+    elif not high.isdigit():
+        return (), "its upper end is not numeric"
+    if len(high) != len(low_tail):
+        return (), "its ends have tails of different widths"
+    first, last = int(low_tail), int(high)
+    if first > last:
+        return (), "its lower end is above the upper"
+    if last - first + 1 > RANGE_BOUND:
+        return (), f"it spans more than {RANGE_BOUND} ids"
+    return tuple(f"{stem}{number:0{len(high)}d}" for number in range(first, last + 1)), None
 
 
 class JournalRule:
@@ -407,7 +465,8 @@ class JournalRule:
 
     It moves when it names at least one archivable record and every one it names
     is archived or moving in this run, to the archive of the latest phase among
-    them (PHASES.md order, P-NONE last). ADR ids never count: ADRs are not
+    them (PHASES.md order, P-NONE last). A range counts as each id it spans,
+    and a range that spans nothing is an unknown id. ADR ids never count: ADRs are not
     archived, so an entry that names only ADRs names nothing to archive and
     stays. An id that resolves to no record keeps the entry, as does a heading
     that is not unique across the working file and every archive, because a
@@ -445,7 +504,8 @@ class JournalRule:
                 continue
             start, end = spans[0]
             phases, open_records, unknown = [], [], []
-            for named in dict.fromkeys(_NAMED.findall(text[start:end])):
+            for named in dict.fromkeys(named for reference in journal_references(text[start:end])
+                                       for named in reference.ids or (reference.text,)):
                 if named.startswith("ADR-"):
                     continue
                 if named not in located:
