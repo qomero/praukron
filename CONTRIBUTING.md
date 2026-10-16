@@ -26,6 +26,11 @@ rejected, and why.
 against the criterion it satisfies. Done means every criterion has evidence —
 not that the code looks finished.
 
+**Record the change.** Add one file, `changelog.d/<task id>.md` (for example
+`changelog.d/T-EXAMPLE-01.md`), holding your CHANGELOG bullet(s). Do not edit
+`CHANGELOG.md`: two pull requests then never touch the same file. See
+[`changelog.d/README.md`](changelog.d/README.md).
+
 Then:
 
 ```sh
@@ -60,6 +65,20 @@ claims.
   only when someone set one, `UNKNOWN` the rest of the time.
 - **Records are append-only where it matters.** Journal entries and ADRs stay.
   Intent and handoff describe the present and are overwritten.
+
+## Releasing
+
+A maintainer assembles the fragments when cutting a release, then bumps the version
+as usual:
+
+```sh
+python3 scripts/changelog.py assemble <version> <date>
+```
+
+This adds every fragment, in task-id order, to the version's section of
+`CHANGELOG.md` (made from `## Unreleased` if it exists) and deletes the merged
+fragments. A malformed fragment refuses the run and changes nothing. The script
+is a repository tool; it is not installed.
 
 ## Disagreement
 

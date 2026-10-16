@@ -25,3 +25,4 @@ What you actually ran and what it showed, against the criterion it satisfies.
 - [ ] The contract was written before the work, and was not reworded to match what got built
 - [ ] `python3 -m unittest discover -s tests` and `sh tests/install.sh` pass
 - [ ] Anything not yet built is described as not yet built
+- [ ] The change is recorded in `changelog.d/<task id>.md`, and `CHANGELOG.md` is untouched
