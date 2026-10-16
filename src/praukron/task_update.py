@@ -48,7 +48,9 @@ _FIELD = re.compile(r"- ([A-Za-z][A-Za-z ]*): ?(.*)")
 _WIDTH = 100
 
 
-SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"])
+# Preserve the published description; new guidance is an additive annotation.
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"]).replace(" " + mutate.FAILED_ACCEPTANCE_GUIDANCE, "")
+SCHEMA["$comment"] = mutate.FAILED_ACCEPTANCE_GUIDANCE
 mutate.SCHEMAS["task.update"] = (SCHEMA, ("set.status", "set.owner"))
 
 
@@ -133,9 +135,12 @@ def done_blockers(project: Project, task, evidence: str | None) -> list[mutate.W
             "unresolved-acceptance", f"{task.id} has no contract criteria; add a contract with contract add while the task is TODO", "status"))
     open_ids = [c.id for c in criteria if c.state != "PASS"]
     if open_ids:
+        failed = any(c.state == "FAIL" for c in criteria)
+        guidance = (mutate.FAILED_ACCEPTANCE_GUIDANCE if failed else
+                    "Leave the task open until the criteria hold with supporting evidence; then record their results with criterion set.")
         blockers.append(mutate.WriteError(
-            "unresolved-acceptance", f"criteria not PASS: {', '.join(open_ids)}; record each with criterion set first",
-            "status", details={"criteria": open_ids}))
+            "unresolved-acceptance", f"criteria not PASS: {', '.join(open_ids)}; {guidance}",
+            "status", details={"criteria": open_ids, **({"guidance": guidance} if failed else {})}))
     if not (evidence or "").strip():
         blockers.append(mutate.WriteError(
             "evidence-required", "DONE needs recorded evidence; include set.evidence", "evidence"))

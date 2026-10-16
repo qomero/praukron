@@ -8,7 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 from test_task_update import UpdateCase
-from praukron import acr, batch, cli, compile as compiler, mutate
+from praukron import acr, batch, cli, compile as compiler, criterion, mutate, task_update
 
 
 class BatchCase(UpdateCase):
@@ -33,6 +33,82 @@ class BatchCase(UpdateCase):
 
 
 class TestBatch(BatchCase):
+    def fail_criterion(self):
+        self.rewrite("ACCEPTANCE.md", "Then they stand.\n  `TEST` · `NOT_RUN`",
+                     "Then they stand.\n  `TEST` · `FAIL`")
+
+    def test_fail_to_pass_and_done_is_refused_without_any_writes(self):
+        self.fail_criterion()
+        for newline in (b"\n", b"\r\n"):
+            self.convert(newline)
+            for dry_run in (False, True):
+                for reset in (False, True):
+                    with self.subTest(newline=newline, dry_run=dry_run, reset=reset):
+                        operations = self.lifecycle()
+                        if reset:
+                            operations.insert(1, {**operations[1], "state": "NOT_RUN"})
+                        operations.insert(0, self.operation("journal.append", title="Staged", body="No write."))
+                        before = {p.relative_to(self.root): p.read_bytes()
+                                  for p in self.root.rglob("*") if p.is_file()}
+                        out, err = io.StringIO(), io.StringIO()
+                        options = ["--dry-run"] if dry_run else []
+                        with redirect_stdout(out), redirect_stderr(err), \
+                             mock.patch("sys.stdin", io.StringIO(json.dumps({"operations": operations}))), \
+                             mock.patch.object(mutate, "refresh") as refresh, \
+                             mock.patch.object(mutate, "_replace") as persist:
+                            code = cli.main(["-C", str(self.root), "batch", "apply", "--input", "-", *options])
+                        self.assertEqual(code, 1, out.getvalue())
+                        self.assertEqual(err.getvalue(), "")
+                        self.assertEqual(len(out.getvalue().splitlines()), 1)
+                        result = json.loads(out.getvalue())
+                        self.assertFalse(result["ok"] or result["written"])
+                        self.assertEqual(result["error"]["code"], "failing-criterion-closure")
+                        self.assertIn("AC-T-TWO-01", result["error"]["message"])
+                        self.assertIn("actual corrective work and supporting evidence", result["error"]["message"])
+                        self.assertIn("A request to mark DONE is not evidence", result["error"]["message"])
+                        self.assertNotIn("record the correction and evidence while", result["error"]["message"])
+                        self.assertEqual(result["error"]["criteria"], ["AC-T-TWO-01"])
+                        self.assertEqual(result["error"]["index"], 4 if reset else 3)
+                        self.assertEqual(result["error"]["op"], "task update")
+                        self.assertEqual({p.relative_to(self.root): p.read_bytes()
+                                          for p in self.root.rglob("*") if p.is_file()}, before)
+                        refresh.assert_not_called()
+                        persist.assert_not_called()
+
+    def test_failure_can_be_corrected_while_task_stays_open(self):
+        self.fail_criterion()
+        result = self.apply(self.lifecycle()[:2])
+        self.assertTrue(result["ok"], result)
+        project = compiler.load(self.root)
+        self.assertEqual(project.task("T-TWO").status, "WIP")
+        self.assertEqual(project.contracts["AC-T-TWO"].criteria[0].state, "PASS")
+        result = self.apply([self.operation("task.update", id="T-TWO", expectRevision=self.revision(),
+                                           set={"status": "DONE", "evidence": "Separate checked correction."})])
+        self.assertTrue(result["ok"], result)
+
+    def test_standalone_evidence_backed_correction_and_later_closure_remain_legal(self):
+        self.fail_criterion()
+        operations = self.lifecycle()
+        correction = {k: v for k, v in operations[1].items() if k != "op"}
+        correction["evidence"] = "Repaired the wall; load test now passes."
+        result = criterion.set_result(self.root, correction)
+        self.assertTrue(result["ok"], result)
+        project = compiler.load(self.root)
+        self.assertFalse(project.task("T-TWO").done)
+        self.assertEqual(project.contracts["AC-T-TWO"].criteria[0].state, "PASS")
+        result = task_update.update(self.root, {"id": "T-TWO", "expectRevision": self.revision(),
+            "set": {"status": "DONE", "evidence": correction["evidence"]}})
+        self.assertTrue(result["ok"], result)
+
+    def test_unrelated_failing_task_does_not_block_closure(self):
+        self.fail_criterion()
+        self.rewrite("TASKS.md", "- Dependencies: T-TWO", "- Dependencies: T-ONE")
+        self.rewrite("ACCEPTANCE.md", "`RUNTIME` · `NOT_RUN`", "`RUNTIME` · `PASS`")
+        # T-TWO stays FAIL; close another task whose criterion already passes.
+        result = self.apply([self.operation("task.update", id="T-THREE", expectRevision=self.revision("T-THREE"),
+                                           set={"status": "DONE", "evidence": "Already checked."})])
+        self.assertTrue(result["ok"], result)
+
     def test_lifecycle_orders_operations_and_commits_once_lf_and_crlf(self):
         for newline in (b"\n", b"\r\n"):
             with self.subTest(newline=newline):

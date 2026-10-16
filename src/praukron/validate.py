@@ -420,7 +420,13 @@ def assumption_findings(project: Project) -> list[Finding]:
                                     "an Authority: owner task is DONE only with HUMAN_VERIFIED", where))
         if task.owner_held and task.validation == "HUMAN_VERIFIED" and not project.verified_by_owner(task.id):
             findings.append(Finding("error", "verification-without-owner",
-                                    "HUMAN_VERIFIED needs a VERIFY from a named owner", where))
+                                    "HUMAN_VERIFIED needs a VERIFY from a named owner; "
+                                    "owner action: from the project root, run "
+                                    f"`.praukron/praukron respond {task.id} verify` interactively "
+                                    f"(Windows: `.praukron/praukron.cmd respond {task.id} verify`). "
+                                    "The active gh login must be named in an ACCEPTED ADR's Owners field; "
+                                    "establish that owner declaration first if missing. "
+                                    "Only the owner may do this, never an agent.", where))
 
     named_owners = [decision for decision in project.decisions if decision.owners is not None]
     for decision in named_owners:

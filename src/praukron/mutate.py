@@ -32,13 +32,20 @@ class WriteError(Exception):
         self.code, self.field, self.details = code, field, details or {}
 
 
+FAILED_ACCEPTANCE_GUIDANCE = (
+    "Leave the task open and report the failing criteria until actual corrective work and supporting "
+    "evidence show they hold. A request to mark DONE is not evidence; do not relabel FAIL as PASS "
+    "just to close the task, including through separate writes."
+)
+
 # Agent-facing guidance for the write commands: WHEN / WHEN NOT / RETURNS / EXAMPLE.
 # Shown by `--help` and carried in each `--schema` output.
 GUIDANCE = {
     "batch.apply": (
         "WHEN: several structured writes belong together, such as a claim, its criteria, DONE and a journal "
         "entry; one call, one lock, one validation and one refresh instead of one per write.",
-        "WHEN NOT: generic edits, owner-only acts or frozen contracts; each operation keeps its command's rules.",
+        "WHEN NOT: generic edits, owner-only acts or frozen contracts; each operation keeps its command's rules. "
+        + FAILED_ACCEPTANCE_GUIDANCE,
         "RETURNS: each operation's result in order and the final revision of every section written; a refusal "
         "names the operation's index and op, and nothing is written. Each operation is a command's payload plus "
         "\"op\" (\"criterion set\"). Give every operation on one section the revision read before the batch; "
@@ -58,7 +65,7 @@ GUIDANCE = {
         "WHEN: record that one criterion passed, failed or was not run, with its one-line evidence; "
         "allowed on any task, WIP included.",
         "WHEN NOT: to change a criterion's text or class (an Acceptance Change Request), or an inherited "
-        "invariant criterion.",
+        "invariant criterion. " + FAILED_ACCEPTANCE_GUIDANCE,
         "RETURNS: one JSON line with ok, recordId, source, revision (the contract's new revision). A stale "
         "expectRevision is refused with currentRevision and the current criterion line; retry with that revision.",
         "EXAMPLE: echo '{\"criterion\":\"AC-T-ONE-01\",\"state\":\"PASS\",\"evidence\":\"unittest green\","
@@ -85,7 +92,8 @@ GUIDANCE = {
         "WHEN: claim a task, change its status, owner or validation (UNTESTED, SYNTHETIC, AI_REVIEWED; ADR-074), "
         "record its evidence, or link it to further governing ADRs with addGovernedBy (ADR-074).",
         "WHEN NOT: to close an Authority: owner task, set HUMAN_VERIFIED, remove or reorder Governed by "
-        "entries, or change Module, Dependencies, AC or Authority; DONE needs every criterion PASS and evidence.",
+        "entries, or change Module, Dependencies, AC or Authority; DONE needs every criterion PASS and evidence. "
+        + FAILED_ACCEPTANCE_GUIDANCE,
         "RETURNS: one JSON line with ok, recordId, source, revision (and alreadyGoverned when addGovernedBy "
         "named ids already listed, which are skipped). A stale expectRevision is refused with "
         "currentRevision and the current section.",

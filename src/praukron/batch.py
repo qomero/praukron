@@ -219,6 +219,17 @@ def apply(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                         error = result["error"]
                         raise mutate.WriteError(error["code"], error["message"], error.get("field"),
                                                 {k: v for k, v in error.items() if k not in ("code", "message", "field")})
+                    # Closure must not erase a failure present before this batch.
+                    # Use the original project even after intermediate criterion resets.
+                    if name == "task update" and body.get("set", {}).get("status") == "DONE":
+                        original = project.task(body["id"])
+                        failed = [c.id for c in project.mandatory_criteria(original) if c.state == "FAIL"] if original else []
+                        if failed:
+                            raise mutate.WriteError(
+                                "failing-criterion-closure",
+                                f"cannot set {original.id} DONE in the same batch that clears failing criteria: "
+                                f"{', '.join(failed)}; {mutate.FAILED_ACCEPTANCE_GUIDANCE}",
+                                "status", {"criteria": failed})
                     results.append({"index": index, "op": name, **{
                         k: v for k, v in result.items() if k not in ("ok", "operation", "written", "refreshed")}})
                 except mutate.WriteError as error:

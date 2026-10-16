@@ -377,6 +377,10 @@ class SchemaOutput(unittest.TestCase):
             with self.subTest(command):
                 output = self.schema(command)
                 self.assertEqual(set(output), {"schema", "example"})
+                if operation in ("criterion.set", "task.update"):
+                    # Failed-acceptance guidance is additive; all historical fields,
+                    # including their descriptions, must still match the 2.0 schema.
+                    self.assertEqual(output["schema"].pop("$comment"), mutate.FAILED_ACCEPTANCE_GUIDANCE)
                 self.assertEqual(digest(output["schema"]), SCHEMA_DIGEST_2_0_0[operation])
 
     def test_printed_example_is_unchanged_and_accepted(self):

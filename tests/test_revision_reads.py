@@ -97,6 +97,14 @@ class TestRevisionReads(UpdateCase):
                         if state != "PASS":
                             reason = next(r for r in closability["reasons"] if r["code"] == "unresolved-acceptance")
                             self.assertEqual(reason["criteria"], ["AC-T-TWO-01"])
+                            if state == "FAIL":
+                                self.assertIn("actual corrective work and supporting evidence", reason["guidance"])
+                                self.assertIn("A request to mark DONE is not evidence", reason["guidance"])
+                                self.assertIn("including through separate writes", reason["guidance"])
+                                if not owner:
+                                    self.assertIn(reason["guidance"], result["error"]["message"])
+                            else:
+                                self.assertNotIn("guidance", reason)
 
     def test_unlocatable_contract_degrades_reads_without_traceback(self):
         # Main now locates level-three ACR/contract sections too. Exercise an

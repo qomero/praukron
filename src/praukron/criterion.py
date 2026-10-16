@@ -29,7 +29,9 @@ EXAMPLE = {
 }
 
 
-SCHEMA["description"] = "\n".join(mutate.GUIDANCE["criterion.set"])
+# Preserve the published description; new guidance is an additive annotation.
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["criterion.set"]).replace(" " + mutate.FAILED_ACCEPTANCE_GUIDANCE, "")
+SCHEMA["$comment"] = mutate.FAILED_ACCEPTANCE_GUIDANCE
 mutate.SCHEMAS["criterion.set"] = (SCHEMA, ())
 
 
