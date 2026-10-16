@@ -4,7 +4,46 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
-## Unreleased
+## 2.1.0 — 2026-10-16
+
+### Upgrading to 2.1
+
+2.1 cuts the turns an agent needs to write the chronicle. In isolated agent sessions on one machine, a set of
+five common writes cost 1.5–1.9× fewer input tokens than on 1.3.0, across four models; see
+[docs/write-tokens-2026-10-16.md](docs/write-tokens-2026-10-16.md). Most of it is additive. These changes can
+affect an existing 2.0 chronicle:
+
+- **Owner verification is enforced.** `HUMAN_VERIFIED` on an `Authority: owner` task now needs a `VERIFY`
+  response from a login named in an ACCEPTED ADR's `Owners:` field (`verification-without-owner`). A malformed
+  `Owners:` field is `invalid-owners`, and an unknown response action is `invalid-response-action`. Owner-held
+  work with no ADR naming owners is the warning `owners-missing`. Add `Owners: <your gh login>` to the ADR that
+  governs ownership, then verify each owner-held task with `praukron respond <task> VERIFY` or from
+  `praukron dashboard --serve`. See Known issues for tasks verified before 2.1.
+- **`COORDINATION.md` is validated when present.** Its errors are `duplicate-coordination-record`,
+  `brief-without-conventions`, `invalid-brief-status`, `invalid-convention-status`, `invalid-convention-role`,
+  `unknown-brief-task`, `unknown-brief-convention`, `retired-brief-convention` and `multiple-active-briefs`. A
+  chronicle without the file is unchanged.
+- **Frozen criteria are fingerprinted.** A task that becomes `WIP` through `task update` gains a `Frozen:` field.
+  From then on, a hand change to that task's criterion text or class, or an added or removed criterion, is
+  `frozen-criterion-changed`, `-added` or `-removed`, and a malformed field is `invalid-frozen`. Tasks without the
+  field are not checked, so existing chronicles upgrade without these errors. Change a frozen criterion with
+  `acr add`, then let the owner decide.
+
+Run `praukron validate` after upgrading and fix what it names. To install 2.1, run the install command again so
+agents get the new `AGENTS.md` block, with the payload examples and the `acr add` and `batch apply` commands.
+
+### Known issues
+
+- **Owner-held tasks verified before `VERIFY` existed fail `validate`** (T-UPGRADE-VERIFY-01). A 2.0 chronicle
+  with an `Authority: owner` task already set `HUMAN_VERIFIED` and no `VERIFY` response reports
+  `verification-without-owner` after the upgrade, so `compile` and every write command refuse to run. Until a fix
+  ships, the owner records a `VERIFY` for each named task (after adding `Owners:` as above), or stays on 2.0.0.
+- **A batch can pass a failing criterion and close its task** (T-WRITE-FLIP-01). `criterion set` may turn `FAIL`
+  into `PASS`, and `batch apply` can then set the task `DONE` in the same call. One of four models did so when
+  asked to close a task with a failing criterion. Review a `FAIL` → `PASS` change before accepting the work. A
+  fix will refuse that combination.
+
+### Changes
 
 - Owner identity (ADR-060, ADR-066): `praukron respond` and the served
   dashboard record `By:` as the active `gh` login and refuse typed `--by`.
@@ -46,6 +85,9 @@ people arriving from a release page.
   criteria were added or removed, naming the task and criterion; state and evidence are not covered. Accepted
   Acceptance Change Requests are replayed, so an accepted change applied in place passes. Tasks without a
   fingerprint are not checked, so existing chronicles upgrade without errors (T-WRITE-FREEZE-01).
+- Changelog fragments: a pull request now records its change in `changelog.d/<task id>.md` instead of editing
+  `CHANGELOG.md`, so pull requests stop conflicting. `scripts/changelog.py assemble <version> <date>` merges the
+  fragments into the release section at release time. A repository tool; it is not installed.
 
 ## 2.0.0 — 2026-10-16
 
