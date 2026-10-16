@@ -123,9 +123,10 @@ class Pack:
 class Chronicle:
     """Section-level access to the canonical files, read lazily."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, record_bytes: dict[str, bytes] | None = None) -> None:
         self.authority = root / layout.AUTHORITY_DIR
         self._cache: dict[str, list[tuple[str, str]]] = {}
+        self.record_bytes = dict(record_bytes or {})
 
     def total_bytes(self) -> int:
         return sum(
@@ -147,7 +148,11 @@ class Chronicle:
     def _find(self, name: str, anchor: str) -> str | None:
         if name not in self._cache:
             path = self.authority / name
-            self._cache[name] = _sections(path.read_text(encoding="utf-8"), "##") if path.is_file() else []
+            if name not in self.record_bytes and path.is_file():
+                self.record_bytes[name] = path.read_bytes()
+            data = self.record_bytes.get(name)
+            text = data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n") if data is not None else ""
+            self._cache[name] = _sections(text, "##")
         for heading, body in self._cache[name]:
             head = re.split(r":| — ", heading, maxsplit=1)[0].strip()
             if heading == anchor or head == anchor:
@@ -193,7 +198,7 @@ def _listed(value: str | None) -> list[str]:
 
 def retrieve(project: Project, report: Report, root: Path, query: str,
              budget: int = DEFAULT_BUDGET) -> Pack:
-    chronicle = Chronicle(root)
+    chronicle = Chronicle(root, project.record_bytes)
     pack = Pack(query=query, chronicle_bytes=chronicle.total_bytes(), budget=budget)
     spent = 0
     markers, pack.index_note = _markers(root, project, report)
@@ -216,7 +221,9 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
 
             name, anchor = source.split("#", 1)
             try:
-                item.revision = record_revision(root, Source(name, anchor))
+                data = chronicle.record_bytes.get(name)
+                if data is not None:
+                    item.revision = record_revision(root, Source(name, anchor), data=data)
             except WriteError:
                 item.revision = None
             contract = project.contracts.get(record_id) if kind == "ACCEPTANCE" else None

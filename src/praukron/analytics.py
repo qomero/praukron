@@ -829,9 +829,9 @@ def _revisions(project: Project, task, contract) -> tuple[str | None, str | None
     root = Path(project.root)
 
     def current(record):
-        if record is not None:
+        if record is not None and record.source.file in project.record_bytes:
             try:
-                return record_revision(root, record.source)
+                return record_revision(root, record.source, data=project.record_bytes[record.source.file])
             except WriteError:
                 pass
         return None

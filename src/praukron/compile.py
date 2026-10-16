@@ -14,7 +14,7 @@ from . import analytics, domain, index, views
 from . import layout
 from .layout import AUTHORITY_DIR, COMPILED_DIR
 from .model import Project, event_order
-from .snapshot import SnapshotPath
+from .snapshot import Snapshot, SnapshotPath
 from .parse import (
     ParseError,
     parse_acceptance,
@@ -56,25 +56,33 @@ def archived(authority: Path, phases: list) -> list[str]:
     return sorted(found, key=lambda d: (order.index(d) if d in order else len(order), d))
 
 
-def _tasks_and_contracts(authority: Path, phases: list, modules: list) -> tuple[list, dict]:
+def _tasks_and_contracts(authority: Path | SnapshotPath, phases: list, modules: list) -> tuple[list, dict, dict[str, bytes]]:
     """The working files and every archived phase's, read as one authority
     (ADR-067). Archived records come first, in phase order."""
     tasks: list = []
     contracts: dict = {}
+    record_bytes: dict[str, bytes] = {}
+
+    def captured(name: str) -> SnapshotPath:
+        # Parse and later hash this read, even if a writer replaces the live file.
+        data = (authority / name).read_bytes()
+        record_bytes[name] = data
+        return Snapshot({name: data}, frozenset({""})).path(name)
+
     files = [f"{layout.ARCHIVE_DIR}/{d}/" for d in archived(authority, phases)] + [""]
     for prefix in files:
         # The working files are required; an archived phase may hold either.
         name = f"{prefix}TASKS.md"
         if not prefix or (authority / name).is_file():
-            tasks += parse_tasks(authority / name, modules, name)
+            tasks += parse_tasks(captured(name), modules, name)
         name = f"{prefix}ACCEPTANCE.md"
         if prefix and not (authority / name).is_file():
             continue
-        for contract_id, contract in parse_acceptance(authority / name, name).items():
+        for contract_id, contract in parse_acceptance(captured(name), name).items():
             if contract_id in contracts:
                 raise ParseError(name, contract_id, f"duplicate contract; also in {contracts[contract_id].source.file}")
             contracts[contract_id] = contract
-    return tasks, contracts
+    return tasks, contracts, record_bytes
 
 
 def _archived_records(authority: Path | SnapshotPath, phases: list) -> tuple[list, list, list]:
@@ -120,7 +128,7 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         authority = root / AUTHORITY_DIR
     phases, gates, milestones = parse_phases(authority / "PHASES.md")
     modules = parse_modules(authority / "MODULES.md")
-    tasks, contracts = _tasks_and_contracts(authority, phases, modules)
+    tasks, contracts, record_bytes = _tasks_and_contracts(authority, phases, modules)
     assumptions, debts, events = _archived_records(authority, phases)
     # Coordination records never move to an archive (ADR-075).
     conventions, briefs = parse_coordination(authority / "COORDINATION.md")
@@ -136,6 +144,7 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         modules=modules,
         tasks=tasks,
         contracts=contracts,
+        record_bytes=record_bytes,
         gates=gates,
         milestones=milestones,
         decisions=parse_decisions(authority / "ADR"),

@@ -99,7 +99,18 @@ class TestRevisionReads(UpdateCase):
                             self.assertEqual(reason["criteria"], ["AC-T-TWO-01"])
 
     def test_unlocatable_contract_degrades_reads_without_traceback(self):
-        self.rewrite("ACCEPTANCE.md", "## AC-T-TWO —", "### AC-T-TWO —")
+        # Main now locates level-three ACR/contract sections too. Exercise an
+        # actual locator refusal rather than relying on that formerly unsupported heading.
+        original = mutate.record_revision
+
+        def unavailable(root, source, **kwargs):
+            if source.anchor == "AC-T-TWO":
+                raise mutate.WriteError("record-not-found", "missing section")
+            return original(root, source, **kwargs)
+
+        patch = mock.patch.object(mutate, "record_revision", side_effect=unavailable)
+        patch.start()
+        self.addCleanup(patch.stop)
         packet = json.loads(self.read_cli("context", "T-TWO"))
         self.assertIsNone(packet["acceptance"][0]["revision"])
         self.assertFalse(packet["task"]["closability"]["canClose"])
@@ -113,10 +124,10 @@ class TestRevisionReads(UpdateCase):
     def test_retrieve_keeps_null_revision_when_locator_refuses(self):
         original = mutate.record_revision
 
-        def unavailable(root, source):
+        def unavailable(root, source, **kwargs):
             if source.anchor == "AC-T-TWO":
                 raise mutate.WriteError("record-not-found", "missing section")
-            return original(root, source)
+            return original(root, source, **kwargs)
 
         with mock.patch.object(mutate, "record_revision", side_effect=unavailable):
             packet = json.loads(self.read_cli("retrieve", "T-TWO", "--json"))
@@ -176,3 +187,151 @@ class TestRevisionReads(UpdateCase):
         for name in ("docs/GUIDE.md", "docs/SPEC.md"):
             text = (Path(__file__).resolve().parents[1] / name).read_text(encoding="utf-8")
             self.assertIn("record not yet read", " ".join(text.split()))
+
+    def test_interleaved_writes_cannot_pair_old_content_with_new_revisions(self):
+        baseline = {name: (self.authority / name).read_bytes()
+                    for name in ("TASKS.md", "ACCEPTANCE.md")}
+        commands = (("context", ()), ("explain", ("--json",)), ("explain", ()),
+                    ("retrieve", ("--json",)), ("retrieve", ()))
+        for newline in (b"\n", b"\r\n"):
+            for record in ("T-TWO", "AC-T-TWO"):
+                for command, options in commands:
+                    with self.subTest(newline=newline, record=record, command=command, options=options):
+                        for name, data in baseline.items():
+                            (self.authority / name).write_bytes(data)
+                        self.convert(newline)
+                        name = "TASKS.md" if record == "T-TWO" else "ACCEPTANCE.md"
+                        before = mutate.section((self.authority / name).read_bytes(), record).revision
+                        writes = []
+
+                        def intervene():
+                            if record == "T-TWO":
+                                result = task_update.update(self.root, {
+                                    "id": record, "expectRevision": before,
+                                    "set": {"evidence": "Worker B evidence."}})
+                            else:
+                                result = criterion.set_result(self.root, {
+                                    "criterion": "AC-T-TWO-01", "expectRevision": before,
+                                    "state": "PASS", "evidence": "Worker B evidence."})
+                            self.assertTrue(result["ok"], result)
+                            self.assertNotEqual(result["revision"], before)
+                            writes.append(result)
+
+                        if command == "retrieve":
+                            original = retrieve.Chronicle.section
+
+                            def interleave(chronicle, name, anchor):
+                                text = original(chronicle, name, anchor)
+                                if anchor == record and not writes:
+                                    intervene()
+                                return text
+
+                            patch = mock.patch.object(retrieve.Chronicle, "section", interleave)
+                        else:
+                            original = cli._load
+
+                            def interleave(root):
+                                project = original(root)
+                                intervene()
+                                return project
+
+                            patch = mock.patch.object(cli, "_load", interleave)
+                        with patch:
+                            raw = self.read_cli(command, "T-TWO", *options)
+                        self.assertEqual(len(writes), 1)
+                        self.assertNotIn("Worker B evidence.", raw)
+                        if command == "context" or options:
+                            packet = json.loads(raw)
+                            if command == "retrieve":
+                                item = next(i for i in packet["items"] if i["id"] == record)
+                                revision = item["revision"]
+                                if record == "AC-T-TWO":
+                                    self.assertIn("`NOT_RUN`", item["text"])
+                                    self.assertEqual(item["criterionRevisions"], {"AC-T-TWO-01": before})
+                            elif record == "T-TWO":
+                                item = packet["task"] if command == "context" else packet
+                                revision = item["revision"]
+                                self.assertIsNone(packet["evidence"])
+                            else:
+                                item = packet["acceptance"][0]
+                                revision = item["revision"]
+                                self.assertEqual(item["state"], "NOT_RUN")
+                            self.assertEqual(revision, before)
+                        else:
+                            self.assertIn(before, raw)
+                            self.assertNotIn(writes[0]["revision"], raw)
+                            revision = before
+                        committed = self.snapshot()
+                        if record == "T-TWO":
+                            result = task_update.update(self.root, {
+                                "id": record, "expectRevision": revision,
+                                "set": {"evidence": "Worker A overwrite."}})
+                            self.assertEqual(compiler.load(self.root).task(record).evidence,
+                                             "Worker B evidence.")
+                        else:
+                            result = criterion.set_result(self.root, {
+                                "criterion": "AC-T-TWO-01", "expectRevision": revision, "state": "FAIL"})
+                            self.assertEqual(compiler.load(self.root).contracts[record].criteria[0].state, "PASS")
+                        self.assertFalse(result["ok"], result)
+                        self.assertEqual(result["error"]["code"], "stale-revision")
+                        self.assertEqual(self.snapshot(), committed)
+
+    def test_done_task_cannot_close_again_but_can_edit_completed_evidence_and_validation(self):
+        packet = json.loads(self.read_cli("context", "T-ONE"))
+        self.assertEqual(packet["task"]["status"], "DONE")
+        self.assertEqual(packet["task"]["closability"], {
+            "canClose": False, "reasons": [{"code": "already-done"}]})
+        result = task_update.update(self.root, {
+            "id": "T-ONE", "expectRevision": packet["task"]["revision"], "set": {"status": "DONE"}})
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["error"]["code"], "no-change")
+        for changes in ({"status": "DONE", "evidence": "Additional completed-task evidence."},
+                        {"validation": "AI_REVIEWED"}):
+            result = task_update.update(self.root, {
+                "id": "T-ONE", "expectRevision": self.revision("T-ONE"), "set": changes})
+            self.assertTrue(result["ok"], result)
+        task = compiler.load(self.root).task("T-ONE")
+        self.assertEqual(task.status, "DONE")
+        self.assertEqual(task.evidence, "Additional completed-task evidence.")
+        self.assertEqual(task.validation, "AI_REVIEWED")
+
+    def test_write_between_file_capture_and_parsing_keeps_captured_revision(self):
+        baseline = {name: (self.authority / name).read_bytes()
+                    for name in ("TASKS.md", "ACCEPTANCE.md")}
+        for record, parser_name, name in (("T-TWO", "parse_tasks", "TASKS.md"),
+                                           ("AC-T-TWO", "parse_acceptance", "ACCEPTANCE.md")):
+            for newline in (b"\n", b"\r\n"):
+                with self.subTest(record=record, newline=newline):
+                    for filename, data in baseline.items():
+                        (self.authority / filename).write_bytes(data)
+                    self.convert(newline)
+                    before = mutate.section((self.authority / name).read_bytes(), record).revision
+                    original = getattr(compiler, parser_name)
+                    writes = []
+                    armed = True
+
+                    def interleave(*args, **kwargs):
+                        nonlocal armed
+                        if armed:
+                            armed = False  # The real writer also loads the compiler.
+                            if record == "T-TWO":
+                                result = task_update.update(self.root, {"id": record,
+                                    "expectRevision": before, "set": {"evidence": "Worker B evidence."}})
+                            else:
+                                result = criterion.set_result(self.root, {"criterion": "AC-T-TWO-01",
+                                    "expectRevision": before, "state": "PASS", "evidence": "Worker B evidence."})
+                            self.assertTrue(result["ok"], result)
+                            writes.append(result)
+                        return original(*args, **kwargs)
+
+                    with mock.patch.object(compiler, parser_name, interleave):
+                        project = compiler.load(self.root)
+                    self.assertEqual(len(writes), 1)
+                    packet = analytics.context(project, "T-TWO")
+                    if record == "T-TWO":
+                        self.assertIsNone(packet["evidence"])
+                        self.assertEqual(packet["task"]["revision"], before)
+                    else:
+                        self.assertEqual(packet["acceptance"][0]["state"], "NOT_RUN")
+                        self.assertEqual(packet["acceptance"][0]["revision"], before)
+                    self.assertNotEqual(before, writes[0]["revision"])

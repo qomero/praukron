@@ -144,6 +144,8 @@ def done_blockers(project: Project, task, evidence: str | None) -> list[mutate.W
 
 def closability(project: Project, task) -> dict:
     blockers = done_blockers(project, task, task.evidence)
+    if task.done and not blockers:
+        return {"canClose": False, "reasons": [{"code": "already-done"}]}
     return {"canClose": not blockers, "reasons": [
         {"code": b.code, **b.details} for b in blockers]}
 
