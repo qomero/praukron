@@ -596,6 +596,16 @@ elif grep -q '^## T-' "$target/.prokron/TASKS.md" 2>/dev/null; then
   printf '  %s/praukron migrate           # shows what it would do\n' "$home"
   printf '  %s/praukron migrate --apply   # performs it, archiving the originals\n\n' "$home"
 fi
+if [ "$had_chronicle" -eq 1 ]; then
+  # Upgrades can introduce validation requirements even without compiled views.
+  # Surface every finding (including the owner action for pre-VERIFY tasks),
+  # without rewriting records or manufacturing verification on their behalf.
+  if validation_output=$(cd "$target" && "$home/praukron" validate --quiet 2>&1); then
+    :
+  else
+    printf 'Upgrade installed; the existing chronicle needs attention:\n%s\n\n' "$validation_output"
+  fi
+fi
 if [ "$refreshed" = done ]; then
   printf 'Generated views were refreshed by the new runtime.\n\n'
 elif [ "$refreshed" = failed ]; then
