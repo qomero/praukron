@@ -31,8 +31,9 @@ COMMANDS = {
     "contract add": ("contract.add", contract.SCHEMA),
     "task update": ("task.update", task_update.SCHEMA),
 }
-# AGENTS.md at 2.0.0, LF-normalized, and the net growth T-WRITE-GUIDE-01 allows.
-AGENTS_BASE_BYTES, AGENTS_BUDGET = 9511, 1200
+# AGENTS.md on main before T-WRITE-GUIDE-01 (2.0.0 plus #36 and #37), LF-normalized, and the
+# net growth that task allows.
+AGENTS_BASE_BYTES, AGENTS_BUDGET = 10800, 1200
 
 # What the AGENTS.md examples name, beside the shared fixture.
 EXTRA_MODULE = "\n## M-CORE — Core\n- Phase: P1\n- Outcome: The core works.\n"
