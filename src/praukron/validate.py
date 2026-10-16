@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from . import freeze
 from .layout import ARCHIVE_DIR, AUTHORITY_DIR, RECOVERY_DIR
 from .snapshot import Snapshot
 from .model import (
@@ -831,6 +832,7 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
     findings.extend(debt_findings(project))
     findings.extend(assumption_findings(project))
     findings.extend(coordination_findings(project))
+    findings.extend(freeze.findings(project))
     findings.extend(stale_references(project))
     findings.extend(journal_findings(project, snapshot))
     findings.extend(archive_findings(project, snapshot))

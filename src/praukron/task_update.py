@@ -7,7 +7,7 @@ import re
 import textwrap
 from pathlib import Path
 
-from . import contract, mutate
+from . import contract, freeze, mutate
 from .layout import AUTHORITY_DIR
 from .model import VALIDATIONS, Project
 from .parse import _fields
@@ -43,7 +43,7 @@ _LABELS = {"status": "Status", "owner": "Owner", "claimed": "Claimed", "evidence
            "validation": "Validation"}
 # Where an absent field goes: after the nearest earlier field in this order.
 _ORDER = ["Status", "Module", "Phase", "Domain", "Authority", "Validation", "Dependencies",
-          "Owner", "Claimed", "AC", "Schedule", "Evidence", "Governed by"]
+          "Owner", "Claimed", "AC", "Frozen", "Schedule", "Evidence", "Governed by"]
 _FIELD = re.compile(r"- ([A-Za-z][A-Za-z ]*): ?(.*)")
 _WIDTH = 100
 
@@ -204,6 +204,12 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 if not _usable(owner):
                     raise mutate.WriteError("owner-required", "WIP needs an owner; include set.owner in the same update", "owner")
                 edits.setdefault("Claimed", dt.date.today().isoformat())
+            # The contract freezes on entering WIP; a frozen task keeps its fingerprint (ADR-078).
+            # A task frozen before ADR-078 gains one on its next status change.
+            moved = "status" in changes and status != task.status
+            if (moved and status in freeze.FROZEN_STATUSES and task.contract in project.contracts
+                    and (task.status not in freeze.FROZEN_STATUSES or task.frozen is None)):
+                edits["Frozen"] = freeze.render(project.mandatory_criteria(task))
             if status == "DONE":
                 blockers = done_blockers(project, task, evidence)
                 if blockers:
@@ -230,5 +236,5 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
 
 def _current(task, label: str) -> str | None:
     return {"Status": task.status, "Owner": task.owner, "Claimed": task.claimed,
-            "Evidence": task.evidence, "Validation": task.validation,
+            "Evidence": task.evidence, "Validation": task.validation, "Frozen": task.frozen,
             "Governed by": ", ".join(task.decisions)}[label]

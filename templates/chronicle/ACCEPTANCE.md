@@ -109,7 +109,9 @@ Decision
 `praukron acr add` records a request in this shape with `Decision: PENDING`
 and never changes the criterion. Until a request is explicitly accepted, the
 existing criterion remains authoritative. Accepted requests are appended to the log below and the criterion
-is edited in place with its request identifier noted.
+is edited in place with its request identifier noted. The task's `Frozen:` fingerprint stays as it is:
+`validate` accepts the new text because an accepted request leads from it back to the frozen one, and
+reports any other change.
 
 ## Acceptance Change Requests
 

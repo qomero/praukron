@@ -326,6 +326,14 @@ again.
   `WIP` or `DONE` task (`frozen-contract`). No command changes a criterion's
   text or class, or an inherited invariant criterion: that is an Acceptance
   Change Request, decided by a person.
+- `task update` records a `Frozen:` fingerprint of the contract's criteria (id,
+  class and text, never state or evidence) when it moves a task to `WIP` from
+  `TODO` or `BLOCKED`, and on the first status change of a `WIP` or `DONE`
+  task that has none; a frozen task keeps it (ADR-078). `validate` reports a
+  `WIP` or `DONE` task whose criterion was since changed, added or removed by
+  hand (`frozen-criterion-changed`, `-added`, `-removed`), unless accepted
+  Acceptance Change Requests lead from the current text back to the frozen
+  one. A task without the field is not checked.
 - `criterion set` changes a criterion's state and optionally its evidence, which
   is a single line because the parser reads one.
 - `task update` changes only `Status`, `Owner`, `Claimed` and `Evidence` (ADR-068),

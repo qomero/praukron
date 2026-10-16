@@ -18,6 +18,7 @@ from .snapshot import Snapshot, SnapshotPath
 from .parse import (
     ParseError,
     parse_acceptance,
+    parse_change_requests,
     parse_assumptions,
     parse_coordination,
     parse_decisions,
@@ -83,6 +84,16 @@ def _tasks_and_contracts(authority: Path | SnapshotPath, phases: list, modules: 
                 raise ParseError(name, contract_id, f"duplicate contract; also in {contracts[contract_id].source.file}")
             contracts[contract_id] = contract
     return tasks, contracts, record_bytes
+
+
+def _change_requests(authority: Path | SnapshotPath, phases: list) -> list:
+    """Acceptance Change Requests from every archived and the working ACCEPTANCE.md."""
+    found: list = []
+    for prefix in [f"{layout.ARCHIVE_DIR}/{d}/" for d in archived(authority, phases)] + [""]:
+        name = f"{prefix}ACCEPTANCE.md"
+        if (authority / name).is_file():
+            found += parse_change_requests(authority / name, name)
+    return found
 
 
 def _archived_records(authority: Path | SnapshotPath, phases: list) -> tuple[list, list, list]:
@@ -156,6 +167,7 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         responses=parse_responses(authority / "RESPONSES.md"),
         conventions=conventions,
         briefs=briefs,
+        change_requests=_change_requests(authority, phases),
     )
     domain.resolve(project)
     # Reuse these loaded diagnostics in validate/status and structured writes;
