@@ -735,7 +735,9 @@ class TestJournalDiagnostics(JournalCase):
         reads = []
 
         def narrow(path):
-            self.assertIn(path.name, ("JOURNAL.md", "JOURNAL.order.json"))
+            # Task/contract parsing now captures exact bytes for revision reads.
+            # Journal validation must still avoid every unrelated authority file.
+            self.assertIn(path.name, ("TASKS.md", "ACCEPTANCE.md", "JOURNAL.md", "JOURNAL.order.json"))
             reads.append(path)
             return original(path)
 
@@ -746,7 +748,10 @@ class TestJournalDiagnostics(JournalCase):
             count = len(reads)
             self.assertEqual(validate.journal_findings(project), [])
             self.assertEqual(len(reads), count)
-        self.assertEqual(len(reads), 3)
+        self.assertEqual(sum(p.name in ("JOURNAL.md", "JOURNAL.order.json") for p in reads), 3)
+        for path in reads:
+            if path.name in ("TASKS.md", "ACCEPTANCE.md"):
+                self.assertEqual(reads.count(path), 1)
 
     def test_validation_reuses_working_only_journal_diagnostics_without_sidecar_reads(self):
         self.write_journal("# Journal\n\n## 2026-01-01 — Work\nT-ONE.\n")
