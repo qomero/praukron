@@ -17,7 +17,7 @@ from praukron import cli, mutate
 ROOT = Path(__file__).resolve().parents[1]
 COMMANDS = (
     ("journal", "append"), ("criterion", "set"), ("task", "add"), ("contract", "add"), ("task", "update"),
-    ("acr", "add"),
+    ("acr", "add"), ("batch", "apply"),
 )
 PARTS = ("WHEN:", "WHEN NOT:", "RETURNS:", "EXAMPLE:")
 
@@ -108,7 +108,7 @@ class Documented(unittest.TestCase):
     def read(self, name: str) -> str:
         return (ROOT / name).read_text(encoding="utf-8")
 
-    def test_every_document_names_the_five_commands(self):
+    def test_every_document_names_the_structured_commands(self):
         for name in ("AGENTS.md", "docs/SPEC.md", "docs/GUIDE.md", "README.md"):
             text = self.read(name)
             for command in COMMANDS:

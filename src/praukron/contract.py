@@ -112,7 +112,7 @@ def render(payload: dict) -> str:
 
 
 def append_section(path: Path, heading: str, text: str) -> bytes:
-    original = path.read_bytes() if path.is_file() else f"# {heading}\n".encode("utf-8")
+    original = mutate.read_bytes(path) if mutate.is_file(path) else f"# {heading}\n".encode("utf-8")
     newline = b"\r\n" if b"\r\n" in original else b"\n"
     padding = b"" if original.endswith(newline * 2) else newline if original.endswith(newline) else newline * 2
     return original + padding + text.encode("utf-8").replace(b"\n", newline)
@@ -143,7 +143,7 @@ def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
             check_new(project, definition, target=task)
             authority = root / AUTHORITY_DIR
             path = authority / task.source.file
-            original = path.read_bytes()
+            original = mutate.read_bytes(path)
             found = mutate.section(original, task.id)
             if found.revision != payload["expectTaskRevision"]:
                 current = {"recordId": task.id, "source": f"{task.source.file}#{task.id}",

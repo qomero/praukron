@@ -74,6 +74,7 @@ instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 .praukron/praukron contract add --input -     # the contract of a TODO task
 .praukron/praukron task update --input -      # update fields or addGovernedBy (ADR-074)
 .praukron/praukron acr add --input -          # an Acceptance Change Request for a frozen criterion
+.praukron/praukron batch apply --input -      # several of these at once, all or nothing
 ```
 
 Minimal payloads; replace `<rev>` with the record's revision:
@@ -85,6 +86,7 @@ task add        {"id":"T-2","title":"Export","module":"M-CORE","domain":"executi
 contract add    {"task":"T-3","expectTaskRevision":"<rev>","id":"AC-T-3","title":"Import","criteria":[{"text":"Given a file, When imported, Then its rows load.","class":"TEST"}]}
 task update     {"id":"T-1","expectRevision":"<rev>","set":{"status":"WIP","owner":"agent","claimed":"2026-10-16"}}
 acr add         {"task":"T-4","criterion":"AC-T-4-01","proposed":"Given a file, When saved, Then it is valid.","reason":"Untestable as written."}
+batch apply     {"operations":[{"op":"criterion set","criterion":"AC-T-1-01","state":"PASS","expectRevision":"<rev>"},{"op":"criterion set","criterion":"AC-T-1-02","state":"PASS","expectRevision":"<rev>"}]}
 ```
 
 Each validates before and after it writes and refreshes every compiled view
@@ -95,6 +97,8 @@ for `contract add`). Take the task's and criteria's `revision` from `context <ta
 `explain <task>` or `retrieve <task>`; criteria share a contract revision.
 Only for a record not yet read, use 16 zeros. Stale refusals carry the current revision.
 `closability` says whether DONE is allowed and why.
+`batch apply` runs `operations` in order (each a payload above plus `op`) with one
+validation and one refresh; a record read once keeps that revision for every operation.
 `criterion set` records state/evidence on any task, including `WIP`.
 Writes cannot set `HUMAN_VERIFIED`, close `Authority: owner` tasks, edit criterion
 text/class, or touch `archive/`. Add contracts only to `TODO` tasks; for frozen

@@ -338,7 +338,7 @@ install_guidance "$source_dir/.agents/skills/praukron/SKILL.md" \
 # never runs a stale compiler against a current chronicle.
 mkdir -p "$target/$runtime/praukron"
 for module in __init__ layout model parse domain validate analytics views index compile snapshot migrate \
-  mermaid review dashboard retrieve codegraph respond mutate journal task task_update contract criterion acr archive archive_recovery serve cli; do
+  mermaid review dashboard retrieve codegraph respond mutate journal task task_update contract criterion acr batch archive archive_recovery serve cli; do
   cp "$source_dir/src/praukron/$module.py" "$target/$runtime/praukron/$module.py"
 done
 cp "$source_dir/VERSION" "$target/$runtime/VERSION"

@@ -46,12 +46,12 @@ def append(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
             authority = Path(project.root) / AUTHORITY_DIR
             path = authority / "JOURNAL.md"
             for existing in [path, *sorted((authority / ARCHIVE_DIR).glob("*/JOURNAL.md"))]:
-                if existing.is_file() and any(
+                if mutate.is_file(existing) and any(
                     h.decode("utf-8").strip() == anchor
-                    for h in re.findall(rb"(?m)^## ([^\r\n]+)\r?$", existing.read_bytes())
+                    for h in re.findall(rb"(?m)^## ([^\r\n]+)\r?$", mutate.read_bytes(existing))
                 ):
                     raise mutate.WriteError("duplicate-heading", f"journal heading already exists: {heading}; the entry is already recorded, or change the title or date")
-            original = path.read_bytes() if path.is_file() else b"# Journal\n"
+            original = mutate.read_bytes(path) if mutate.is_file(path) else b"# Journal\n"
             newline = b"\r\n" if b"\r\n" in original else b"\n"
             padding = b"" if original.endswith(newline * 2) else newline if original.endswith(newline) else newline * 2
             entry = (f"## {heading}\n\n{body}").encode("utf-8").replace(b"\n", newline)

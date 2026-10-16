@@ -20,7 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from praukron import acr, cli, contract, criterion, journal, layout, mutate, task, task_update  # noqa: E402
+from praukron import acr, batch, cli, contract, criterion, journal, layout, mutate, task, task_update  # noqa: E402
 from test_praukron import FixtureCase, build_fixture  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,9 +32,12 @@ COMMANDS = {
     "task update": ("task.update", task_update.SCHEMA),
     "acr add": ("acr.add", acr.SCHEMA),
 }
+# The commands AGENTS.md gives an example for: the writes, and the batch that composes them.
+EXAMPLE_COMMANDS = {**COMMANDS, "batch apply": ("batch.apply", batch.schema())}
 # AGENTS.md on main before T-WRITE-GUIDE-01 (2.0.0 plus #36 and #37), LF-normalized, and the
-# net growth that task allows; T-WRITE-ACR-01 then adds the sixth command, its example and its rule.
-AGENTS_BASE_BYTES, AGENTS_BUDGET, ACR_BYTES = 10800, 1200, 300
+# net growth that task allows; T-WRITE-ACR-01 then adds the sixth command, its example and its rule,
+# and T-WRITE-BATCH-01 the batch command, its example and its rule.
+AGENTS_BASE_BYTES, AGENTS_BUDGET, ACR_BYTES, BATCH_BYTES = 10800, 1200, 300, 400
 
 # What the AGENTS.md examples name, beside the shared fixture.
 EXTRA_MODULE = "\n## M-CORE — Core\n- Phase: P1\n- Outcome: The core works.\n"
@@ -71,6 +74,8 @@ EXTRA_ACCEPTANCE = """
 
 - `AC-T-1-01` — Given the core, When it starts, Then it answers.
   `TEST` · `NOT_RUN`
+- `AC-T-1-02` — Given the core, When it stops, Then it says so.
+  `TEST` · `NOT_RUN`
 
 ## AC-T-4 — Save
 
@@ -87,7 +92,7 @@ def agents_examples() -> list[tuple[str, str]]:
     text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
     block = re.search(r"Minimal payloads[^\n]*\n\s*```text\n(.*?)```", text, re.S)
     assert block, "AGENTS.md has no payload example block"
-    pattern = re.compile(r"(" + "|".join(COMMANDS) + r")\s+(\{.*\})")
+    pattern = re.compile(r"(" + "|".join(EXAMPLE_COMMANDS) + r")\s+(\{.*\})")
     return [pattern.fullmatch(line.strip()).groups() for line in block.group(1).strip().splitlines()]
 
 
@@ -115,12 +120,12 @@ class Guidance(unittest.TestCase):
         self.assertNotIn("Before finishing, refresh everything", self.text)
 
     def test_every_write_command_has_one_example(self):
-        self.assertEqual(sorted(name for name, _ in agents_examples()), sorted(COMMANDS))
+        self.assertEqual(sorted(name for name, _ in agents_examples()), sorted(EXAMPLE_COMMANDS))
 
     def test_examples_are_one_line_and_schema_valid(self):
         for name, raw in agents_examples():
             with self.subTest(name):
-                mutate.validate_payload(json.loads(raw.replace("<rev>", "0" * 16)), COMMANDS[name][1])
+                mutate.validate_payload(json.loads(raw.replace("<rev>", "0" * 16)), EXAMPLE_COMMANDS[name][1])
 
     def test_examples_are_accepted_as_written(self):
         for name, raw in agents_examples():
@@ -128,10 +133,11 @@ class Guidance(unittest.TestCase):
                 root = self.chronicle(Path(temp))
                 authority = root / layout.AUTHORITY_DIR
                 target = {"criterion set": ("ACCEPTANCE.md", "AC-T-1"), "contract add": ("TASKS.md", "T-3"),
-                          "task update": ("TASKS.md", "T-1")}.get(name)
+                          "task update": ("TASKS.md", "T-1"), "batch apply": ("ACCEPTANCE.md", "AC-T-1")}.get(name)
                 if target:
                     revision = mutate.section((authority / target[0]).read_bytes(), target[1]).revision
-                    self.assertEqual(raw.count("<rev>"), 1)
+                    # A batch reuses the one revision it read for every operation on that record.
+                    self.assertEqual(raw.count("<rev>"), 2 if name == "batch apply" else 1)
                     raw = raw.replace("<rev>", revision)
                 code, result = run(root, name, raw)
                 self.assertEqual(code, 0, result)
@@ -157,7 +163,7 @@ class Guidance(unittest.TestCase):
 
     def test_agents_md_stays_within_its_byte_budget(self):
         size = len((ROOT / "AGENTS.md").read_bytes().replace(b"\r\n", b"\n"))
-        self.assertLessEqual(size - AGENTS_BASE_BYTES, AGENTS_BUDGET + ACR_BYTES)
+        self.assertLessEqual(size - AGENTS_BASE_BYTES, AGENTS_BUDGET + ACR_BYTES + BATCH_BYTES)
 
     def test_every_installed_copy_comes_from_the_one_source(self):
         # The installer writes the Praukron block from the root AGENTS.md; no other copy exists to drift.

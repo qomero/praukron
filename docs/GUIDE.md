@@ -421,6 +421,33 @@ $ echo '{"id":"T-DOCS-01","title":"Write the retry guide","module":"M-FOUNDATION
 {"ok":true,"operation":"task.add","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"9101852277a8233c","validation":"passed","written":true,"refreshed":true}
 ```
 
+To record several steps in one call, give `batch apply` an `operations` list.
+Each entry is the payload of one of the commands above plus `"op"`, the
+command's name. Take the task's and the contract's revisions from
+`praukron context T-DOCS-01` once, and give every operation on that record the
+same revision:
+
+```console
+$ cat done.json
+{"operations":[
+  {"op":"task update","id":"T-DOCS-01","expectRevision":"0123456789abcdef","set":{"status":"WIP","owner":"worker"}},
+  {"op":"criterion set","criterion":"AC-T-DOCS-01-01","expectRevision":"fedcba9876543210","state":"PASS","evidence":"Reviewed the guide."},
+  {"op":"task update","id":"T-DOCS-01","expectRevision":"0123456789abcdef","set":{"status":"DONE","evidence":"Guide reviewed; criterion PASS."}},
+  {"op":"journal append","title":"Guide complete","body":"Reviewed T-DOCS-01."}
+]}
+$ praukron batch apply --input done.json
+```
+
+Operations run in order under one lock and keep their command's rules; the
+batch validates once and refreshes once. If any operation is refused, nothing
+is written, and the refusal names its zero-based `index` and its `op`; a stale
+revision names the revision to retry the whole batch with. Success lists each
+operation's result and the final revision of every section written, keyed by
+`file#anchor`. A section an earlier operation in the same batch created, such
+as a new task, takes `"$previous"` instead of a revision. `--dry-run` checks the
+whole batch without writing, and `praukron batch apply --schema` describes every
+operation. If only the refresh fails, rerun `compile`, `graph` and `dashboard`.
+
 **3. Claim it.** Take `expectRevision` from the task's `revision` in `context`,
 `explain` or `retrieve`, or from the last write result. A stale one is
 refused and the refusal returns the current revision and record.

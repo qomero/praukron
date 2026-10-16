@@ -287,6 +287,7 @@ record these commands do not cover.
 | `praukron contract add` | `ACCEPTANCE.md`, `TASKS.md` | appends a contract and sets the task's `AC:` |
 | `praukron task update` | `TASKS.md` | `Status`, `Owner`, `Claimed`, `Evidence`, `Validation` of one task; appends to `Governed by` (ADR-068, ADR-074) |
 | `praukron acr add` | `ACCEPTANCE.md` | appends one `### ACR-<n>` request to the `## Acceptance Change Requests` log (ADR-076) |
+| `praukron batch apply` | the files its operations write | runs several of the writes above in order under one lock, one validation and one refresh; all or nothing (ADR-077) |
 
 With `INDEX.md` (generated), `respond` (`RESPONSES.md`, ADR-055) and `archive`
 (ADR-067, only when the owner asks), these are the only chronicle writes the
@@ -383,6 +384,47 @@ write; run `compile && graph && dashboard`.
 | `task update` with the current revision and the values already set | refused: `no-change` (with `alreadyGoverned` when ADR ids were already listed) |
 | lock held by another writer | refused: `locked`; wait and retry |
 | an earlier write was interrupted | refused once: `interrupted-write`, after the restore; retry |
+
+**Batch composition (ADR-077).** `batch apply` takes a non-empty `operations`
+array. Each entry is one write command's payload plus `op`, the command's name:
+`journal append`, `criterion set`, `task add`, `contract add`, `task update` or
+`acr add`. An unknown `op` and a nested batch are refused. A registry pairs each
+name with the command's schema, handler and revision target, so a later governed
+write joins without a second transaction engine.
+
+The batch takes the write lock once, captures the chronicle, and plans every
+operation in array order against a byte overlay, so each sees what earlier ones
+staged: a claim, a new task or contract, a criterion state, a journal heading,
+an open request. Each keeps its command's governance at the point it runs:
+frozen contracts, `DONE` only with every criterion `PASS`, owner authority,
+archive immutability, duplicate ids and headings. Intermediate states are not
+validated. The baseline and final validation compare once, over the combined
+proposed state, before anything is persisted; `--dry-run` runs the same check.
+
+Revision fields stay required. The revision read before the batch serves every
+operation on that section: it is checked against the captured original and
+then mapped to the staged section for the command's own check. A current staged
+revision is also accepted. `$previous` is accepted only for a section an earlier
+operation in this batch wrote, such as a task or contract it created; it never
+authorizes the first touch of an existing section. Criteria in one contract
+share its revision. A stale revision on a section the batch already changed is
+refused with the revision read before the batch as `currentRevision`, which is
+what a retried batch needs.
+
+The combined bytes are persisted with one durable recovery record, the existing
+atomic replacements and byte-exact rollback. A refusal, a new validation error
+or a persistence failure writes nothing and refreshes nothing. After commit and
+lock release, `INDEX.md`, compiled data, graphs and dashboard refresh once; a
+refresh failure reports `written:true, refreshed:false`, to be repaired by a
+refresh alone.
+
+The result is one JSON line: ordered `results` (`index`, `op`, `recordId`,
+`source`, `revision` after that operation), final `revisions` keyed by
+`file#anchor` for every changed section, and shared `written` and `refreshed`.
+A refusal's `error` carries the operation's `index` and `op` with the command's
+own code and message, and a shape refusal its minimal accepted entry; final
+validation and persistence failures name their `stage`. Dry-run returns the
+proposed results and `wouldWrite`. The CLI exits nonzero on any refusal.
 
 ### 2.7 Archive lifecycle
 
