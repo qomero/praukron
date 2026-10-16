@@ -36,6 +36,7 @@ people arriving from a release page.
   with the template's seven fields and `Decision: PENDING`. The tool assigns the id. The criterion never changes, and
   the owner still decides the request. A `TODO` task, an inherited invariant, an unknown task or criterion, and a
   second undecided request for the same criterion are refused (T-WRITE-ACR-01).
+- Task context, explain and retrieve carry write revisions; task packets report whether DONE is allowed and why.
 
 ## 2.0.0 — 2026-10-16
 

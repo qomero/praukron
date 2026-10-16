@@ -27,6 +27,19 @@ class Item:
     source: str
     reason: str
     text: str
+    revision: str | None = None
+    criterionRevisions: dict[str, str] = field(default_factory=dict)
+
+    def metadata(self) -> str:
+        if self.revision is None:
+            return ""
+        return f"Revision: {self.revision}" + (
+            " · criteria: " + ", ".join(self.criterionRevisions) + " (same revision)"
+            if self.criterionRevisions else "")
+
+    def as_json(self) -> dict:
+        return {key: value for key, value in vars(self).items()
+                if key not in ("revision", "criterionRevisions") or value}
 
 
 DEFAULT_BUDGET = 4000  # tokens, estimated as index.tokens does
@@ -62,7 +75,7 @@ class Pack:
         return {
             "query": self.query,
             "routed": [{"entity": e, "why": w} for e, w in self.routed],
-            "items": [vars(item) for item in self.items],
+            "items": [item.as_json() for item in self.items],
             "omitted": [{**vars(o), "followUp": o.follow_up()} for o in self.omitted],
             "loadedBytes": self.loaded_bytes,
             "chronicleBytes": self.chronicle_bytes,
@@ -81,7 +94,7 @@ class Pack:
             # Record headings are demoted under the pack's own labels; the
             # record text is otherwise verbatim.
             body = re.sub(r"(?m)^(#{1,4}) ", r"###\1 ", item.text.strip())
-            lines += ["", f"## {item.kind} · {item.id} — {item.source}", f"_{item.reason}_", "", body]
+            lines += ["", f"## {item.kind} · {item.id} — {item.source}", f"_{item.reason}_", *([item.metadata()] if item.revision else []), "", body]
         if self.omitted:
             # Pointers, not bodies: the agent still sees what else is relevant
             # and expands only what it needs.
@@ -195,7 +208,17 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
         if text is None or source in seen:
             return
         seen.add(source)
-        cost = index.tokens(text)
+        item = Item(kind, record_id, source, reason, text)
+        if kind in ("TASK", "ACCEPTANCE"):
+            from .mutate import record_revision
+            from .model import Source
+
+            name, anchor = source.split("#", 1)
+            item.revision = record_revision(root, Source(name, anchor))
+            contract = project.contracts.get(record_id) if kind == "ACCEPTANCE" else None
+            if contract:
+                item.criterionRevisions = {c.id: item.revision for c in contract.criteria}
+        cost = index.tokens(text + item.metadata())
         # Items arrive most relevant first. The first is always loaded; once one
         # does not fit, everything after it is listed rather than loaded, so the
         # cut is a clean prefix of the neighbourhood.
@@ -203,7 +226,7 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
             pack.omitted.append(Omitted(kind, record_id, source, reason, cost))
             return
         spent += cost
-        pack.items.append(Item(kind, record_id, source, reason, text))
+        pack.items.append(item)
         pack.loaded_bytes += len(text.encode())
 
     def task(task_id: str, reason: str) -> None:

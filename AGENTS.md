@@ -92,8 +92,12 @@ itself, so run neither `validate` nor `compile && graph && dashboard` after
 it. Each takes a JSON payload (`--schema` prints it, `--dry-run` previews; a
 refusal includes a minimal accepted payload), prints one JSON line, and exits
 nonzero when refused. Updates need the record's revision
-(`expectRevision`; `expectTaskRevision` for `contract add`); a stale one is
-refused with the current revision to retry with (send 16 zeros to learn it).
+(`expectRevision`; `expectTaskRevision` for `contract add`). Take the task's
+`revision` and each criterion's `revision` from `context <task>`, `explain <task>`
+or `retrieve <task>`; criteria share their contract section's revision. A stale
+one is refused with the current revision to retry with. Only for a record not
+yet read, send 16 zeros as a fallback. The task packet's `closability` says
+whether DONE is allowed now and names the reasons when it is not.
 `criterion set` records state and evidence on any task's criteria, `WIP`
 included. The commands never set `HUMAN_VERIFIED`, close an `Authority: owner`
 task, change a criterion's text or class, add a contract once the task is `WIP`

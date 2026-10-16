@@ -310,6 +310,11 @@ def section(data: bytes, record_id: str) -> Section:
     raise WriteError("record-not-found", f"no '## ' section found for {record_id}")
 
 
+def record_revision(root: Path, source: Source) -> str:
+    """Read the same exact section bytes used by optimistic writes, including archives."""
+    return section((root / AUTHORITY_DIR / source.file).read_bytes(), source.anchor).revision
+
+
 def working_section(root: Path, source: Source) -> Section:
     ensure_mutable(source)
     return section((root / AUTHORITY_DIR / source.file).read_bytes(), source.anchor)

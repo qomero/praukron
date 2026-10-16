@@ -8,6 +8,7 @@ decidable rather than negotiable.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from . import layout
 import re
@@ -822,6 +823,14 @@ def _blocks(gate, phase_id: str) -> bool:
     return any(entry.split()[:1] == [phase_id] for entry in gate.blocks if entry.split())
 
 
+def _revisions(project: Project, task, contract) -> tuple[str, str | None]:
+    from .mutate import record_revision
+
+    root = Path(project.root)
+    return (record_revision(root, task.source),
+            record_revision(root, contract.source) if contract else None)
+
+
 def explain(project: Project, task_id: str) -> dict[str, object]:
     """Everything decidable about one task, with no model in the loop."""
     task = project.task(task_id)
@@ -829,8 +838,10 @@ def explain(project: Project, task_id: str) -> dict[str, object]:
         raise KeyError(task_id)
     result = report(project)
     contract = project.contracts.get(task.contract or "")
+    revision, contract_revision = _revisions(project, task, contract)
     return {
         "id": task.id,
+        "revision": revision,
         "title": task.title,
         "lineage": lineage(project, task),
         "phase": task.phase,
@@ -851,7 +862,7 @@ def explain(project: Project, task_id: str) -> dict[str, object]:
         ],
         "blocks": result.downstream.get(task.id, []),
         "acceptance": [
-            {"id": c.id, "state": c.state, "class": c.evidence_class, "text": c.text}
+            {"id": c.id, "state": c.state, "class": c.evidence_class, "text": c.text, "revision": contract_revision}
             for c in (contract.criteria if contract else [])
         ],
         "invariants": [c.id for c in project.invariants_for(task)],
@@ -1000,6 +1011,9 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
     if task is None:
         raise KeyError(task_id)
     contract = project.contracts.get(task.contract or "")
+    revision, contract_revision = _revisions(project, task, contract)
+    from .task_update import closability
+
     phase = project.phase(task.phase)
     report_now = report(project)
     blockers = [o.as_json() for o in report_now.obstacles if o.subject == task_id]
@@ -1052,6 +1066,8 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
         ),
         "task": {
             "id": task.id,
+            "revision": revision,
+            "closability": closability(project, task),
             "title": task.title,
             "module": task.module,
             "domain": task.domain,
@@ -1091,7 +1107,7 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
         "problems": _problems(project, task),
         "blockers": blockers,
         "acceptance": [
-            {"id": c.id, "text": c.text, "class": c.evidence_class, "state": c.state}
+            {"id": c.id, "text": c.text, "class": c.evidence_class, "state": c.state, "revision": contract_revision}
             for c in (contract.criteria if contract else [])
         ],
         "invariants": [

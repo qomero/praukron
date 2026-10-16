@@ -17,7 +17,7 @@ SCHEMA = {
     "properties": {
         "id": {"type": "string", "minLength": 1, "description": "Task id, e.g. T-EXAMPLE-01", "examples": ["T-EXAMPLE-01"]},
         "expectRevision": {"type": "string", "minLength": 16,
-                           "description": "16 hex revision of the task section, from the last result or a stale-revision refusal",
+                           "description": "16 hex revision of the task section, from context/explain/retrieve, the last result or a stale-revision refusal",
                            "examples": ["0123456789abcdef"]},
         "set": {
             "type": "object", "additionalProperties": False,
@@ -115,6 +115,39 @@ def _usable(owner: str | None) -> bool:
     return bool(owner) and owner.strip().lower() not in {"unassigned", "none", "—", "-"}
 
 
+def done_blockers(project: Project, task, evidence: str | None) -> list[mutate.WriteError]:
+    """The shared rule for setting DONE, evaluated against the proposed evidence."""
+    try:
+        mutate.ensure_mutable(task.source)
+    except mutate.WriteError as error:
+        return [error]
+    if task.done:
+        return []
+    blockers = []
+    if task.owner_held:
+        blockers.append(mutate.WriteError(
+            "owner-held", f"{task.id} is Authority: owner; only the owner closes it; record evidence and leave Status for the owner", "status"))
+    criteria = project.mandatory_criteria(task)
+    if not criteria:
+        blockers.append(mutate.WriteError(
+            "unresolved-acceptance", f"{task.id} has no contract criteria; add a contract with contract add while the task is TODO", "status"))
+    open_ids = [c.id for c in criteria if c.state != "PASS"]
+    if open_ids:
+        blockers.append(mutate.WriteError(
+            "unresolved-acceptance", f"criteria not PASS: {', '.join(open_ids)}; record each with criterion set first",
+            "status", details={"criteria": open_ids}))
+    if not (evidence or "").strip():
+        blockers.append(mutate.WriteError(
+            "evidence-required", "DONE needs recorded evidence; include set.evidence", "evidence"))
+    return blockers
+
+
+def closability(project: Project, task) -> dict:
+    blockers = done_blockers(project, task, task.evidence)
+    return {"canClose": not blockers, "reasons": [
+        {"code": b.code, "message": str(b), **b.details} for b in blockers]}
+
+
 def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
     root = root.resolve()
     operation = "task.update"
@@ -169,19 +202,10 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 if not _usable(owner):
                     raise mutate.WriteError("owner-required", "WIP needs an owner; include set.owner in the same update", "owner")
                 edits.setdefault("Claimed", dt.date.today().isoformat())
-            if status == "DONE" and task.status != "DONE":
-                if task.owner_held:
-                    raise mutate.WriteError("owner-held", f"{task_id} is Authority: owner; only the owner closes it; record evidence and leave Status for the owner",
-                                            "status")
-                criteria = project.mandatory_criteria(task)
-                if not criteria:
-                    raise mutate.WriteError("unresolved-acceptance", f"{task_id} has no contract criteria; add a contract with contract add while the task is TODO", "status")
-                open_ids = [c.id for c in criteria if c.state != "PASS"]
-                if open_ids:
-                    raise mutate.WriteError("unresolved-acceptance",
-                                            f"criteria not PASS: {', '.join(open_ids)}; record each with criterion set first", "status")
-                if not (evidence or "").strip():
-                    raise mutate.WriteError("evidence-required", "DONE needs recorded evidence; include set.evidence", "evidence")
+            if status == "DONE":
+                blockers = done_blockers(project, task, evidence)
+                if blockers:
+                    raise blockers[0]
             if all(_current(task, label) == value for label, value in edits.items()):
                 raise mutate.WriteError("no-change", "the update would change nothing",
                                         details={"alreadyGoverned": list(skipped)} if skipped else None)
