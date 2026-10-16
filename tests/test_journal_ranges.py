@@ -141,6 +141,25 @@ class TestRangeReaders(RangeCase):
         self.assertEqual(self.stays(result, PARTLY), "names record(s) not archived: T-R-04")
         self.assertEqual(self.stays(result, BROKEN), "names id(s) that resolve to no record: T-R-03..01")
 
+    def test_an_invalid_adr_range_keeps_its_entry_like_any_invalid_range(self):
+        for adr_range in ("ADR-003..001", "ADR-001..T-R-03", "ADR-001..999"):
+            with self.subTest(adr_range=adr_range):
+                self.setUp()
+                self.write_journal(f"# Journal\n\n## {CLOSED}\nT-R-01 under ADR-001..003.\n\n"
+                                   f"## {BROKEN}\nT-R-01 under {adr_range}.\n")
+                (warning,) = [f.message for f in validate.check(compiler.load(self.root))
+                              if f.code == "unknown-journal-reference"]
+                self.assertTrue(warning.startswith(f"names {adr_range}, which is not a valid range"))
+                result = archive.preview(self.root, "P1")
+                self.assertIn(CLOSED, self.moved(result))
+                self.assertEqual(self.stays(result, BROKEN),
+                                 f"names id(s) that resolve to no record: {adr_range}")
+                archive.archive(self.root, "P1")
+                self.assertIn(BROKEN, (self.authority / "JOURNAL.md").read_text(encoding="utf-8"))
+                archived = (self.authority / "archive/P1/JOURNAL.md").read_text(encoding="utf-8")
+                self.assertIn(CLOSED, archived)
+                self.assertNotIn(BROKEN, archived)
+
     def test_apply_and_restore_round_trip_a_range_entry(self):
         for newline in (b"\n", b"\r\n"):
             with self.subTest(newline=newline):
