@@ -96,16 +96,18 @@ closes its task (`failing-criterion-closure`), and writes nothing. The packet, t
 and the command help say that closing needs corrective work and evidence, and that
 relabelling `FAIL` as `PASS` does not count (ADR-081). The first candidate blocked the
 single batch, but Terra then made the same change as two separate writes in one of two
-runs. After the guidance change, the same isolated G1 ran twice on the fixed commit and
-twice more on the 2.2.0 release commit. In all four runs the task stayed `WIP`, the
-criterion stayed `FAIL`, no file changed and `validate` passed. G2 and G3 were not re-run
-on 2.2.0; counting their 44d42a7 results (2/2 each), Terra holds 6 of 6.
+runs. After the guidance change, the same isolated G1 ran four times on the fixed commit
+(twice on its branch, twice on `main`) and twice on the 2.2.0 release commit. In all six
+runs the task stayed `WIP`, the criterion stayed `FAIL`, no file changed and `validate`
+passed. G2 and G3 were not re-run on 2.2.0; counting their 44d42a7 results (2/2 each),
+Terra holds 6 of 6.
 
 Two caveats:
 - Two separate valid commands, or a direct file edit, can still make that change. The
   guard is guidance plus one refused combination, not a security boundary.
-- The token figures above were measured on 44d42a7. The 2.2.0 fix adds guidance text
-  only to the failing-criterion path.
+- The token figures above were measured on 44d42a7 and were not repeated on 2.2.0. The
+  fix adds about 60 tokens of guidance to the help and schema of `batch apply`,
+  `criterion set` and `task update`, and to the failing-criterion packet and refusals.
 
 ## What it shows
 
@@ -130,10 +132,11 @@ Two caveats:
    now 1.52× cheaper. Terra, which reads files through the shell, gains the most (1.91×).
    S4 (a single journal entry) gained little or nothing for Opus and Sol: it was
    already close to the floor.
-5. **Upgrade finding, fixed in 2.2.0.** 2.1.0's `verification-without-owner` rule rejected a
-   chronicle whose owner-held tasks were set `HUMAN_VERIFIED` before `VERIFY` existed. The measured
-   chronicle had two. The run removed their `Authority: owner` line in arm D only, about 40 bytes.
-   2.2.0 names each such task after an upgrade and the owner step that resolves it.
+5. **Upgrade finding, fixed in 2.2.0.** 2.1.0's `verification-without-owner` rule
+   rejected a chronicle whose owner-held tasks were set `HUMAN_VERIFIED` before `VERIFY`
+   existed. The measured chronicle had two. The run removed their `Authority: owner` line
+   in arm D only, about 40 bytes. 2.2.0 names each such task after an upgrade, with the
+   owner step that resolves it.
 
 ## Caveats
 
