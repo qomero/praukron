@@ -468,7 +468,8 @@ kinds; an absent file means no conventions and no briefs, never an error.
   standing rule such as the rules every worker or reviewer follows, which agent
   builds or reviews, how a session is started, or how review rounds run.
 - A **brief** is `## BR-<id>: <title>` with `Task` (one task), `Status`
-  (`ACTIVE` or `CLOSED`), `Conventions` (the `CV-` ids it rests on, or `none`),
+  (`ACTIVE` or `CLOSED`), `Conventions` (required: the `CV-` ids it rests on,
+  or `none`; a missing or misspelled field is an error, never read as `none`),
   any further one-line fields the project uses (for example `Branch`, `Base`,
   `PR`, `Builder`, `Reviewers`, `Review` for the current round), and notes after
   a blank line. A brief adds what the contract does not hold; it never restates,
@@ -485,9 +486,12 @@ launcher or models; Praukron's templates and documentation name none.
 
 `context <task>` carries `brief` (the task's `ACTIVE` brief, else its last
 `CLOSED` one, else `null`) and `conventions` (the `ACTIVE` conventions that
-brief names and that apply to the packet's `--role`), each verbatim with an
+brief names and that apply to the packet's `--role`: `builder`, the default,
+`reviewer`, or `coordinator`, which a coordinator uses to recover its own
+launch and review-round conventions), each verbatim with an
 `authority` pointer `COORDINATION.md#<id>`, also listed under `authority.read`.
-`retrieve <task>` adds them as `BRIEF` and `CONVENTION` items within its budget;
+`retrieve <task>` adds them, for every role, as `BRIEF` and `CONVENTION` items
+after the task's governing ADRs and within its budget;
 `retrieve CV-<id>` and `retrieve BR-<id>` return one record. A packet never
 carries the whole file.
 
@@ -495,10 +499,11 @@ carries the whole file.
 load fails, as for every record file); `duplicate-coordination-record`,
 `invalid-convention-status`, `invalid-convention-role`, `invalid-brief-status`,
 `unknown-brief-task` (in neither the working files nor an archive),
-`unknown-brief-convention`, `retired-brief-convention` (an `ACTIVE` brief resting
-on a convention that is not `ACTIVE`) and `multiple-active-briefs` errors; and
-`active-brief-done-task` and `long-coordination-record` (over 2,000 estimated
-tokens) warnings. `archive` never moves `COORDINATION.md`, and keeps a task in
+`brief-without-conventions`, `unknown-brief-convention`, `retired-brief-convention`
+(an `ACTIVE` brief resting on a convention that is not `ACTIVE`) and
+`multiple-active-briefs` errors; and `active-brief-done-task`,
+`long-coordination-record` (over 2,000 estimated tokens) and `possible-secret`
+(text that looks like a credential) warnings. `archive` never moves `COORDINATION.md`, and keeps a task in
 the working files while an `ACTIVE` brief names it; a `CLOSED` brief keeps
 resolving to its archived task.
 

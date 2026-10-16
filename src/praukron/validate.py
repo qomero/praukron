@@ -264,6 +264,8 @@ def coordination_findings(project: Project) -> list[Finding]:
         if record.id in seen:
             error("duplicate-coordination-record", f"{record.id} is defined more than once")
         seen.add(record.id)
+        if _SECRET.search(record.text):
+            warn("possible-secret", "record text looks like it contains a credential; name where it is found instead")
         if (len(record.text) + 3) // 4 > COORDINATION_TOKENS:
             warn("long-coordination-record",
                  f"{record.id} exceeds {COORDINATION_TOKENS:,} estimated tokens; every packet that "
@@ -287,7 +289,10 @@ def coordination_findings(project: Project) -> list[Finding]:
                 error("multiple-active-briefs",
                       f"{record.task} already has ACTIVE brief {active[record.task]}")
             active.setdefault(record.task, record.id)
-        for convention_id in record.conventions:
+        if record.conventions is None:
+            error("brief-without-conventions",
+                  "brief has no Conventions field; list the CV ids it rests on, or write 'none'")
+        for convention_id in record.conventions or []:
             convention = conventions.get(convention_id)
             if convention is None:
                 error("unknown-brief-convention", f"rests on {convention_id}, which is not a convention")

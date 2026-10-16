@@ -95,7 +95,8 @@ question that an authored document answers.
   run survives the loss of any session (ADR-075). It is authority below
   contracts, invariants and ADRs; a brief adds to its task's contract and
   never changes a criterion. `context <task>` and `retrieve <task>` carry the
-  task's brief and the conventions it rests on. It is never archived, and a
+  task's brief and the conventions it rests on; `context <task> --role
+  coordinator` gives a coordinator its own. It is never archived, and a
   task with an `ACTIVE` brief stays in the working files.
 - `.praukron/compiled/STATE.md` and `.praukron/compiled/TASK_GRAPH.md` are
   views. They report authority and never override it.

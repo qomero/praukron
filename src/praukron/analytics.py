@@ -1030,7 +1030,7 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
     # so a relaunched agent needs nothing outside the chronicle (ADR-075).
     brief = project.brief_for(task_id)
     conventions = [
-        c for c in (project.convention(i) for i in (brief.conventions if brief else []))
+        c for c in (project.convention(i) for i in ((brief.conventions or []) if brief else []))
         if c is not None and c.status == "ACTIVE" and c.applies_to(role)
     ]
     authority += [_pointer(b.source) for b in ([brief] if brief else []) + conventions]

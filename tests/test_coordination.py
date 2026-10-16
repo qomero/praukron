@@ -178,12 +178,36 @@ class TestValidate(CoordinationCase):
         self.assertIn("unknown-brief-task", output)
 
     def test_active_brief_on_done_task_and_long_records_warn(self) -> None:
-        self.write(COORDINATION + "\n## BR-02: Finished\n- Task: T-ONE\n- Status: ACTIVE\n\n"
+        self.write(COORDINATION + "\n## BR-02: Finished\n- Task: T-ONE\n- Status: ACTIVE\n- Conventions: none\n\n"
                    + "word " * 1700 + "\n")
         found = self.findings()
         self.assertEqual(found["active-brief-done-task"][0].severity, "warning")
         self.assertEqual(found["long-coordination-record"][0].where, "COORDINATION.md#BR-02")
         self.assertEqual(validate.errors(validate.check(self.project)), [])
+
+    def test_a_missing_or_misspelled_conventions_field_is_an_error_not_none(self) -> None:
+        for field in ("", "- Convention: CV-01\n"):
+            with self.subTest(field=field):
+                self.write(COORDINATION.replace("- Conventions: CV-01, CV-02, CV-03\n", field))
+                found = self.findings()
+                self.assertEqual([f.where for f in found["brief-without-conventions"]],
+                                 ["COORDINATION.md#BR-01"])
+                self.assertEqual(found["brief-without-conventions"][0].severity, "error")
+                self.assertIsNone(self.project.brief_for("T-TWO").conventions)
+                code, output = self.run_cli("validate")
+                self.assertEqual(code, 1)
+                self.assertIn("brief-without-conventions", output)
+        # `none` is the explicit way to rest on no convention.
+        self.write(COORDINATION.replace("- Conventions: CV-01, CV-02, CV-03\n", "- Conventions: none\n"))
+        self.assertEqual(self.findings(), {})
+        self.assertEqual(self.project.brief_for("T-TWO").conventions, [])
+
+    def test_a_credential_in_a_record_warns(self) -> None:
+        self.write(COORDINATION.replace("Start one session per worktree.",
+                                        "Start with GH_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789."))
+        found = self.findings()
+        self.assertEqual([f.where for f in found["possible-secret"]], ["COORDINATION.md#CV-03"])
+        self.assertEqual(found["possible-secret"][0].severity, "warning")
 
 
 class TestPacket(CoordinationCase):
@@ -213,6 +237,24 @@ class TestPacket(CoordinationCase):
         self.assertEqual(packet["brief"]["task"], "T-TWO")
         self.assertIn("round 2, changes requested", packet["brief"]["text"])
         self.assertEqual(packet["conventions"][0]["id"], "CV-01")
+
+    def test_cli_context_gives_a_relaunched_coordinator_its_own_conventions(self) -> None:
+        packets = {}
+        for role in ("builder", "reviewer", "coordinator"):
+            code, output = self.run_cli("context", "T-TWO", "--role", role)
+            self.assertEqual(code, 0, output)
+            packets[role] = json.loads(output)
+        coordinator = packets["coordinator"]
+        self.assertEqual(coordinator["role"], "coordinator")
+        self.assertEqual([c["id"] for c in coordinator["conventions"]], ["CV-03"])
+        self.assertEqual(coordinator["conventions"][0]["authority"], "COORDINATION.md#CV-03")
+        self.assertIn("Start one session per worktree.", coordinator["conventions"][0]["text"])
+        self.assertIn("COORDINATION.md#CV-03", coordinator["authority"]["read"])
+        self.assertEqual(coordinator["brief"]["id"], "BR-01")
+        self.assertNotIn("findingClasses", coordinator)
+        for role in ("builder", "reviewer"):
+            self.assertNotIn("CV-03", [c["id"] for c in packets[role]["conventions"]])
+            self.assertNotIn("COORDINATION.md#CV-03", packets[role]["authority"]["read"])
 
     def test_closed_brief_is_shown_when_no_brief_is_active_and_retired_conventions_are_not(self) -> None:
         self.write(COORDINATION.replace("- Status: ACTIVE\n- Conventions", "- Status: CLOSED\n- Conventions")
@@ -245,6 +287,15 @@ class TestPacket(CoordinationCase):
         self.assertEqual([(i.kind, i.id) for i in pack.items], [("CONVENTION", "CV-04")])
         pack = retrieve.retrieve(self.project, analytics.report(self.project), self.root, "BR-01")
         self.assertEqual([i.id for i in pack.items][:2], ["BR-01", "T-TWO"])
+
+    def test_governing_adrs_load_before_the_brief_and_its_conventions(self) -> None:
+        long = "Run the whole suite before opening a pull request." + " word" * 3000
+        self.write(COORDINATION.replace("Run the whole suite before opening a pull request.", long))
+        pack = retrieve.retrieve(self.project, analytics.report(self.project), self.root, "T-TWO", budget=2500)
+        loaded = [i.id for i in pack.items]
+        self.assertIn("ADR-001", loaded)
+        self.assertLess(loaded.index("ADR-001"), loaded.index("BR-01"))
+        self.assertIn("CV-01", [o.id for o in pack.omitted])
 
     def test_over_budget_records_are_listed_with_a_follow_up(self) -> None:
         pack = retrieve.retrieve(self.project, analytics.report(self.project), self.root, "T-TWO", budget=1)
@@ -313,7 +364,7 @@ class TestUpgradeAndGuidance(unittest.TestCase):
             for phrase in ("COORDINATION.md" if text is not template else "Coordination", "CV-", "BR-",
                            "context <task>"):
                 self.assertIn(phrase, text.replace("`", ""))
-        for code in ("unknown-brief-task", "unknown-brief-convention", "multiple-active-briefs",
+        for code in ("unknown-brief-task", "unknown-brief-convention", "multiple-active-briefs", "brief-without-conventions",
                      "retired-brief-convention", "long-coordination-record"):
             self.assertIn(code, spec)
         self.assertIn("never archived", readme)
@@ -321,10 +372,15 @@ class TestUpgradeAndGuidance(unittest.TestCase):
         self.assertIn("`brief`", _flat((ROOT / ".praukron/commands/praukron-work.md").read_text(encoding="utf-8")))
 
     def test_product_text_names_no_host_terminal_manager_or_model(self) -> None:
-        for name in ("templates/chronicle/COORDINATION.md",):
-            text = (ROOT / name).read_text(encoding="utf-8").lower()
+        texts = {name: (ROOT / name).read_text(encoding="utf-8") for name in (
+            "templates/chronicle/COORDINATION.md", "templates/chronicle/README.md", "AGENTS.md",
+            ".praukron/commands/praukron-work.md", ".praukron/commands/praukron-resume.md")}
+        # SPEC names hosts in its install section; the coordination section names none.
+        spec = (ROOT / "docs/SPEC.md").read_text(encoding="utf-8")
+        texts["docs/SPEC.md §2.8"] = spec.split("### 2.8 ", 1)[1].split("\n## ", 1)[0]
+        for name, text in texts.items():
             for word in ("claude", "codex", "orca", "tmux", "opus", "sonnet", "gpt"):
-                self.assertNotIn(word, text, name)
+                self.assertNotIn(word, text.lower(), name)
 
 
 if __name__ == "__main__":

@@ -327,7 +327,7 @@ class Brief:
     title: str
     task: str
     status: str
-    conventions: list[str]
+    conventions: list[str] | None  # None: the field is missing, which validate reports
     text: str
     source: Source
 

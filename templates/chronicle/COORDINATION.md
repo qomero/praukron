@@ -40,7 +40,12 @@ Fields are the block directly under the heading; everything after the first
 blank line is the record's text. A convention's `Status` is `ACTIVE` or
 `RETIRED`, and its optional `Roles` any of `builder`, `reviewer`,
 `coordinator` (absent means every role). A brief's `Status` is `ACTIVE` or
-`CLOSED`; each task has at most one `ACTIVE` brief. Further one-line fields
-are the project's own.
+`CLOSED`; each task has at most one `ACTIVE` brief. A brief always has
+`Conventions`, written `none` when it rests on none; `validate` refuses a brief
+without it. Further one-line fields are the project's own.
+
+`praukron context <task>` carries the conventions for its `--role` (`builder`
+by default, `reviewer`, or `coordinator`); `praukron retrieve <task>` carries
+all of them.
 
 No conventions or briefs recorded yet.

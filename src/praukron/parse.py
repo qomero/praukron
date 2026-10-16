@@ -519,7 +519,9 @@ def parse_coordination(path: Path) -> tuple[list[Convention], list[Brief]]:
         else:
             briefs.append(Brief(
                 id=record_id, title=title, task=fields["Task"].strip(),
-                status=fields["Status"].strip().upper(), conventions=_list(fields.get("Conventions")),
+                status=fields["Status"].strip().upper(),
+                # Absent is not `none`: a missing or misspelled field must not drop the rules.
+                conventions=_list(fields["Conventions"]) if "Conventions" in fields else None,
                 text=text, source=Source(name, record_id),
             ))
     return conventions, briefs

@@ -171,10 +171,12 @@ When one agent or person runs others, keep how the work is run in
 `.praukron/chronicle/COORDINATION.md`, never only in a session (ADR-075):
 `## CV-<id>` conventions (worker and reviewer rules, who builds or reviews, how
 an agent is started, how review rounds run) and one `## BR-<id>` brief per task
-(`Task`, `Status`, `Conventions`, then branch, base, reviewers, the current
-review round, and notes). A brief adds to the contract; it never restates or
-changes a criterion. `context <task>` and `retrieve <task>` hand both to the
-agent you start, so point it at the task and the chronicle, nothing else.
+(`Task`, `Status`, `Conventions` or `none`, then branch, base, reviewers, the
+current review round, and notes). A brief adds to the contract; it never
+restates or changes a criterion. `context <task>` and `retrieve <task>` hand
+both to the agent you start, so point it at the task and the chronicle, nothing
+else; after a lost session, `context <task> --role coordinator` returns your own
+conventions.
 Edit one section at a time, run `validate`, and close a brief when its task is
 merged or abandoned. Never record a secret; name where it is found.
 

@@ -249,7 +249,7 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
         if record is None:
             return
         brief(record, f"brief for {task_id}")
-        for convention_id in record.conventions:
+        for convention_id in record.conventions or []:
             found = project.convention(convention_id)
             if found is not None and found.status == "ACTIVE":
                 convention(convention_id, f"{record.id} rests on it")
@@ -276,10 +276,11 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
         if t is None:
             return
         task(task_id, reason)
-        coordination(task_id)
         for adr in t.decisions:
             if adr.startswith("ADR-"):
                 decision(adr, f"governs {task_id}")
+        # Below the ADRs that govern the task, as the brief itself ranks (ADR-075).
+        coordination(task_id)
         for d in project.debts:
             if d in project.debts_for(task_id) or any(a in d.introduced_by for a in t.decisions):
                 debt(d.id, f"linked to {task_id}")

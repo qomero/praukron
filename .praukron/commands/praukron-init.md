@@ -2,8 +2,8 @@
 
 Create `.praukron/chronicle/` with `README.md`, `THESIS.md`, `PHASES.md`, `MODULES.md`,
 `TASKS.md`, `ACCEPTANCE.md`,
-`ADR/`, `INTENT.md`, `HANDOFF.md`, `JOURNAL.md`, `ASSUMPTIONS.md`, and
-`RESPONSES.md` if absent, and `.praukron/compiled/`
+`ADR/`, `INTENT.md`, `HANDOFF.md`, `JOURNAL.md`, `ASSUMPTIONS.md`,
+`RESPONSES.md`, and `COORDINATION.md` if absent, and `.praukron/compiled/`
 for compiled views.
 
 If the chronicle already contains tasks, decisions, intent, or journal entries,
