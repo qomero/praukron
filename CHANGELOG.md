@@ -30,7 +30,7 @@ people arriving from a release page.
   payload built from the command's schema. A field beside the object it belongs in, such as `status` beside
   `set`, is refused as `misplaced-field` and shown in its place. `--schema` gains the `examples` annotation.
   Writes no longer leave `__pycache__` under `.praukron/runtime`, and a committed write removes its recovery
-  record and the then-empty `.praukron/recovery/` (T-WRITE-GUIDE-01, T-WRITE-REFUSAL-01).
+  record and only the recovery directory and ignore file it created (T-WRITE-GUIDE-01, T-WRITE-REFUSAL-01).
 
 ## 2.0.0 — 2026-10-16
 

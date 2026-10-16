@@ -300,8 +300,8 @@ the whole-chronicle check runs only on a real write. `--help`, and the
 
 **Pipeline.** Payload schema → governance rules → the target resolved by ID → one
 section built → the shared write lock (owner-checked, never reclaimed from a live
-holder) → a durable recovery record of the original bytes, removed with its
-directory once the write commits → atomic replacement →
+holder) → a durable recovery record of the original bytes, removed once the
+write commits with only the directory and ignore file it created → atomic replacement →
 `compile.load` and `validate` again → refresh of `INDEX.md`, the compiled views,
 the graphs and the dashboard. A write that introduces a validation error that
 was not already present is undone byte for byte and reported as

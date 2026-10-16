@@ -23,10 +23,11 @@ SCHEMA = {
             "type": "object", "additionalProperties": False,
             "properties": {
                 "status": {"type": "string", "enum": ["TODO", "WIP", "DONE", "BLOCKED"], "examples": ["WIP"]},
-                "owner": {"type": "string", "minLength": 1, "description": "One line"},
+                "owner": {"type": "string", "minLength": 1, "description": "One line", "examples": ["worker"]},
                 "claimed": {"type": "string", "format": "date", "description": "YYYY-MM-DD"},
                 "evidence": {"type": "string", "minLength": 1,
-                             "description": "Single spaces, no blank line, no leading or trailing em dash; caller line breaks become spaces; the text is re-wrapped"},
+                             "description": "Single spaces, no blank line, no leading or trailing em dash; caller line breaks become spaces; the text is re-wrapped",
+                             "examples": ["unit tests pass"]},
                 "validation": {"type": "string", "enum": [v for v in VALIDATIONS if v != "HUMAN_VERIFIED"],
                                "description": "Validation strength; HUMAN_VERIFIED is never set by a command"},
             },
@@ -48,7 +49,7 @@ _WIDTH = 100
 
 
 SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"])
-mutate.SCHEMAS["task.update"] = (SCHEMA, ("set.status",))
+mutate.SCHEMAS["task.update"] = (SCHEMA, ("set.status", "set.owner"))
 
 
 def _lines(name: str, value: str, single: bool) -> list[str]:

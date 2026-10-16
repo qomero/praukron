@@ -230,6 +230,95 @@ class Refusals(FixtureCase):
         self.assertNotIn("example", error)
 
 
+def nested_paths(schema: dict, prefix: str = "") -> list[str]:
+    """Every field defined inside a nested object: each can be sent one level too high."""
+    paths = []
+    for name, spec in schema["properties"].items():
+        if spec.get("type") == "object" and "properties" in spec:
+            paths += [f"{prefix}{name}.{child}" for child in spec["properties"]]
+            paths += nested_paths(spec, f"{prefix}{name}.")
+    return paths
+
+
+# Records the examples name but the shared fixture lacks: a TODO task with a contract for
+# task update, and a TODO task without one for contract add.
+EXAMPLE_RECORDS = {
+    "task.update": ("\n## T-EXAMPLE-01: Example\n- Status: TODO\n- Module: M-FOUNDATION\n- Validation: UNTESTED\n"
+                    "- Dependencies: none\n- Owner: unassigned\n- AC: AC-T-TWO\n- Evidence: —\n"),
+    "contract.add": ("\n## T-NEW: New work\n- Status: TODO\n- Module: M-FOUNDATION\n- Validation: UNTESTED\n"
+                     "- Dependencies: none\n- Owner: unassigned\n- AC: —\n- Evidence: —\n"),
+}
+# Where each example's expected revision is read: (file, record, field).
+EXAMPLE_REVISIONS = {
+    "criterion.set": ("ACCEPTANCE.md", "AC-T-ONE", "expectRevision"),
+    "task.update": ("TASKS.md", "T-EXAMPLE-01", "expectRevision"),
+    "contract.add": ("TASKS.md", "T-NEW", "expectTaskRevision"),
+}
+
+
+class EveryRefusalExampleIsAccepted(unittest.TestCase):
+    """AC-T-WRITE-REFUSAL-01-01: each example a shape refusal returns is written as sent.
+
+    Only the revision, which no example can know, is replaced by the record's own.
+    """
+
+    def refusal_examples(self, command: str, operation: str, schema: dict) -> list[tuple[str, dict]]:
+        base = mutate.example(*mutate.SCHEMAS[operation])
+        payloads = [("unknown-field", {**base, "surplus": 1}), ("wrong-type", "[]"), ("invalid-json", "{")]
+        payloads += [("missing-field", {k: v for k, v in base.items() if k != name}) for name in schema["required"]]
+        for path in nested_paths(schema):
+            field = path.rsplit(".", 1)[1]
+            if field not in schema["properties"]:
+                payloads.append(("misplaced-field", {**base, field: _value_at(mutate.example(schema, (path,)), path)}))
+        examples = []
+        with tempfile.TemporaryDirectory() as temp:
+            root = build_fixture(Path(temp)).resolve()
+            for code, payload in payloads:
+                status, result = run(root, command, payload)
+                self.assertEqual((status, result["error"]["code"]), (1, code), (command, payload, result))
+                examples.append((f"{code} {payload}", result["error"]["example"]))
+        return examples
+
+    def test_each_example_is_written(self):
+        for command, (operation, schema) in COMMANDS.items():
+            for label, example in self.refusal_examples(command, operation, schema):
+                with self.subTest(command=command, refusal=label), tempfile.TemporaryDirectory() as temp:
+                    root = build_fixture(Path(temp)).resolve()
+                    authority = root / layout.AUTHORITY_DIR
+                    if operation in EXAMPLE_RECORDS:
+                        tasks = authority / "TASKS.md"
+                        tasks.write_text(tasks.read_text(encoding="utf-8") + EXAMPLE_RECORDS[operation],
+                                         encoding="utf-8")
+                    payload = copy.deepcopy(example)
+                    if operation in EXAMPLE_REVISIONS:
+                        name, record, field = EXAMPLE_REVISIONS[operation]
+                        payload[field] = mutate.section((authority / name).read_bytes(), record).revision
+                    status, result = run(root, command, payload)
+                    self.assertEqual(status, 0, (example, result))
+                    self.assertTrue(result["written"], result)
+
+    def test_misplaced_constrained_fields_return_valid_examples(self):
+        for field, value in (("owner", "worker"), ("evidence", "done"), ("claimed", "2026-10-16"),
+                             ("validation", "SYNTHETIC"), ("status", "WIP")):
+            with self.subTest(field), tempfile.TemporaryDirectory() as temp:
+                root = build_fixture(Path(temp)).resolve()
+                payload = {"id": "T-TWO", "expectRevision": "0" * 16, field: value}
+                status, result = run(root, "task update", payload)
+                self.assertEqual(result["error"]["code"], "misplaced-field")
+                example = result["error"]["example"]
+                self.assertIn(field, example["set"])
+                mutate.validate_payload(example, task_update.SCHEMA)
+                # Submitted, the example passes every payload check and stops only at the revision.
+                _, retry = run(root, "task update", {**example, "id": "T-TWO"})
+                self.assertEqual(retry["error"]["code"], "stale-revision", retry)
+
+
+def _value_at(payload: dict, path: str):
+    for part in path.split("."):
+        payload = payload[part]
+    return payload
+
+
 # The 2.0.0 schemas, less the keywords this task adds; see test_schema_output_only_gains_keywords.
 SCHEMA_DIGEST_2_0_0 = {
     "journal.append": "4a41ae374e0bf94c", "criterion.set": "b10b2a09e0c44c20", "task.add": "dc3e28d88a2d5ee1",
@@ -299,6 +388,43 @@ class Hygiene(FixtureCase):
         self.assertEqual(code, 0, result)
         self.assertEqual(sorted(p.name for p in directory.iterdir()), [".gitignore", "keep.txt"])
 
+    def test_a_pre_existing_ignore_file_or_directory_is_never_removed(self):
+        directory = self.root / layout.RECOVERY_DIR
+        for content in (b"*\n", b"# kept by the team\n*\n"):
+            with self.subTest(content=content):
+                directory.mkdir(parents=True, exist_ok=True)
+                (directory / ".gitignore").write_bytes(content)
+                code, result = run(self.root, "journal append", {**journal.EXAMPLE, "title": repr(content)})
+                self.assertEqual(code, 0, result)
+                self.assertEqual([p.name for p in directory.iterdir()], [".gitignore"])
+                self.assertEqual((directory / ".gitignore").read_bytes(), content)
+        (directory / ".gitignore").unlink()
+        code, result = run(self.root, "journal append", {**journal.EXAMPLE, "title": "empty directory"})
+        self.assertEqual(code, 0, result)
+        self.assertTrue(directory.is_dir())
+        self.assertEqual(list(directory.iterdir()), [])
+
+    @unittest.skipUnless(shutil.which("git"), "git is not installed")
+    def test_a_tracked_custom_ignore_file_stays_tracked_and_unchanged(self):
+        directory = self.root / layout.RECOVERY_DIR
+        directory.mkdir(parents=True)
+        (directory / ".gitignore").write_bytes(b"# recovery records are local\n*\n!.gitignore\n")
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "core.autocrlf=false"]
+        for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "base"]):
+            subprocess.run([*git, *args], cwd=self.root, check=True)
+        code, result = run(self.root, "journal append", journal.EXAMPLE)
+        self.assertEqual(code, 0, result)
+        status = subprocess.run([*git, "status", "--porcelain", "--untracked-files=all"], cwd=self.root,
+                                capture_output=True, text=True, check=True).stdout.splitlines()
+        for line in status:
+            self.assertRegex(line[3:], r"^\.praukron/(chronicle|compiled)/", status)
+
+    def test_an_interrupted_write_cleans_up_only_what_it_created(self):
+        task_file = self.root / layout.AUTHORITY_DIR / "TASKS.md"
+        record = mutate._write_recovery(self.root, {task_file: task_file.read_bytes()}, prefix="write")
+        self.assertTrue(mutate.recover_write(self.root))
+        self.assertFalse(record.parent.exists())
+
     def test_a_refused_write_restores_its_bytes_and_leaves_no_record(self):
         path = self.root / layout.AUTHORITY_DIR / "JOURNAL.md"
         path.write_bytes(b"# Journal\r\n")
@@ -319,7 +445,10 @@ class Hygiene(FixtureCase):
         self.assertTrue(second.is_file())
         self.assertTrue((second.parent / ".gitignore").is_file())
         mutate._discard_recovery(second)
-        self.assertFalse(second.parent.exists())
+        # The first record created the directory and was discarded first, so the
+        # tool's own ignore file stays; it ignores itself, so git status never shows it.
+        self.assertEqual([p.name for p in second.parent.iterdir()], [".gitignore"])
+        self.assertEqual((second.parent / ".gitignore").read_bytes(), b"*\n")
 
     @unittest.skipUnless(shutil.which("git"), "git is not installed")
     def test_installed_launcher_leaves_only_chronicle_and_compiled_changes(self):

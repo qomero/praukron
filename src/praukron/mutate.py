@@ -378,16 +378,27 @@ def recover_write(root: Path) -> bool:
 
 
 def _discard_recovery(record: Path) -> None:
-    """Remove a finished record, and its directory once nothing else is in it,
-    so a committed write leaves nothing under the recovery directory for git status."""
+    """Remove a finished record, then whatever its own write created and nothing else.
+
+    A committed write so leaves nothing new for git status, while a recovery
+    directory or ignore file that existed before the write is kept.
+    """
+    try:
+        created = set(json.loads(record.read_text(encoding="utf-8")).get("created", []))
+    except (OSError, ValueError, AttributeError):
+        created = set()
     record.unlink()
     directory = record.parent
-    if {path.name for path in directory.iterdir()} <= {".gitignore"}:
-        (directory / ".gitignore").unlink(missing_ok=True)
+    ignore = directory / ".gitignore"
+    if ("ignore" in created and {path.name for path in directory.iterdir()} == {".gitignore"}
+            and ignore.read_bytes() == _IGNORE):
+        ignore.unlink()
+    if "directory" in created and not any(directory.iterdir()):
         directory.rmdir()
 
 
 recover_archive = recover_write
+_IGNORE = b"*\n"
 
 
 def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str = "archive", *,
@@ -395,10 +406,13 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
     """Persist originals before replacing any authoritative file."""
     root = root.resolve()
     directory = root / RECOVERY_DIR
+    # What this write creates, so discarding its record removes only that.
+    created = [] if directory.is_dir() else ["directory"]
     directory.mkdir(parents=True, exist_ok=True)
     ignore = directory / ".gitignore"
     if not ignore.is_file():
-        ignore.write_text("*\n", encoding="utf-8")
+        ignore.write_bytes(_IGNORE)
+        created.append("ignore")
     record = directory / f"{prefix}-{time.time_ns()}.json"
     files = []
     for number, (path, original) in enumerate(originals.items()):
@@ -411,6 +425,8 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
             item["bytes"] = base64.b64encode(original).decode("ascii")
         files.append(item)
     payload = {"files": files}
+    if created:
+        payload["created"] = created
     if directories:
         payload["directories"] = [path.resolve().relative_to(root).as_posix() for path in directories]
     _replace(record, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
