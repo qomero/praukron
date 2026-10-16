@@ -160,6 +160,22 @@ class TestRangeReaders(RangeCase):
                 self.assertIn(CLOSED, archived)
                 self.assertNotIn(BROKEN, archived)
 
+    def test_an_invalid_range_never_resolves_as_a_record_whose_id_is_its_text(self):
+        self.add_task("T-R-03..01", "M-FOUNDATION")
+        self.write_journal(f"# Journal\n\n## {CLOSED}\nClosed T-R-01..03.\n\n## {BROKEN}\nClosed T-R-03..01.\n")
+        project = compiler.load(self.root)
+        self.assertEqual(validate.errors(validate.check(project)), [])
+        (warning,) = [f.message for f in validate.check(project) if f.code == "unknown-journal-reference"]
+        self.assertTrue(warning.startswith("names T-R-03..01, which is not a valid range"))
+        result = archive.preview(self.root, "P1")
+        self.assertIn(CLOSED, self.moved(result))
+        self.assertEqual(self.stays(result, BROKEN), "names id(s) that resolve to no record: T-R-03..01")
+        archive.archive(self.root, "P1")
+        self.assertIn(BROKEN, (self.authority / "JOURNAL.md").read_text(encoding="utf-8"))
+        archived = (self.authority / "archive/P1/JOURNAL.md").read_text(encoding="utf-8")
+        self.assertIn(CLOSED, archived)
+        self.assertNotIn(BROKEN, archived)
+
     def test_apply_and_restore_round_trip_a_range_entry(self):
         for newline in (b"\n", b"\r\n"):
             with self.subTest(newline=newline):

@@ -505,13 +505,13 @@ class JournalRule:
             start, end = spans[0]
             phases, open_records, unknown = [], [], []
             references = journal_references(text[start:end])
-            # An unreadable range is unknown even when it starts with ADR-.
+            # An unreadable range is unknown, even when it starts with ADR- or its text is a record id.
             invalid = {reference.text for reference in references if reference.problem}
             for named in dict.fromkeys(named for reference in references
                                        for named in reference.ids or (reference.text,)):
                 if named.startswith("ADR-") and named not in invalid:
                     continue
-                if named not in located:
+                if named in invalid or named not in located:
                     unknown.append(named)
                     continue
                 file, owner = located[named]
