@@ -19,7 +19,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 H2 = re.compile(r"^## ")
 H3_PLUS = re.compile(r"^#{3,6}\s")
-ANY_HEADING = re.compile(r"^#{1,6}(\s|$)")
+ANY_HEADING = re.compile(r"^\s*#{1,6}(\s|$)")
 BULLET = re.compile(r"^[-*] \S")
 
 
@@ -62,14 +62,14 @@ def assemble_text(text, version, date, bullets):
     title = "## %s — %s" % (version, date)
     start = None
     for i, line in enumerate(lines):
-        if H2.match(line) and line.strip() == "## Unreleased":
+        if H2.match(line) and line[3:].split(" ")[0] == version:
             start = i
-            lines[i] = title
             break
     if start is None:
         for i, line in enumerate(lines):
-            if H2.match(line) and line[3:].split(" ")[0] == version:
+            if H2.match(line) and line.strip() == "## Unreleased":
                 start = i
+                lines[i] = title
                 break
     if start is None:
         first = next((i for i, l in enumerate(lines) if H2.match(l)), len(lines))

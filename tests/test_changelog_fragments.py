@@ -100,6 +100,21 @@ class Assemble(Fixture):
         )
 
 
+    def test_existing_version_gets_fragments_and_unreleased_untouched(self):
+        text = (
+            "# C\n\n## Unreleased\n\n- pending\n\n"
+            "## 2.0.0 — 2026-10-01\n\n- shipped\n\n## 1.0.0\n\n- x\n"
+        )
+        self.write("CHANGELOG.md", text)
+        self.write("changelog.d/T-A-01.md", "- New\n")
+        tool.assemble("2.0.0", "2026-10-16", self.root)
+        self.assertEqual(
+            self.read("CHANGELOG.md").decode(),
+            "# C\n\n## Unreleased\n\n- pending\n\n"
+            "## 2.0.0 — 2026-10-01\n\n- shipped\n- New\n\n## 1.0.0\n\n- x\n",
+        )
+
+
 class Refusal(Fixture):
     def check_refused(self, bad):
         self.write("CHANGELOG.md", BASE)
@@ -121,6 +136,11 @@ class Refusal(Fixture):
 
     def test_heading_inside(self):
         self.check_refused("- ok\n\n## Sneaky\n")
+
+    def test_indented_heading_inside(self):
+        for pad in (" ", "   ", "    ", "\t"):
+            with self.subTest(pad=repr(pad)):
+                self.check_refused("- Good\n\n%s## Sneaky heading\n" % pad)
 
     def test_cli_exit_code(self):
         self.write("CHANGELOG.md", BASE)
@@ -145,6 +165,19 @@ class Idempotent(Fixture):
         once = self.read("CHANGELOG.md")
         tool.assemble("2.1.0", "d", self.root)
         self.assertEqual(self.read("CHANGELOG.md"), once)
+
+
+class Repository(unittest.TestCase):
+    """The fragments waiting in this repository can be assembled at release."""
+
+    def test_pending_fragments_are_well_formed_and_named_for_a_task(self):
+        directory = os.path.join(REPO, "changelog.d")
+        for name in sorted(os.listdir(directory)):
+            if name == "README.md":
+                continue
+            with self.subTest(fragment=name):
+                self.assertRegex(name, r"^T-[A-Za-z0-9]+(-[A-Za-z0-9]+)*\.md$")
+                tool.read_fragment(os.path.join(directory, name))
 
 
 class Docs(unittest.TestCase):
