@@ -53,6 +53,7 @@ one compiled `compiled/` directory. Only the first is authoritative.
 | `JOURNAL.md` | Append-only session diary and handoff history |
 | `TRACE.md` | Append-only operational events: tool calls, commands, mini-actions, mutations, failures, retries, validation runs |
 | `TECH_DEBT.md` | Known technical debt: what each compromise costs, its trigger, its exit condition, and its lineage |
+| `COORDINATION.md` | Optional. A coordinator's standing conventions and per-task briefs (§2.8); never archived |
 | `archive/<phase>/` | Closed records moved verbatim by `praukron archive` (§2.7); authority, immutable to the write commands |
 | `INDEX.md` | **Generated.** The routing layer an agent reads first: what matters now and where each record lives |
 
@@ -402,7 +403,7 @@ identifier prefix is ever interpreted.
 
 | Record | Moves when | Stays when |
 |---|---|---|
-| Task | `DONE`, in the selected phase | an `OPEN` assumption names it; a response to such an assumption awaits reconciliation; a linked debt is not `RESOLVED`/`INVALIDATED`; an unresolved failure points at it; under `P-NONE`, a working task depends on it |
+| Task | `DONE`, in the selected phase | an `ACTIVE` brief names it (§2.8); an `OPEN` assumption names it; a response to such an assumption awaits reconciliation; a linked debt is not `RESOLVED`/`INVALIDATED`; an unresolved failure points at it; under `P-NONE`, a working task depends on it |
 | Contract | its task moves | a working task uses it; another contract inherits it; it holds an inherited invariant |
 | Assumption | `CONFIRMED`, `REJECTED`, `REVISED` or `WITHDRAWN`; no response awaits reconciliation; every task it names is archived or moving | otherwise; it names no task |
 | Technical debt | `RESOLVED` or `INVALIDATED`; names a task; all its tasks are archived or moving | otherwise |
@@ -410,7 +411,7 @@ identifier prefix is ever interpreted.
 | Journal entry | names at least one archivable record, and every record it names is archived or moving | names nothing, only ADRs, an open or unknown record, or its heading is not unique |
 
 A record naming tasks of several phases goes to the latest of them in `PHASES.md`
-order, `P-NONE` last. `RESPONSES.md` and `ADR/` are never archived. Records move
+order, `P-NONE` last. `RESPONSES.md`, `COORDINATION.md` and `ADR/` are never archived. Records move
 verbatim, journal entries as exact byte spans placed by date and the saved order
 in `archive/JOURNAL.order.json` (ADR-072, ADR-073); each file keeps its line
 endings and UTF-8, and an archive file takes those of its source.
@@ -453,6 +454,58 @@ A successful `apply` or `restore` refreshes `INDEX.md` and the compiled data
 (`compile`), then the graphs, then the dashboard. If only that refresh fails the
 result is `ok:false`, `error.code` `refresh-failed`, `written:true`, `refreshed:false`
 with exit 1; run `compile`, `graph` and `dashboard`, never `apply` again.
+
+### 2.8 Coordination conventions and task briefs
+
+A project that runs several agents keeps how it runs them in the chronicle, not
+in any agent's session (ADR-075), so a relaunched agent resumes from
+`context <task>` alone. `COORDINATION.md` is optional and holds two record
+kinds; an absent file means no conventions and no briefs, never an error.
+
+- A **convention** is `## CV-<id>: <title>` with `Status` (`ACTIVE` or
+  `RETIRED`), optional `Roles` (any of `builder`, `reviewer`, `coordinator`;
+  absent or `all` means every role), and free Markdown after a blank line: a
+  standing rule such as the rules every worker or reviewer follows, which agent
+  builds or reviews, how a session is started, or how review rounds run.
+- A **brief** is `## BR-<id>: <title>` with `Task` (one task), `Status`
+  (`ACTIVE` or `CLOSED`), `Conventions` (required: the `CV-` ids it rests on,
+  or `none`; a missing or misspelled field is an error, never read as `none`),
+  any further one-line fields the project uses (for example `Branch`, `Base`,
+  `PR`, `Builder`, `Reviewers`, `Review` for the current round), and notes after
+  a blank line. A brief adds what the contract does not hold; it never restates,
+  narrows or widens a criterion.
+
+Fields are the block directly under the heading; a list in the notes is prose.
+Both kinds are authority, written by the coordinator (a person, or the agent
+acting as coordinator) by editing one section and running `validate`; no write
+command covers them. Where a brief or convention differs from an acceptance
+contract, an invariant or an accepted ADR, those win; it ranks with existing
+code convention. Records never hold secrets: a convention names where a secret
+is found, never its value. A project's own conventions may name its host,
+launcher or models; Praukron's templates and documentation name none.
+
+`context <task>` carries `brief` (the task's `ACTIVE` brief, else its last
+`CLOSED` one, else `null`) and `conventions` (the `ACTIVE` conventions that
+brief names and that apply to the packet's `--role`: `builder`, the default,
+`reviewer`, or `coordinator`, which a coordinator uses to recover its own
+launch and review-round conventions), each verbatim with an
+`authority` pointer `COORDINATION.md#<id>`, also listed under `authority.read`.
+`retrieve <task>` adds them, for every role, as `BRIEF` and `CONVENTION` items
+after the task's governing ADRs and within its budget;
+`retrieve CV-<id>` and `retrieve BR-<id>` return one record. A packet never
+carries the whole file.
+
+`validate` reports a malformed heading or a missing `Status` or `Task` (the
+load fails, as for every record file); `duplicate-coordination-record`,
+`invalid-convention-status`, `invalid-convention-role`, `invalid-brief-status`,
+`unknown-brief-task` (in neither the working files nor an archive),
+`brief-without-conventions`, `unknown-brief-convention`, `retired-brief-convention`
+(an `ACTIVE` brief resting on a convention that is not `ACTIVE`) and
+`multiple-active-briefs` errors; and `active-brief-done-task`,
+`long-coordination-record` (over 2,000 estimated tokens) and `possible-secret`
+(text that looks like a credential) warnings. `archive` never moves `COORDINATION.md`, and keeps a task in
+the working files while an `ACTIVE` brief names it; a `CLOSED` brief keeps
+resolving to its archived task.
 
 ## 3. Entry modes
 

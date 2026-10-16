@@ -17,7 +17,8 @@ review, advice, and continuity between people as well as agents.
                       archive/<phase>/ holds closed phases' tasks, contracts,
                       assumptions, debt, trace events and journal entries,
                       moved there by `praukron archive`, and is authority like
-                      the rest; RESPONSES.md and ADR/ are never archived)
+                      the rest; RESPONSES.md, COORDINATION.md and ADR/ are
+                      never archived)
 .praukron/compiled/    compiled by Praukron; safe to delete and regenerate
 ```
 
@@ -39,7 +40,8 @@ question that an authored document answers.
 6. Its contract in `ACCEPTANCE.md`.
 7. Its governing entries in `ADR/`.
 8. `INTENT.md` for the single task in progress.
-9. `HANDOFF.md` for current implementation continuity.
+9. `HANDOFF.md` for current implementation continuity, and the task's brief in
+   `COORDINATION.md` when a coordinator runs the work.
 10. Recent `JOURNAL.md` entries when further detail is needed.
 11. Read `THESIS.md`'s source, specifications, or code only when the selected
     task requires them.
@@ -88,6 +90,14 @@ question that an authored document answers.
 - `RESPONSES.md` is the owner's input, verbatim and append-only. Agents read and
   reconcile it and never edit it. `By:` is the active GitHub CLI login, never a
   typed name; an agent never issues `VERIFY`.
+- `COORDINATION.md` is optional: a coordinator's standing conventions
+  (`## CV-<id>`) and one brief per task (`## BR-<id>`), so that how agents are
+  run survives the loss of any session (ADR-075). It is authority below
+  contracts, invariants and ADRs; a brief adds to its task's contract and
+  never changes a criterion. `context <task>` and `retrieve <task>` carry the
+  task's brief and the conventions it rests on; `context <task> --role
+  coordinator` gives a coordinator its own. It is never archived, and a
+  task with an `ACTIVE` brief stays in the working files.
 - `.praukron/compiled/STATE.md` and `.praukron/compiled/TASK_GRAPH.md` are
   views. They report authority and never override it.
 
@@ -125,6 +135,11 @@ question that an authored document answers.
    `RESPONSES.md` and never edit one.
 11. Keep entries concise. Put product rules in the specification and durable
     implementation choices in ADRs, not in the session diary.
+12. A coordinator that runs other agents records its conventions and each
+    task's brief in `COORDINATION.md` before starting an agent on the task,
+    points the agent at the task rather than at files outside the chronicle,
+    keeps the brief's review round current, and closes the brief when the task
+    is merged or abandoned. Edit one section, then run `validate`.
 
 ## Checkpoint trigger
 

@@ -6,8 +6,9 @@ missing), `.praukron/praukron status`, and `.praukron/praukron context <task>`
 for the active or selected task, then read only what they point to among `.praukron/compiled/STATE.md`,
 `.praukron/chronicle/PHASES.md`, `.praukron/compiled/TASK_GRAPH.md`, the active
 or selected task, its contract in `ACCEPTANCE.md`, its governing ADRs,
-`INTENT.md`, `HANDOFF.md`, and only the recent journal entries needed for
-continuity. State the current goal with its lineage — the thesis, phase, and module the
+`INTENT.md`, `HANDOFF.md`, the task's brief and conventions in
+`COORDINATION.md` when the packet carries them, and only the recent journal
+entries needed for continuity. State the current goal with its lineage — the thesis, phase, and module the
 task belongs to, as `context <task>` reports them — and the exact next
 action, then continue. Read implementation code only after the chronicle points
 to the work that requires it. Treat the chronicle as current project truth and

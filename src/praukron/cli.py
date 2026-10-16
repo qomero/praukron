@@ -777,7 +777,8 @@ def build_parser() -> argparse.ArgumentParser:
         "context", help="emit an agent context packet: orientation, or one task's"
     )
     packet.add_argument("task", nargs="?", help="omit for the project orientation packet")
-    packet.add_argument("--role", choices=("builder", "reviewer"), default="builder")
+    # A coordinator's packet carries its own conventions from COORDINATION.md (ADR-075).
+    packet.add_argument("--role", choices=("builder", "reviewer", "coordinator"), default="builder")
     packet.add_argument("--pretty", action="store_true", help="indent the JSON for reading")
     packet.set_defaults(handler=cmd_context)
 

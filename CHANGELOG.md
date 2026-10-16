@@ -11,6 +11,14 @@ people arriving from a release page.
   `VERIFY` records an owner's interactive verification of an `Authority: owner`
   task; `HUMAN_VERIFIED` requires a VERIFY from a login named in an ADR's
   `Owners:` field.
+- Added: coordination conventions and task briefs live in the chronicle (ADR-075). An optional
+  `COORDINATION.md` holds `## CV-<id>` conventions and one `## BR-<id>` brief per task; `context <task>`
+  carries the task's `brief` and the conventions it rests on (filtered by `--role`, which now also takes
+  `coordinator`), `retrieve <task>` adds them as labelled `BRIEF` and `CONVENTION` items after the task's ADRs,
+  and `retrieve CV-…`/`BR-…` returns one. `validate` reports dangling, duplicate and malformed records, a brief
+  without its required `Conventions` field, and text that looks like a credential. `archive` never moves the file and keeps a task with an `ACTIVE`
+  brief. The installer ships the template and never overwrites an existing file; a chronicle without it is
+  unchanged.
 
 ## 2.0.0 — 2026-10-16
 

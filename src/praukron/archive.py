@@ -737,6 +737,10 @@ RECORD_RULES: tuple[RecordRule, ...] = (
 
 
 def _why_kept(project: Project, task_id: str, unresolved: set[str], waiting: set[str]) -> str | None:
+    # COORDINATION.md never moves; a task a coordinator still runs stays too (ADR-075).
+    for b in project.briefs:
+        if b.task == task_id and b.status == "ACTIVE":
+            return f"brief {b.id} is ACTIVE"
     for a in project.assumptions:
         if task_id in a.tasks or task_id in a.references:
             if a.open:

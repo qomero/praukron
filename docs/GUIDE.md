@@ -101,7 +101,12 @@ is a criterion with no evidence yet.
 ```sh
 praukron context T-002                   # the builder's packet
 praukron context T-002 --role reviewer   # the reviewer's packet, with the finding taxonomy
+praukron context T-002 --role coordinator  # the coordinator's packet, with its own conventions
 ```
+
+When a coordinator runs the work, each packet also carries the task's brief and
+the conventions it rests on from `COORDINATION.md`, filtered to the role
+(ADR-075).
 
 Emits the intent, phase, task, dependencies and whether they are met, the
 acceptance criteria and their states, inherited invariants, governing
@@ -206,7 +211,9 @@ records came from.
 a response is evidence that an assumption was answered, and nothing may move it
 out from under the assumption. Decision records in `ADR/` stay too: they are
 the highest-ranked authority an agent reads, and a journal entry that names only
-ADRs names nothing to archive. `INTENT.md`, `HANDOFF.md`, `PHASES.md`,
+ADRs names nothing to archive. `COORDINATION.md` stays as well: it is how the
+project runs its agents, and a task with an `ACTIVE` brief stays in the working
+files with it (ADR-075). `INTENT.md`, `HANDOFF.md`, `PHASES.md`,
 `MODULES.md`, `THESIS.md` and the gates are state, not history, and also stay.
 
 **Destinations.** `archive/<phase>/` receives `TASKS.md`, `ACCEPTANCE.md`,

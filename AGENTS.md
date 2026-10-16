@@ -62,7 +62,7 @@ chronicle no longer holds. The tool writes only: the generated `INDEX.md`;
 `respond` (the owner's responses); `archive plan|apply|restore <phase>` (owner
 only: moves a COMPLETE phase's, or P-NONE's, eligible closed records, verbatim,
 into `chronicle/archive/<phase>/`, where they stay authority and the write
-commands cannot change them; `RESPONSES.md` and ADRs never move); and five validated, atomic structured writes (ADR-068, amended by ADR-074). Use these
+commands cannot change them; `RESPONSES.md`, `COORDINATION.md` and ADRs never move); and five validated, atomic structured writes (ADR-068, amended by ADR-074). Use these
 instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 
 ```sh
@@ -144,8 +144,9 @@ an Acceptance Change Request; never weaken, reinterpret, or quietly drop one.
 ## Builder
 
 You receive intent, phase, task, acceptance contract, inherited invariants,
-governing ADRs, and current handoff. You may implement, test, produce evidence,
-raise an Acceptance Change Request, and update the handoff.
+governing ADRs, current handoff, and, when a coordinator runs the work, the
+task's `brief` and the `conventions` it rests on. You may implement, test,
+produce evidence, raise an Acceptance Change Request, and update the handoff.
 
 ## Reviewer
 
@@ -164,6 +165,21 @@ RISK  MAINTAINABILITY  ARCHITECTURE_PREFERENCE  STYLE  FUTURE_IMPROVEMENT
 
 Your preference is not an acceptance criterion.
 
+## Coordinator
+
+When one agent or person runs others, keep how the work is run in
+`.praukron/chronicle/COORDINATION.md`, never only in a session (ADR-075):
+`## CV-<id>` conventions (worker and reviewer rules, who builds or reviews, how
+an agent is started, how review rounds run) and one `## BR-<id>` brief per task
+(`Task`, `Status`, `Conventions` or `none`, then branch, base, reviewers, the
+current review round, and notes). A brief adds to the contract; it never
+restates or changes a criterion. `context <task>` and `retrieve <task>` hand
+both to the agent you start, so point it at the task and the chronicle, nothing
+else; after a lost session, `context <task> --role coordinator` returns your own
+conventions.
+Edit one section at a time, run `validate`, and close a brief when its task is
+merged or abandoned. Never record a secret; name where it is found.
+
 ## Disagreement
 
 Agents will disagree. Resolve against project authority in this order, highest
@@ -175,7 +191,7 @@ first:
 3. Invariants
 4. Accepted decisions in .praukron/chronicle/ADR/
 5. Reproducible tests and evidence
-6. Existing code convention
+6. Existing code convention, and the coordinator's conventions and briefs
 7. Reviewer preference
 ```
 
