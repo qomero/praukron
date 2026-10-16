@@ -13,11 +13,12 @@ from .parse import ParseError, _BULLET, _CRITERION, _EVIDENCE, parse_acceptance
 SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
-        "criterion": {"type": "string", "minLength": 1},
-        "state": {"type": "string", "enum": CRITERION_STATES},
+        "criterion": {"type": "string", "minLength": 1, "examples": ["AC-T-ONE-01"]},
+        "state": {"type": "string", "enum": CRITERION_STATES, "examples": ["PASS"]},
         "evidence": {"type": "string", "description": "One non-empty line; omit to keep the current evidence"},
         "expectRevision": {"type": "string", "minLength": 1,
-                           "description": "16 hex revision of the contract section, from the last result or a stale-revision refusal"},
+                           "description": "16 hex revision of the contract section, from the last result or a stale-revision refusal",
+                           "examples": ["0123456789abcdef"]},
     },
     "required": ["criterion", "state", "expectRevision"],
 }
@@ -29,6 +30,7 @@ EXAMPLE = {
 
 
 SCHEMA["description"] = "\n".join(mutate.GUIDANCE["criterion.set"])
+mutate.SCHEMAS["criterion.set"] = (SCHEMA, ())
 
 
 def _criterion_location(text: str, criterion_id: str) -> tuple[int, int, re.Match[str], re.Match[str] | None]:

@@ -13,7 +13,9 @@ Before reading broad repository context or the rest of `.praukron/chronicle/`:
 
 1. Read `.praukron/chronicle/INDEX.md`. It is generated from the chronicle and
    says what matters now and where each record lives. If it is missing, run
-   `.praukron/praukron compile`.
+   `.praukron/praukron compile`. A write whose request names its record may
+   skip this step and go straight to `.praukron/praukron context <task>` for
+   the task the record belongs to.
 2. Identify your task: the one you were given, or one the index names as in
    flight or ready. Run `.praukron/praukron context` without a task only when
    the index is not enough to choose; skip it when a task was given. Then run
@@ -55,10 +57,10 @@ by reading files:
 .praukron/praukron dashboard       # a browsable page of the same state
 ```
 
-Run `validate` after editing authority. Before finishing, refresh everything in
-`.praukron/compiled/`: `compile` does not redraw the graphs or the dashboard, so
-run `compile && graph && dashboard`; a stale dashboard shows people a state the
-chronicle no longer holds. The tool writes only: the generated `INDEX.md`;
+After a direct edit of a chronicle file, run `validate`, then refresh
+everything in `.praukron/compiled/`: `compile` does not redraw the graphs or the
+dashboard, so run `compile && graph && dashboard`; a stale dashboard shows
+people a state the chronicle no longer holds. The tool writes only: the generated `INDEX.md`;
 `respond` (the owner's responses); `archive plan|apply|restore <phase>` (owner
 only: moves a COMPLETE phase's, or P-NONE's, eligible closed records, verbatim,
 into `chronicle/archive/<phase>/`, where they stay authority and the write
@@ -73,8 +75,21 @@ instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 .praukron/praukron task update --input -      # status, owner, claimed, evidence, validation (never HUMAN_VERIFIED), addGovernedBy (ADR-074)
 ```
 
-Each takes a JSON payload (`--schema` prints it, `--dry-run` previews), prints
-one JSON line, and exits nonzero when refused. Updates need the record's revision
+Minimal payloads, accepted as written once `<rev>` is the record's revision:
+
+```text
+journal append  {"title":"Ran the tests","body":"All green."}
+criterion set   {"criterion":"AC-T-1-01","state":"PASS","evidence":"unit tests pass","expectRevision":"<rev>"}
+task add        {"id":"T-2","title":"Export","module":"M-CORE","domain":"execution","dependencies":[],"contract":{"id":"AC-T-2","title":"Export","criteria":[{"text":"Given data, When exported, Then a file exists.","class":"TEST"}]}}
+contract add    {"task":"T-3","expectTaskRevision":"<rev>","id":"AC-T-3","title":"Import","criteria":[{"text":"Given a file, When imported, Then its rows load.","class":"TEST"}]}
+task update     {"id":"T-1","expectRevision":"<rev>","set":{"status":"WIP","owner":"agent","claimed":"2026-10-16"}}
+```
+
+Each validates before and after it writes and refreshes every compiled view
+itself, so run neither `validate` nor `compile && graph && dashboard` after
+it. Each takes a JSON payload (`--schema` prints it, `--dry-run` previews; a
+refusal includes a minimal accepted payload), prints one JSON line, and exits
+nonzero when refused. Updates need the record's revision
 (`expectRevision`; `expectTaskRevision` for `contract add`); a stale one is
 refused with the current revision to retry with (send 16 zeros to learn it).
 `criterion set` records state and evidence on any task's criteria, `WIP`

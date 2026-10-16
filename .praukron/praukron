@@ -20,6 +20,9 @@ exit 127
 import sys
 from pathlib import Path
 
+# A command must leave git status clean: no __pycache__ beside the runtime.
+# praukron.cmd and the PATH launcher both run this file, so this covers them.
+sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 # Installed, the runtime is copied in beside this script. In a source checkout
 # there is no copy, and `src/` one level up is the runtime being developed.

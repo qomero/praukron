@@ -15,13 +15,14 @@ from .parse import _fields
 SCHEMA = {
     "type": "object", "additionalProperties": False,
     "properties": {
-        "id": {"type": "string", "minLength": 1, "description": "Task id, e.g. T-EXAMPLE-01"},
+        "id": {"type": "string", "minLength": 1, "description": "Task id, e.g. T-EXAMPLE-01", "examples": ["T-EXAMPLE-01"]},
         "expectRevision": {"type": "string", "minLength": 16,
-                           "description": "16 hex revision of the task section, from the last result or a stale-revision refusal"},
+                           "description": "16 hex revision of the task section, from the last result or a stale-revision refusal",
+                           "examples": ["0123456789abcdef"]},
         "set": {
             "type": "object", "additionalProperties": False,
             "properties": {
-                "status": {"type": "string", "enum": ["TODO", "WIP", "DONE", "BLOCKED"]},
+                "status": {"type": "string", "enum": ["TODO", "WIP", "DONE", "BLOCKED"], "examples": ["WIP"]},
                 "owner": {"type": "string", "minLength": 1, "description": "One line"},
                 "claimed": {"type": "string", "format": "date", "description": "YYYY-MM-DD"},
                 "evidence": {"type": "string", "minLength": 1,
@@ -47,6 +48,7 @@ _WIDTH = 100
 
 
 SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"])
+mutate.SCHEMAS["task.update"] = (SCHEMA, ("set.status",))
 
 
 def _lines(name: str, value: str, single: bool) -> list[str]:

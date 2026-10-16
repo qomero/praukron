@@ -84,9 +84,10 @@ GUIDANCE = {
 
 # The next valid step for refusals whose message does not already carry one.
 NEXT_STEP = {
-    "wrong-type": "send a JSON object whose fields have the types `--schema` shows",
-    "unknown-field": "remove it; `--schema` lists the supported fields",
-    "missing-field": "add it; `--schema` lists the required fields",
+    "wrong-type": "send a JSON object whose fields have the types `example` shows",
+    "unknown-field": "remove it; `example` is a minimal accepted payload and `--schema` lists every field",
+    "misplaced-field": "move it to where `example` shows it",
+    "missing-field": "add it; `example` is a minimal accepted payload",
     "invalid-value": "correct the named field (see `--schema`) and retry",
     "invalid-date": "use a real date written YYYY-MM-DD",
     "invalid-json": "send one valid JSON object without duplicate keys",
@@ -122,12 +123,65 @@ NEXT_STEP = {
 }
 
 
+# Each command registers its payload schema so a refusal can show an accepted payload,
+# with the dotted paths of the optional fields that payload needs beyond `required`.
+SCHEMAS: dict[str, tuple[dict, tuple[str, ...]]] = {}
+# Refusals about the payload's shape, which carry a minimal accepted payload.
+SHAPE_CODES = {"wrong-type", "unknown-field", "misplaced-field", "missing-field", "invalid-json",
+               "invalid-contract", "empty-set"}
+
+
+def example(schema: dict, paths: tuple[str, ...] = ()) -> dict:
+    """The smallest payload the schema accepts, built from the schema alone.
+
+    It holds the required fields and each dotted path in `paths`, valued by the
+    field's `examples`, its first enum value, or an empty value of its type.
+    """
+    properties = schema["properties"]
+    nested: dict[str, list[str]] = {}
+    for path in paths:
+        head, _, rest = path.partition(".")
+        if head in properties:
+            nested.setdefault(head, []).extend([rest] if rest else [])
+    names = set(schema.get("required", [])) | set(nested)
+    return {name: _example_value(spec, tuple(nested.get(name, ())))
+            for name, spec in properties.items() if name in names}
+
+
+def _example_value(spec: dict, paths: tuple[str, ...]):
+    if spec["type"] == "object" and "properties" in spec:
+        return example(spec, paths)
+    if "examples" in spec:
+        return spec["examples"][0]
+    if "enum" in spec:
+        return spec["enum"][0]
+    if spec.get("format") == "date":
+        return dt.date.today().isoformat()
+    return {"object": {}, "array": [], "boolean": False, "integer": 0, "number": 0}.get(spec["type"], "")
+
+
+def _nested_path(schema: dict, name: str) -> str | None:
+    """Where an unknown top-level field is defined further down, if anywhere."""
+    for key, spec in schema["properties"].items():
+        if spec.get("type") == "object" and "properties" in spec:
+            if name in spec["properties"]:
+                return f"{key}.{name}"
+            deeper = _nested_path(spec, name)
+            if deeper:
+                return f"{key}.{deeper}"
+    return None
+
+
 def refusal(operation: str, error: WriteError) -> dict:
     step = NEXT_STEP.get(error.code)
     detail = {"code": error.code, "message": f"{error}; {step}" if step else str(error)}
     if error.field is not None:
         detail["field"] = error.field
     detail.update(error.details)
+    if error.code in SHAPE_CODES and operation in SCHEMAS:
+        schema, needed = SCHEMAS[operation]
+        expected = detail.get("expected")
+        detail["example"] = example(schema, (*needed, *([expected] if expected else [])))
     return {"ok": False, "operation": operation, "error": detail, "written": False}
 
 
@@ -138,6 +192,11 @@ def validate_payload(payload: object, schema: dict) -> dict:
     properties = schema["properties"]
     for name in payload:
         if name not in properties:
+            nested = _nested_path(schema, name)
+            if nested:
+                parent = nested.rsplit(".", 1)[0]
+                raise WriteError("misplaced-field", f"{name} belongs inside {parent}, not beside it", name,
+                                 {"expected": nested})
             raise WriteError("unknown-field", f"unsupported field: {name}", name)
     for name in schema.get("required", []):
         if name not in payload:
@@ -314,8 +373,18 @@ def recover_write(root: Path) -> bool:
                     path.rmdir()
         except (KeyError, TypeError, ValueError, OSError) as failure:
             raise RespondError(f"cannot restore interrupted write: {failure}") from failure
-        record.unlink()
+        _discard_recovery(record)
     return True
+
+
+def _discard_recovery(record: Path) -> None:
+    """Remove a finished record, and its directory once nothing else is in it,
+    so a committed write leaves nothing under the recovery directory for git status."""
+    record.unlink()
+    directory = record.parent
+    if {path.name for path in directory.iterdir()} <= {".gitignore"}:
+        (directory / ".gitignore").unlink(missing_ok=True)
+        directory.rmdir()
 
 
 recover_archive = recover_write
@@ -429,7 +498,7 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
                 if introduced:
                     detail = "; ".join(f"{code}: {message}" for code, _, message in sorted(introduced))
                     raise WriteError("validation-failed", f"nothing was written: {detail}")
-                recovery.unlink()
+                _discard_recovery(recovery)
                 result["written"] = True
             except Exception:
                 recover_write(root)
