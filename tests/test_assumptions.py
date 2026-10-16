@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -216,6 +217,10 @@ class AssumptionCase(unittest.TestCase):
         build_fixture(self.dir)
         self.authority = self.dir / layout.AUTHORITY_DIR
         self.write(ASSUMPTIONS, RESPONSES, POLICY_ADR)
+        # Who responds is the active gh login (ADR-060); tests never ask gh.
+        identity = mock.patch("praukron.respond.identity", return_value="thien-owner")
+        identity.start()
+        self.addCleanup(identity.stop)
 
     def write(self, assumptions: str | None = None, responses: str | None = None,
               policy: str | None = None) -> None:

@@ -64,6 +64,7 @@ DECIDE_JS = """
 function reviewItems(entries) {
   const items = [];
   for (const e of entries) {
+    if (e.verify) { if (e.checked) items.push({ target: e.target, action: 'VERIFY', text: e.text.trim() || 'Verified.' }); continue; }
     if (e.guide) { if (e.text.trim()) items.push({ target: e.target, action: 'GUIDE', text: e.text }); continue; }
     if (e.choice === 'FEEDBACK') {
       if (!e.text.trim()) throw new Error(e.target + ': write your feedback, or choose OK');
@@ -80,16 +81,11 @@ function reviewItems(entries) {
 SERVE_SCRIPT = DECIDE_JS + """
 // Served review (praukron dashboard --serve). Present only when forms exist.
 // A card left at OK records CONFIRM only if the owner opened it or marked it
-// reviewed; an unopened card records nothing (ADR-055).
+// reviewed; an unopened card records nothing (ADR-055). Who answers is the
+// active gh login, read by the server, never typed here (ADR-060).
 const reviewBars = [...document.querySelectorAll('.review-bar')];
 if (reviewBars.length) {
   const token = new URLSearchParams(location.search).get('token') || '';
-  const names = [...document.querySelectorAll('.review-by')];
-  let remembered = '';
-  try { remembered = localStorage.getItem('praukron-reviewer') || ''; } catch (e) {}
-  names.forEach(n => { n.value = remembered; n.addEventListener('input', () => {
-    names.forEach(o => { if (o !== n) o.value = n.value; });
-    try { localStorage.setItem('praukron-reviewer', n.value); } catch (e) {} }); });
   document.querySelectorAll('details.acard').forEach(card => card.addEventListener('toggle', () => { if (card.open) card.dataset.seen = '1'; }));
   document.querySelectorAll('.aform textarea').forEach(area => area.addEventListener('input', () => {
     const form = area.closest('.aform');
@@ -102,7 +98,9 @@ if (reviewBars.length) {
       const radio = form.querySelector('input[type="radio"]:checked');
       const select = form.querySelector('select');
       const reviewed = form.querySelector('.reviewed');
+      const verified = form.querySelector('.verify');
       return { target: form.dataset.target, guide: !!form.dataset.guide,
+               verify: !!form.dataset.verify, checked: !!verified && verified.checked,
                text: form.querySelector('textarea').value,
                choice: radio ? radio.value : 'CONFIRM', action: select ? select.value : 'REVISE',
                seen: !!card && card.dataset.seen === '1', reviewed: !!reviewed && reviewed.checked };
@@ -111,13 +109,11 @@ if (reviewBars.length) {
   reviewBars.forEach(bar => bar.querySelector('button').addEventListener('click', async () => {
     const out = bar.querySelector('.review-result');
     try {
-      const by = bar.querySelector('.review-by').value.trim();
-      if (!by) throw new Error('Enter your name: every answer records who gave it.');
       const items = collect();
       if (!items.length) throw new Error('Nothing to record: open a card to confirm it, or write feedback.');
       const response = await fetch('/respond', { method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Praukron-Token': token },
-        body: JSON.stringify({ by, items }) });
+        body: JSON.stringify({ items }) });
       const result = await response.json();
       if (!result.ok) throw new Error(result.error);
       out.textContent = 'Recorded ' + result.ids.join(', ') + '. Reloading…';
@@ -132,13 +128,16 @@ def script(interactive: bool) -> str:
     return SCRIPT + (SERVE_SCRIPT if interactive else "")
 
 
-def review_bar(interactive: bool) -> str:
-    """Name, submit, and result; one per panel that holds a form."""
+def review_bar(interactive: bool, reviewer: str = "") -> str:
+    """Who is answering, submit, and result. The name is the gh login (ADR-060)."""
     if not interactive:
         return ""
-    return ('<div class="controls review-bar"><input type="text" class="review-by" aria-label="Your name"'
-            ' placeholder="Your name (recorded with every answer)">'
-            '<button type="button">Submit review</button><span class="review-result" aria-live="polite"></span></div>')
+    who = (f'<span class="review-by">Recording as GitHub user <strong>{esc(reviewer)}</strong></span>'
+           if reviewer else
+           '<span class="review-by">No GitHub login: run <code>gh auth login</code>, then reload.</span>')
+    return ('<div class="controls review-bar">' + who
+            + f'<button type="button"{"" if reviewer else " disabled"}>Submit review</button>'
+            '<span class="review-result" aria-live="polite"></span></div>')
 
 
 def esc(value: object) -> str:
@@ -162,6 +161,37 @@ def guide(target: str, interactive: bool) -> str:
                 f'{esc(target)}, recorded verbatim"></textarea></div>')
     return ('<span class="respond-hint">Guide: run <code>praukron dashboard --serve</code> to give the '
             f'agent guidance on {esc(target)}.</span>')
+
+
+def verification(compiled: dict, ref, interactive: bool) -> tuple[str, int]:
+    """Open `Authority: owner` tasks, each offering VERIFY to the owner (ADR-060).
+
+    Returns the markup and how many still wait on the owner."""
+    tasks = {t["id"]: t for t in compiled["tasks"]}
+    held = [t for t in compiled["assumptionReport"]["ownerHeld"] if t in tasks]
+    if not held:
+        return "", 0
+    items, waiting = "", 0
+    for task_id in held:
+        verified = [r for r in compiled["responses"]
+                    if r["target"] == task_id and r["action"] == "VERIFY" and r["fromOwner"]]
+        if verified:
+            r = verified[-1]
+            body = (f'<p class="note">Verified by {esc(r["by"])}, {esc(r["date"])} ({esc(r["id"])}); '
+                    "waiting for the agent to record HUMAN_VERIFIED.</p>")
+        else:
+            waiting += 1
+            body = (f'<div class="aform" data-target="{esc(task_id)}" data-verify="1">'
+                    f'<label><input type="checkbox" class="verify"> I verified {esc(task_id)}</label>'
+                    f'<textarea aria-label="What you verified on {esc(task_id)}" placeholder="What you '
+                    'checked, recorded verbatim"></textarea></div>'
+                    if interactive else
+                    '<span class="respond-hint">Verify: run <code>praukron dashboard --serve</code>, or '
+                    f'<code>praukron respond {esc(task_id)} VERIFY</code> at a terminal.</span>')
+        items += f'<li>{_pill(tasks[task_id]["status"])} {ref(task_id)}<br>{body}</li>'
+    return ('<p class="note">Only an owner named in <code>Owners:</code> can verify these. '
+            'An agent never does.</p>'
+            f'<ul class="plain">{items}</ul>'), waiting
 
 
 def guidance(compiled: dict, ref) -> str:

@@ -9,7 +9,7 @@ records the answer here verbatim, with `Via: relayed by <agent> from
 Format:
 
     ## R-001: A-001 REVISE
-    - By: owner name
+    - By: github-login
     - Date: 2026-10-02
     - Via: dashboard
 
@@ -20,5 +20,11 @@ action. `CONFIRM`, `REVISE`, and `REJECT` apply to assumptions. `GUIDE` applies
 to either and never changes a status, a criterion, or an ADR. A response is
 reconciled when the agent has set the assumption's status to match and, for
 `REVISE` and `REJECT`, named the records that carry it out in `Reconciled by`.
+
+`By:` is the login of the active GitHub CLI account, never a typed name.
+`VERIFY` applies only to an `Authority: owner` task and is recorded only
+interactively, from `praukron dashboard --serve` or `praukron respond <task>
+VERIFY` at a terminal. It counts when its login is named in an ADR's
+`Owners:`. An agent never issues it.
 
 No responses recorded yet.

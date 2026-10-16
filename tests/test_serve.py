@@ -145,12 +145,8 @@ class TestServe(ServeCase):
         self.assertEqual(out[1], "A-9: write your feedback, or choose OK")
         page = serve.page(self.dir)
         self.assertIn('value="CONFIRM" checked> OK', page)
-        self.assertIn("if (!by) throw new Error('Enter your name", page)
+        self.assertIn("Recording as GitHub user <strong>thien-owner</strong>", page)
         self.assertIn("Each card starts at OK.", page)
-        status, result = self.post({"by": "  ", "items": [{"target": "A-1", "action": "CONFIRM", "text": "OK"},
-                                                          {"target": "A-2", "action": "CONFIRM", "text": "OK"}]})
-        self.assertEqual(status, 400)
-        self.assertIn("needs --by", result["error"])
 
     def test_an_answered_card_offers_no_second_answer(self) -> None:
         """Found in the exit run: reopening an answered card confirmed it again."""

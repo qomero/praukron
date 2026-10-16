@@ -5,6 +5,11 @@ only code that writes it, and the dashboard's write-back goes through it too
 (ADR-055). A write is checked before it happens, made atomically, validated
 after it lands, and undone byte for byte if it introduced an error. Nothing
 else in the chronicle is touched; compiled views are refreshed afterwards.
+
+Who responded is never typed: `By:` is the login of the active GitHub CLI
+account (ADR-060). VERIFY, the owner's verification of an `Authority: owner`
+task, is accepted only from an interactive act: the served page, or a
+terminal confirmation. An agent never issues it.
 """
 
 from __future__ import annotations
@@ -12,6 +17,8 @@ from __future__ import annotations
 import datetime as _dt
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import time
 from dataclasses import dataclass
@@ -19,7 +26,7 @@ from pathlib import Path
 
 from . import analytics, compile as compiler, dashboard, mermaid, validate
 from .layout import AUTHORITY_DIR, COMPILED_DIR
-from .model import RESPONSE_ACTIONS, RESPONSE_STATUS
+from .model import GITHUB_LOGIN, RESPONSE_ACTIONS, RESPONSE_STATUS, VERIFY
 
 FILE = "RESPONSES.md"
 HEADER = (
@@ -33,6 +40,24 @@ _STALE_SECONDS = 60
 
 class RespondError(Exception):
     """A response was refused, or a write failed and was undone."""
+
+
+def identity() -> str:
+    """The login of the active `gh` account; refuses when there is none (ADR-060)."""
+    gh = shutil.which("gh")
+    if gh is None:
+        raise RespondError("the GitHub CLI is not installed: a response records who gave it as the "
+                           "active `gh` login (install gh and run `gh auth login`)")
+    try:
+        result = subprocess.run([gh, "api", "user", "--jq", ".login"], capture_output=True,
+                                text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired) as failure:
+        raise RespondError(f"could not ask gh who is logged in: {failure}") from failure
+    login = result.stdout.strip()
+    if result.returncode != 0 or not GITHUB_LOGIN.match(login):
+        raise RespondError("no GitHub login: run `gh auth login`; a response records who gave it "
+                           "as the active `gh` login")
+    return login
 
 
 @dataclass
@@ -87,12 +112,17 @@ def _entry(number: int, item: Item, by: str, date: str, via: str) -> str:
             f"- Via: {via}\n\n{quoted}\n")
 
 
-def _check(project, items: list[Item], by: str) -> None:
-    if not by or not by.strip():
-        raise RespondError("a response needs --by: who is responding")
+def _check(project, items: list[Item], verify: bool) -> None:
     for item in items:
         if item.action not in RESPONSE_ACTIONS:
             raise RespondError(f"{item.action} is not one of {', '.join(RESPONSE_ACTIONS)}")
+        if item.action == VERIFY:
+            task = project.task(item.target)
+            if task is None or not task.owner_held:
+                raise RespondError(f"VERIFY applies only to an Authority: owner task, not {item.target}")
+            if not verify:
+                raise RespondError("VERIFY is recorded only interactively: from `praukron dashboard --serve` "
+                                   "or `praukron respond` at a terminal, never by an agent")
         if item.target.startswith("A-"):
             if project.assumption(item.target) is None:
                 raise RespondError(f"{item.target} is not an assumption in ASSUMPTIONS.md")
@@ -123,20 +153,23 @@ def refresh(root: Path) -> None:
         dashboard.render(project, report, compiler.as_json(project)))
 
 
-def append(root: Path, items: list[Item], by: str, via: str = "cli",
-           date: str | None = None, recompile: bool = True) -> list[str]:
-    """Append every item as one batch, or none of them. Returns the new ids."""
+def append(root: Path, items: list[Item], via: str = "cli", date: str | None = None,
+           recompile: bool = True, verify: bool = False) -> list[str]:
+    """Append every item as one batch, or none of them. Returns the new ids.
+
+    `By:` is the active `gh` login. `verify` is set only by an interactive
+    caller, and is what allows a VERIFY item."""
     if not items:
         raise RespondError("nothing to record")
     items = [Item(i.target.strip(), i.action.strip().upper(), i.text.rstrip("\n")) for i in items]
-    by = (by or "").strip()
     date = date or _dt.date.today().isoformat()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise RespondError(f"{date} is not a YYYY-MM-DD date")
     lock = _lock(root)
     try:
         project = compiler.load(root)
-        _check(project, items, by)
+        _check(project, items, verify)
+        by = identity()
         before = _errors(project)
         path = root / AUTHORITY_DIR / FILE
         existed = path.is_file()
@@ -170,4 +203,4 @@ def append(root: Path, items: list[Item], by: str, via: str = "cli",
     return ids
 
 
-__all__ = ["FILE", "Item", "RespondError", "append", "refresh"]
+__all__ = ["FILE", "Item", "RespondError", "append", "identity", "refresh"]

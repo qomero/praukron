@@ -4,6 +4,15 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## Unreleased
+
+- Owner identity (ADR-060, ADR-066): `praukron respond` and the served
+  dashboard record `By:` as the active `gh` login and refuse without one;
+  `--by` is no longer accepted. An ADR names the project's `Owners:` by login.
+- `VERIFY` on an `Authority: owner` task, recorded only from the served page
+  or a terminal confirmation; `HUMAN_VERIFIED` on such a task now needs a
+  `VERIFY` from a named owner.
+
 ## 1.2.0 — 2026-10-09
 
 - Dashboard: a "Needs you" side panel on the right, visible on every tab,

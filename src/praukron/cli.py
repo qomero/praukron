@@ -285,19 +285,42 @@ def cmd_respond(root: Path, args: argparse.Namespace) -> int:
     """Append the owner's response to RESPONSES.md, validated and atomic (ADR-055)."""
     from . import respond
 
+    if args.by:
+        return _fail("--by is no longer accepted: a response records the active `gh` login (ADR-060)")
+    verify = False
     if args.batch:
         try:
             entries = json.loads(Path(args.batch).read_text())
             items = [respond.Item(e["target"], e["action"], e["text"]) for e in entries]
         except (OSError, ValueError, KeyError, TypeError) as error:
             return _fail(f"--batch must be a JSON list of target, action, text: {error}")
+    elif args.action == "VERIFY":
+        # Only a person at a terminal verifies; an agent's shell has no TTY,
+        # and the confirmation must be typed (ADR-060).
+        if not args.target:
+            return _fail("give the Authority: owner task to verify")
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            return _fail("VERIFY is recorded only interactively: run it yourself at a terminal, "
+                         "or use `praukron dashboard --serve`; an agent never issues it")
+        try:
+            login = respond.identity()
+            print(f"Recording VERIFY of {args.target} as GitHub user {login}.")
+            text = input("What did you verify? ").strip()
+            typed = input(f"Type {args.target} to confirm: ").strip()
+        except (EOFError, respond.RespondError) as error:
+            return _fail(str(error) or "cancelled")
+        if typed != args.target:
+            return _fail("not confirmed; nothing was recorded")
+        items = [respond.Item(args.target, "VERIFY", text)]
+        verify = True
+        args.via = "cli (terminal)" if args.via == "cli" else args.via
     else:
         if not args.target or not args.action:
             return _fail("give a target and an action, or --batch FILE")
         text = Path(args.text_file).read_text() if args.text_file else sys.stdin.read()
         items = [respond.Item(args.target, args.action, text)]
     try:
-        ids = respond.append(root, items, args.by or "", via=args.via, date=args.date)
+        ids = respond.append(root, items, via=args.via, date=args.date, verify=verify)
     except respond.RespondError as error:
         return _fail(str(error))
     print(f"Recorded {', '.join(ids)} in RESPONSES.md; compiled views refreshed.")
@@ -587,8 +610,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     answer.add_argument("target", nargs="?", help="an assumption (A-…) or a task (T-…)")
     answer.add_argument("action", nargs="?", type=str.upper,
-                        choices=("CONFIRM", "REVISE", "REJECT", "GUIDE"))
-    answer.add_argument("--by", help="who is responding, as it should be recorded")
+                        choices=("CONFIRM", "REVISE", "REJECT", "GUIDE", "VERIFY"))
+    answer.add_argument("--by", help=argparse.SUPPRESS)
     answer.add_argument("--text-file", help="read the response text from a file instead of stdin")
     answer.add_argument("--batch", help="a JSON list of {target, action, text}, written all or nothing")
     answer.add_argument("--via", default="cli", help="how it arrived: cli, dashboard, or relayed by …")

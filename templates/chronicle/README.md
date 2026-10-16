@@ -89,7 +89,8 @@ question that an authored document answers.
    and its evidence is recorded. Keep completion separate from validation
    strength: `UNTESTED`, `SYNTHETIC`, `AI_REVIEWED`, or `HUMAN_VERIFIED`.
 6. Only a named human may record `HUMAN_VERIFIED`, and only against `MANUAL`
-   evidence.
+   evidence. On an `Authority: owner` task it needs a `VERIFY` response from a
+   GitHub login named in an ADR's `Owners:`; an agent never issues `VERIFY`.
 7. Append an ADR as soon as a material choice is made, accepted, or acted on.
    When a decision changes, supersede the earlier ADR and preserve its file.
 8. Update `HANDOFF.md` and append a `JOURNAL.md` entry before leaving work

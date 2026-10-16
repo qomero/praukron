@@ -17,7 +17,9 @@ from .model import (
     IMPACTS,
     NOTIFY_CHANNELS,
     POLICY_GROUPS,
+    GITHUB_LOGIN,
     RESPONSE_ACTIONS,
+    VERIFY,
     RESPONSE_STATUS,
     TASK_AUTHORITIES,
     DEBT_STATUSES,
@@ -315,10 +317,16 @@ def assumption_findings(project: Project) -> list[Finding]:
                                     f"{r.id} follows R-{previous}; responses are append-only", where))
         previous = max(previous, number)
         if r.action not in RESPONSE_ACTIONS:
-            error("invalid-response-action", f"'{r.action}' is not CONFIRM, REVISE, REJECT, or GUIDE")
+            error("invalid-response-action", f"'{r.action}' is not CONFIRM, REVISE, REJECT, GUIDE, or VERIFY")
+        if r.action == VERIFY:
+            task = project.task(r.target)
+            if task is not None and not task.owner_held:
+                error("invalid-response-action", f"VERIFY applies only to an Authority: owner task, not {r.target}")
         if r.target.startswith("A-"):
             if r.target not in assumption_ids:
                 error("unknown-response-target", f"answers {r.target}, which does not exist")
+            elif r.action == VERIFY:
+                error("invalid-response-action", "VERIFY applies only to an Authority: owner task")
         elif r.target.startswith("T-"):
             if r.target not in task_ids:
                 error("unknown-response-target", f"answers {r.target}, which does not exist")
@@ -342,6 +350,28 @@ def assumption_findings(project: Project) -> list[Finding]:
         elif task.done and task.validation != "HUMAN_VERIFIED":
             findings.append(Finding("error", "owner-task-not-verified",
                                     "an Authority: owner task is DONE only with HUMAN_VERIFIED", where))
+        if task.owner_held and task.validation == "HUMAN_VERIFIED" and not project.verified_by_owner(task.id):
+            findings.append(Finding("error", "verification-without-owner",
+                                    "HUMAN_VERIFIED needs a VERIFY response from an owner named in Owners:",
+                                    where))
+
+    # Owners by GitHub login (ADR-060). Malformed is an error; missing matters
+    # only once something depends on knowing who the owner is.
+    for decision in project.decisions:
+        if decision.owners is None:
+            continue
+        where = f"{decision.source.file}#{decision.id}"
+        if not decision.owners:
+            findings.append(Finding("error", "invalid-owners", "Owners: names no GitHub login", where))
+        for login in decision.owners:
+            if not GITHUB_LOGIN.match(login):
+                findings.append(Finding("error", "invalid-owners",
+                                        f"'{login}' is not a GitHub login", where))
+    needs_owners = any(t.owner_held for t in project.tasks) or any(r.action == VERIFY for r in project.responses)
+    if needs_owners and project.owners_decision is None:
+        findings.append(Finding("warning", "owners-missing",
+                                "no ACCEPTED ADR names Owners: by GitHub login, so no VERIFY can count",
+                                "ADR/"))
 
     for decision in project.decisions:
         if (decision.policy or "").lower() != "assumptions":

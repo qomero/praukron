@@ -939,7 +939,8 @@ _BOOT = """(function () {
 })();"""
 
 
-def render(project: Project, report: Report, compiled: dict, interactive: bool = False) -> str:
+def render(project: Project, report: Report, compiled: dict, interactive: bool = False,
+           reviewer: str = "") -> str:
     """Lay out the compiled project. Every selection — what is in flight, what
     blocks, which gate is next, which domain a task belongs to — was made by
     analytics and arrives in `compiled`; nothing here decides it (ADR-045)."""
@@ -1646,15 +1647,16 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 """)
     assumptions_body, queue, queued, awaiting_agent = review.panel_body(compiled, ref, interactive)
     assumptions_panel = panel("assumptions", assumptions_body)
-    waiting = len(owner_held) + queued
+    verify_list, to_verify = review.verification(compiled, ref, interactive)
+    waiting = len(owner_held) + queued + to_verify
     needs = (
         '<aside class="needs" id="needs-you" aria-labelledby="needs-title">'
         '<div class="needs-head"><h2 id="needs-title">Needs you</h2>'
         f'<span class="needcount{"" if waiting else " zero"}">{waiting}</span></div>'
         '<p class="note">Everything waiting on a person, whichever tab is open.</p>'
-        + (review.review_bar(True) + '<p class="note">Each card starts at OK. A card you open or mark '
+        + (review.review_bar(True, reviewer) + '<p class="note">Each card starts at OK. A card you open or mark '
            "reviewed is recorded as confirmed when you submit; a card you never open records nothing. "
-           "Feedback is recorded verbatim with your name.</p>" if interactive and waiting else "")
+           "Feedback is recorded verbatim under your GitHub login.</p>" if interactive and waiting else "")
         + (f"<h3>Assumptions to review</h3>{queue}" if queue else "")
         + (
             "<h3>Waiting on the owner</h3>"
@@ -1662,6 +1664,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             f'<ul class="plain">{"".join(obstacle_item(o, True) for o in owner_held)}</ul>'
             if owner_held else ""
         )
+        + (f"<h3>Owner tasks to verify</h3>{verify_list}" if verify_list else "")
         + ("" if waiting else '<p class="note">Nothing waits for you.</p>')
         + (f'<p class="note">{awaiting_agent} answered, waiting for the agent: '
            '<a href="#assumptions">Assumptions</a>.</p>' if awaiting_agent else "")

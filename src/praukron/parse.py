@@ -371,6 +371,10 @@ def parse_decisions(directory: Path) -> list[Decision]:
                     if "Reserved" in fields else None
                 ),
                 notify=(_named(fields.get("Notify")) or "").lower() or None,
+                owners=(
+                    [o.lstrip("@") for o in _list(fields.get("Owners"))]
+                    if "Owners" in fields else None
+                ),
             )
         )
     return decisions
