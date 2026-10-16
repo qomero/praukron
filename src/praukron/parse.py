@@ -13,7 +13,9 @@ from pathlib import Path
 from .snapshot import glob_paths
 from .model import (
     Assumption,
+    Brief,
     Contract,
+    Convention,
     Criterion,
     Decision,
     Gate,
@@ -484,6 +486,43 @@ def parse_assumptions(path: Path, name: str | None = None) -> list[Assumption]:
             source=Source(name, assumption_id),
         ))
     return found
+
+
+def parse_coordination(path: Path) -> tuple[list[Convention], list[Brief]]:
+    """COORDINATION.md (ADR-075). Optional: no file, no conventions and no briefs.
+
+    Each record is kept verbatim as well as read, because its prose is the
+    instruction; validate checks what the fields refer to."""
+    if not path.is_file():
+        return [], []
+    name = path.name
+    conventions: list[Convention] = []
+    briefs: list[Brief] = []
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
+        match = re.match(r"((CV|BR)-[A-Za-z0-9.\-]+): (.+)", heading)
+        if not match:
+            raise ParseError(name, heading,
+                             "coordination heading must read '## CV-<id>: <title>' or '## BR-<id>: <title>'")
+        record_id, kind, title = match.group(1), match.group(2), match.group(3).strip()
+        text = body.replace("\r\n", "\n").strip("\n")
+        # Fields are the block under the heading; a list in the notes below is prose.
+        fields = _fields(re.split(r"\n[ \t]*\n", text, maxsplit=1)[0])
+        for required in ("Status",) if kind == "CV" else ("Task", "Status"):
+            if required not in fields:
+                raise ParseError(name, record_id, f"missing required field '{required}'")
+        if kind == "CV":
+            roles = [r.lower() for r in _list(fields.get("Roles"))]
+            conventions.append(Convention(
+                id=record_id, title=title, status=fields["Status"].strip().upper(),
+                roles=[] if roles == ["all"] else roles, text=text, source=Source(name, record_id),
+            ))
+        else:
+            briefs.append(Brief(
+                id=record_id, title=title, task=fields["Task"].strip(),
+                status=fields["Status"].strip().upper(), conventions=_list(fields.get("Conventions")),
+                text=text, source=Source(name, record_id),
+            ))
+    return conventions, briefs
 
 
 def _quoted(body: str) -> str:

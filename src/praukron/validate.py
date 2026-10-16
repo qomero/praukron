@@ -14,6 +14,9 @@ from .layout import ARCHIVE_DIR, AUTHORITY_DIR, RECOVERY_DIR
 from .snapshot import Snapshot
 from .model import (
     ASSUMPTION_STATUSES,
+    BRIEF_STATUSES,
+    CONVENTION_STATUSES,
+    COORDINATION_ROLES,
     CRITERION_STATES,
     IMPACTS,
     NOTIFY_CHANNELS,
@@ -235,6 +238,61 @@ def debt_findings(project: Project) -> list[Finding]:
                 warn("resolved-debt-open-task", f"RESOLVED while {', '.join(open_tasks)} is still open")
         if debt.trigger_state == "REACHED" and debt.status in ("OPEN", "ACCEPTED"):
             warn("debt-trigger-reached", "trigger reached but no repayment is scheduled")
+    return findings
+
+
+# Past this a record costs more than the packet it rides in should (ADR-075).
+COORDINATION_TOKENS = 2000
+
+
+def coordination_findings(project: Project) -> list[Finding]:
+    """Conventions and briefs in COORDINATION.md and what they refer to (ADR-075)."""
+    findings: list[Finding] = []
+    task_ids = {t.id for t in project.tasks}
+    conventions = {c.id: c for c in project.conventions}
+    seen: set[str] = set()
+    active: dict[str, str] = {}
+    for record in [*project.conventions, *project.briefs]:
+        where = f"{record.source.file}#{record.id}"
+
+        def error(code: str, message: str) -> None:
+            findings.append(Finding("error", code, message, where))
+
+        def warn(code: str, message: str) -> None:
+            findings.append(Finding("warning", code, message, where))
+
+        if record.id in seen:
+            error("duplicate-coordination-record", f"{record.id} is defined more than once")
+        seen.add(record.id)
+        if (len(record.text) + 3) // 4 > COORDINATION_TOKENS:
+            warn("long-coordination-record",
+                 f"{record.id} exceeds {COORDINATION_TOKENS:,} estimated tokens; every packet that "
+                 "carries it pays for it, so keep it to what the contract does not say")
+        if record.id.startswith("CV-"):
+            if record.status not in CONVENTION_STATUSES:
+                error("invalid-convention-status", f"'{record.status}' is not a convention status")
+            for role in record.roles:
+                if role not in COORDINATION_ROLES:
+                    error("invalid-convention-role", f"'{role}' is not a coordination role")
+            continue
+        if record.status not in BRIEF_STATUSES:
+            error("invalid-brief-status", f"'{record.status}' is not a brief status")
+        task = project.task(record.task)
+        if record.task not in task_ids:
+            error("unknown-brief-task", f"briefs {record.task}, which is not a task")
+        elif record.status == "ACTIVE" and task is not None and task.done:
+            warn("active-brief-done-task", f"{record.task} is {task.status}; close the brief")
+        if record.status == "ACTIVE":
+            if record.task in active:
+                error("multiple-active-briefs",
+                      f"{record.task} already has ACTIVE brief {active[record.task]}")
+            active.setdefault(record.task, record.id)
+        for convention_id in record.conventions:
+            convention = conventions.get(convention_id)
+            if convention is None:
+                error("unknown-brief-convention", f"rests on {convention_id}, which is not a convention")
+            elif record.status == "ACTIVE" and convention.status != "ACTIVE":
+                error("retired-brief-convention", f"rests on {convention_id}, which is {convention.status}")
     return findings
 
 
@@ -758,6 +816,7 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
     findings.extend(trace_findings(project))
     findings.extend(debt_findings(project))
     findings.extend(assumption_findings(project))
+    findings.extend(coordination_findings(project))
     findings.extend(stale_references(project))
     findings.extend(journal_findings(project, snapshot))
     findings.extend(archive_findings(project, snapshot))

@@ -14,7 +14,11 @@ validated step (`--schema` prints the payload).
 Never move a task to another module or a module to another phase as a side
 effect of implementation; that is a decision. Read that
 task, its contract, and its governing ADRs, then inspect only the specification
-and code needed for the task.
+and code needed for the task. When the packet carries a `brief` and
+`conventions`, follow them as the coordinator's instructions for this task
+(branch, base, reviewers, review round); the contract, invariants and ADRs win
+where they differ. A coordinator records them in `COORDINATION.md` before
+starting an agent, never only in its own session (ADR-075).
 
 Mark it `WIP`, record the owner and claim date (`.praukron/praukron task update
 --input -`, which claims and dates it), and set `INTENT.md` to that one task

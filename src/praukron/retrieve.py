@@ -145,7 +145,7 @@ class Chronicle:
         return path.read_text(encoding="utf-8") if path.is_file() else None
 
 
-_ID = re.compile(r"\b(T-[A-Za-z0-9.\-]*[A-Za-z0-9]|ADR-\d+|TD-[A-Za-z0-9.\-]*[A-Za-z0-9]|EV-[A-Za-z0-9.\-]*[A-Za-z0-9]|P\d+)\b")
+_ID = re.compile(r"\b(T-[A-Za-z0-9.\-]*[A-Za-z0-9]|ADR-\d+|TD-[A-Za-z0-9.\-]*[A-Za-z0-9]|EV-[A-Za-z0-9.\-]*[A-Za-z0-9]|(?:CV|BR)-[A-Za-z0-9.\-]*[A-Za-z0-9]|P\d+)\b")
 _GATE = re.compile(r"\bgate ([A-Za-z0-9\-]+)\b", re.IGNORECASE)
 _WORDS = {
     "blocked": r"\b(block\w*|stuck|waiting|why)\b",
@@ -233,6 +233,27 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
             add("OPERATIONS EVENT", event_id, f"{record.source.file}#{event_id}", reason,
                 chronicle.section(record.source.file, event_id))
 
+    def convention(convention_id: str, reason: str) -> None:
+        record = project.convention(convention_id)
+        if record is not None:
+            add("CONVENTION", record.id, f"{record.source.file}#{record.id}", reason,
+                chronicle.section(record.source.file, record.id))
+
+    def brief(record, reason: str) -> None:
+        add("BRIEF", record.id, f"{record.source.file}#{record.id}", reason,
+            chronicle.section(record.source.file, record.id))
+
+    def coordination(task_id: str) -> None:
+        """The task's brief and the ACTIVE conventions it rests on (ADR-075)."""
+        record = project.brief_for(task_id)
+        if record is None:
+            return
+        brief(record, f"brief for {task_id}")
+        for convention_id in record.conventions:
+            found = project.convention(convention_id)
+            if found is not None and found.status == "ACTIVE":
+                convention(convention_id, f"{record.id} rests on it")
+
     def blocking_chain(t, depth: int) -> None:
         """Open dependencies, followed as far as `depth` levels: what a task
         waits on, and what that waits on in turn."""
@@ -255,6 +276,7 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
         if t is None:
             return
         task(task_id, reason)
+        coordination(task_id)
         for adr in t.decisions:
             if adr.startswith("ADR-"):
                 decision(adr, f"governs {task_id}")
@@ -327,6 +349,15 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
                     decision(ref, f"introduced {entity}") if ref.startswith("ADR-") else task(ref, f"introduced {entity}")
                 for ref in record.linked_tasks:
                     task(ref, f"repays {entity}")
+        elif entity.startswith("CV-"):
+            pack.routed.append((entity, "named"))
+            convention(entity, "named in the question")
+        elif entity.startswith("BR-"):
+            record = next((b for b in project.briefs if b.id == entity), None)
+            if record is not None:
+                pack.routed.append((entity, "named"))
+                brief(record, "named in the question")
+                task(record.task, f"briefed by {entity}")
         elif entity.startswith("EV-"):
             pack.routed.append((entity, "named"))
             event(entity, "named in the question")

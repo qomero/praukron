@@ -12,7 +12,7 @@ printf '# Keep agent rules\n' > "$fixture/AGENTS.md"
 printf '# Keep Claude rules\n' > "$fixture/CLAUDE.md"
 "$root/install.sh" existing "$fixture" --no-link > "$fixture/output"
 
-for file in README THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE TECH_DEBT; do
+for file in README THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE TECH_DEBT ASSUMPTIONS RESPONSES COORDINATION; do
   test -f "$fixture/.praukron/chronicle/$file.md"
 done
 # Every installed surface describes the same hierarchy (ADR-035).
@@ -322,7 +322,12 @@ printf '\n## AC-T-001 — Real work\n\n- `AC-T-001-01` — It exists. `INSPECTIO
 # Stand in for output written by an older release.
 printf 'STALE\n' > "$upgrade/.praukron/compiled/dashboard.html"
 printf 'STALE\n' > "$upgrade/.praukron/compiled/STATE.md"
+# A chronicle from before COORDINATION.md gains the template; one that has the
+# file keeps the coordinator's records (ADR-075).
+printf '# Coordination\n\n## CV-01: Kept\n- Status: ACTIVE\n' > "$upgrade/coordination"
+cp "$upgrade/coordination" "$upgrade/.praukron/chronicle/COORDINATION.md"
 "$root/install.sh" "$upgrade" --no-link > "$upgrade/output"
+cmp "$upgrade/coordination" "$upgrade/.praukron/chronicle/COORDINATION.md"
 grep -Fq 'Generated views were refreshed' "$upgrade/output"
 grep -Fvq 'STALE' "$upgrade/.praukron/compiled/dashboard.html"
 grep -Fvq 'STALE' "$upgrade/.praukron/compiled/STATE.md"

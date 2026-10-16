@@ -56,6 +56,10 @@ TASK_AUTHORITIES = ("owner",)
 # The per-project assumption policy (ADR-057): groups an agent may not assume.
 POLICY_GROUPS = ("permission", "security", "external-disclosure", "legal", "source-of-truth")
 NOTIFY_CHANNELS = ("host", "none")
+# Coordination conventions and task briefs (ADR-075).
+CONVENTION_STATUSES = ("ACTIVE", "RETIRED")
+BRIEF_STATUSES = ("ACTIVE", "CLOSED")
+COORDINATION_ROLES = ("builder", "reviewer", "coordinator")
 
 OBSTACLE_TYPES = (
     "DEPENDENCY_BLOCKER",
@@ -297,6 +301,43 @@ class Response:
 
 
 @dataclass
+class Convention:
+    """A standing coordination rule of this project (ADR-075)."""
+
+    id: str
+    title: str
+    status: str
+    roles: list[str]  # empty means every role
+    text: str
+    source: Source
+
+    def applies_to(self, role: str) -> bool:
+        return not self.roles or role in self.roles
+
+    def as_json(self) -> dict[str, object]:
+        return {"id": self.id, "title": self.title, "status": self.status, "roles": self.roles,
+                "text": self.text, "authority": f"{self.source.file}#{self.id}"}
+
+
+@dataclass
+class Brief:
+    """What a coordinator adds to one task's contract, never the contract itself (ADR-075)."""
+
+    id: str
+    title: str
+    task: str
+    status: str
+    conventions: list[str]
+    text: str
+    source: Source
+
+    def as_json(self) -> dict[str, object]:
+        return {"id": self.id, "title": self.title, "task": self.task, "status": self.status,
+                "conventions": self.conventions, "text": self.text,
+                "authority": f"{self.source.file}#{self.id}"}
+
+
+@dataclass
 class Policy:
     """The assumption policy in force: groups reserved for the owner."""
 
@@ -467,6 +508,8 @@ class Project:
     debts: list[TechDebt] = field(default_factory=list)
     assumptions: list[Assumption] = field(default_factory=list)
     responses: list[Response] = field(default_factory=list)
+    conventions: list[Convention] = field(default_factory=list)
+    briefs: list[Brief] = field(default_factory=list)
     journal_validation: list[Finding] | None = field(default=None, repr=False, compare=False)
 
     @property
@@ -506,6 +549,17 @@ class Project:
 
     def responses_to(self, target: str) -> list[Response]:
         return [r for r in self.responses if r.target == target]
+
+    def brief_for(self, task_id: str) -> Brief | None:
+        """The task's ACTIVE brief, else its last CLOSED one (ADR-075)."""
+        briefs = [b for b in self.briefs if b.task == task_id]
+        active = [b for b in briefs if b.status == "ACTIVE"]
+        if active:
+            return active[0]
+        return briefs[-1] if briefs else None
+
+    def convention(self, convention_id: str) -> Convention | None:
+        return next((c for c in self.conventions if c.id == convention_id), None)
 
     def assumptions_for(self, task_id: str) -> list[Assumption]:
         return [a for a in self.assumptions if task_id in a.tasks]

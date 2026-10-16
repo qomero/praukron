@@ -251,7 +251,8 @@ def id_exists(project: Project, record_id: str) -> bool:
     """The loader already merges working records and every archive."""
     groups = (project.phases, project.modules, project.tasks, project.contracts.values(),
               project.gates, project.milestones, project.decisions, project.events,
-              project.debts, project.assumptions, project.responses)
+              project.debts, project.assumptions, project.responses, project.conventions,
+              project.briefs)
     return (any(item.id == record_id for group in groups for item in group)
             or any(c.id == record_id for contract in project.contracts.values() for c in contract.criteria))
 

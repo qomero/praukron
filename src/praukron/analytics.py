@@ -1026,6 +1026,14 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
     responses = [r for r in project.responses if r.target in targets]
     authority += [_pointer(a.source) for a in assumptions]
     authority += [_pointer(r.source) for r in responses]
+    # The coordinator's brief for this task and the conventions it rests on,
+    # so a relaunched agent needs nothing outside the chronicle (ADR-075).
+    brief = project.brief_for(task_id)
+    conventions = [
+        c for c in (project.convention(i) for i in (brief.conventions if brief else []))
+        if c is not None and c.status == "ACTIVE" and c.applies_to(role)
+    ]
+    authority += [_pointer(b.source) for b in ([brief] if brief else []) + conventions]
     authority.append("HANDOFF.md")
     trail = lineage(project, task)
     # The orientation packet and INDEX.md carry the thesis; a task packet
@@ -1124,6 +1132,10 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
             {**{k: v for k, v in r.as_json().items() if k != "source"}, "authority": _pointer(r.source)}
             for r in responses
         ],
+        # What the coordinator adds to the contract, verbatim. The contract,
+        # invariants and ADRs above win where they differ (ADR-075).
+        "brief": brief.as_json() if brief else None,
+        "conventions": [c.as_json() for c in conventions],
     }
     if task.done:
         packet["note"] = (

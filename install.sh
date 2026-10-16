@@ -291,7 +291,7 @@ if [ "$rename_install" -eq 1 ]; then
       exit 1
     fi
   done
-  for file in THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE TECH_DEBT ASSUMPTIONS RESPONSES README; do
+  for file in THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE COORDINATION TECH_DEBT ASSUMPTIONS RESPONSES README; do
     path="$target/.prokron/chronicle/$file.md"
     if [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
       echo "Cannot upgrade non-regular record: $path" >&2
@@ -317,7 +317,7 @@ fi
 had_chronicle=0
 [ ! -d "$target/$chronicle" ] || had_chronicle=1
 # Records are the project's own: a template is only ever a starting point.
-for file in THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE TECH_DEBT ASSUMPTIONS RESPONSES; do
+for file in THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE COORDINATION TECH_DEBT ASSUMPTIONS RESPONSES; do
   copy_new "$source_dir/templates/chronicle/$file.md" "$target/$chronicle/$file.md"
 done
 copy_new "$source_dir/templates/chronicle/ADR/README.md" "$target/$chronicle/ADR/README.md"

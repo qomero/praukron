@@ -19,6 +19,7 @@ from .parse import (
     ParseError,
     parse_acceptance,
     parse_assumptions,
+    parse_coordination,
     parse_decisions,
     parse_modules,
     parse_phases,
@@ -121,6 +122,8 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
     modules = parse_modules(authority / "MODULES.md")
     tasks, contracts = _tasks_and_contracts(authority, phases, modules)
     assumptions, debts, events = _archived_records(authority, phases)
+    # Coordination records never move to an archive (ADR-075).
+    conventions, briefs = parse_coordination(authority / "COORDINATION.md")
     # A project that names itself compiles the same in every checkout. One that
     # does not falls back to its directory, which is where the name used to
     # come from always.
@@ -142,6 +145,8 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         debts=debts,
         assumptions=assumptions,
         responses=parse_responses(authority / "RESPONSES.md"),
+        conventions=conventions,
+        briefs=briefs,
     )
     domain.resolve(project)
     # Reuse these loaded diagnostics in validate/status and structured writes;
@@ -369,6 +374,7 @@ def as_json(project: Project) -> dict[str, object]:
                 "TECH_DEBT.md",
                 "ASSUMPTIONS.md",
                 "RESPONSES.md",
+                "COORDINATION.md",
             ],
         },
     }
