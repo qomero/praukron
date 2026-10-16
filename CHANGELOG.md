@@ -6,6 +6,12 @@ people arriving from a release page.
 
 ## Unreleased
 
+- Owner identity (ADR-060, ADR-066): `praukron respond` and the served
+  dashboard record `By:` as the active `gh` login and refuse typed `--by`.
+  `VERIFY` records an owner's interactive verification of an `Authority: owner`
+  task; `HUMAN_VERIFIED` requires a VERIFY from a login named in an ADR's
+  `Owners:` field.
+
 ## 2.0.0 — 2026-10-16
 
 ### Upgrading to 2.0

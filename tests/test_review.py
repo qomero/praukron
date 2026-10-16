@@ -136,7 +136,7 @@ class TestBlockerGuidance(ReviewCase):
     def test_every_obstacle_says_what_why_what_unblocks_and_who(self) -> None:
         """AC-T-REVIEW-BLOCKERS-01-01."""
         obstacles = self.execution.split("<h2>Obstacles</h2>", 1)[1].split("<h2>", 1)[0]
-        obstacles += self.needs.split("<h3>Waiting on the owner</h3>", 1)[1]
+        obstacles += self.needs.split("<h3>Waiting on the owner</h3>", 1)[1].split("<h3>", 1)[0]
         items = re.findall(r"<li>.*?</li>", obstacles, re.S)
         self.assertEqual(len(items), len(self.compiled["obstacles"]))
         for item in items:
@@ -152,12 +152,12 @@ class TestBlockerGuidance(ReviewCase):
 
     def test_owner_held_blockers_are_grouped_and_offer_guide(self) -> None:
         """AC-T-REVIEW-BLOCKERS-01-02."""
-        group = self.needs.split("<h3>Waiting on the owner</h3>", 1)[1]
+        group = self.needs.split("<h3>Waiting on the owner</h3>", 1)[1].split("<h3>", 1)[0]
         self.assertIn('data-task="T-THREE"', group)
         self.assertIn("the owner finishes T-TWO", group)
         self.assertIn("Guide: run <code>praukron dashboard --serve</code>", group)
         self.render(interactive=True)
-        served = self.needs.split("<h3>Waiting on the owner</h3>", 1)[1]
+        served = self.needs.split("<h3>Waiting on the owner</h3>", 1)[1].split("<h3>", 1)[0]
         self.assertIn('data-target="T-TWO" data-guide="1"', served)
         self.assertIn("<textarea", served)
 
@@ -191,14 +191,15 @@ class TestNeedsPanel(TestBlockerGuidance):
         self.assertNotIn("<aside", panels.split('<div class="layout">', 1)[1].split('id="panel-overview"', 1)[0])
         review = self.needs.split("<h3>Assumptions to review</h3>", 1)[1].split("<h3>", 1)[0]
         self.assertLess(review.index('data-id="A-2"'), review.index('data-id="A-4"'))
-        owner = self.needs.split("<h3>Waiting on the owner</h3>", 1)[1]
+        owner = self.needs.split("<h3>Waiting on the owner</h3>", 1)[1].split("<h3>", 1)[0]
         held = [o for o in self.compiled["obstacles"] if o.get("actor") == "owner"]
         self.assertTrue(held)
         self.assertEqual(len(re.findall(r"<li>", owner)), len(held))
         for card in ('data-id="A-2"', 'data-id="A-4"', 'id="assumption-A-2"'):
             self.assertEqual(self.html.count(card), 1, card)
         self.assertNotIn("<summary>Waiting on the owner", panels)
-        self.assertIn(f'<span class="needcount">{len(held) + 2}</span>', self.needs)
+        # Two open assumptions, the owner-held obstacles, and T-TWO to verify.
+        self.assertIn(f'<span class="needcount">{len(held) + 3}</span>', self.needs)
         self.assertIn("1 answered, waiting for the agent", self.needs)
 
     def test_served_forms_and_the_one_submit_bar_live_in_the_panel(self) -> None:

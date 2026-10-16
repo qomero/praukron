@@ -43,7 +43,12 @@ TRIGGER_STATES = ("NOT_REACHED", "APPROACHING", "REACHED")
 # Provisional agent assumptions and the owner's verbatim responses (ADR-054).
 ASSUMPTION_STATUSES = ("OPEN", "CONFIRMED", "REVISED", "REJECTED", "WITHDRAWN")
 IMPACTS = ("LOW", "MEDIUM", "HIGH")
-RESPONSE_ACTIONS = ("CONFIRM", "REVISE", "REJECT", "GUIDE")
+RESPONSE_ACTIONS = ("CONFIRM", "REVISE", "REJECT", "GUIDE", "VERIFY")
+# VERIFY is the owner's verification of an `Authority: owner` task, recorded
+# only interactively and counted only from a named owner (ADR-060).
+VERIFY = "VERIFY"
+# A GitHub login: what `Owners:` names and what `By:` records (ADR-060).
+GITHUB_LOGIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
 # The status a decisive response asks for. GUIDE asks for none.
 RESPONSE_STATUS = {"CONFIRM": "CONFIRMED", "REVISE": "REVISED", "REJECT": "REJECTED"}
 # A task only a named person can finish.
@@ -235,6 +240,8 @@ class Decision:
     policy: str | None = None
     reserved: list[str] | None = None
     notify: str | None = None
+    # The project's owners by GitHub login (ADR-060); None when not stated.
+    owners: list[str] | None = None
 
     @property
     def reconstructed(self) -> bool:
@@ -471,6 +478,25 @@ class Project:
             return Policy(list(POLICY_GROUPS), "host", None)
         latest = max(found, key=lambda d: int(d.id.split("-")[1]))
         return Policy(list(latest.reserved or []), latest.notify or "host", latest.id)
+
+    @property
+    def owners_decision(self) -> Decision | None:
+        """The newest ACCEPTED ADR naming `Owners:`, or None (ADR-060)."""
+        found = [d for d in self.decisions if d.status == "ACCEPTED" and d.owners is not None]
+        return max(found, key=lambda d: int(d.id.split("-")[1])) if found else None
+
+    @property
+    def owners(self) -> list[str]:
+        decision = self.owners_decision
+        return [owner for owner in decision.owners if GITHUB_LOGIN.match(owner)] if decision else []
+
+    def is_owner(self, login: str | None) -> bool:
+        """GitHub logins are case-insensitive."""
+        return bool(login) and login.lower() in {owner.lower() for owner in self.owners}
+
+    def verified_by_owner(self, task_id: str) -> list[Response]:
+        return [response for response in self.responses_to(task_id)
+                if response.action == VERIFY and self.is_owner(response.by)]
 
     def assumption(self, assumption_id: str) -> Assumption | None:
         for assumption in self.assumptions:

@@ -70,7 +70,7 @@ class TestServe(ServeCase):
         status, page = self.request(f"/?token={self.token}")
         self.assertEqual(status, 200)
         self.assertIn('class="aform"', page)
-        status, result = self.post({"by": "Thien", "items": [
+        status, result = self.post({"items": [
             {"target": "A-2", "action": "CONFIRM", "text": "OK"},
             {"target": "T-TWO", "action": "GUIDE", "text": "Hãy dùng bản staging."}]})
         self.assertEqual((status, result), (200, {"ok": True, "ids": ["R-3", "R-4"]}))
@@ -79,7 +79,7 @@ class TestServe(ServeCase):
                          [("R-3", "dashboard", "OK"), ("R-4", "dashboard", "Hãy dùng bản staging.")])
         _, page = self.request(f"/?token={self.token}")
         self.assertIn("Hãy dùng bản staging.", page)
-        status, result = self.post({"by": "Thien", "items": [{"target": "A-404", "action": "CONFIRM", "text": "OK"}]})
+        status, result = self.post({"items": [{"target": "A-404", "action": "CONFIRM", "text": "OK"}]})
         self.assertEqual(status, 400)
         self.assertIn("not an assumption", result["error"])
 
@@ -87,7 +87,7 @@ class TestServe(ServeCase):
         """AC-T-SERVE-01-02 (refusals)."""
         responses = self.authority / "RESPONSES.md"
         original = responses.read_bytes()
-        body = {"by": "Mallory", "items": [{"target": "A-1", "action": "CONFIRM", "text": "OK"}]}
+        body = {"items": [{"target": "A-1", "action": "CONFIRM", "text": "OK"}]}
         self.assertEqual(self.post(body, token="wrong")[0], 403)
         self.assertEqual(self.post(body, Origin="http://evil.example")[0], 403)
         self.assertEqual(self.post(body, **{"Content-Type": "text/plain"})[0], 403)
@@ -145,12 +145,9 @@ class TestServe(ServeCase):
         self.assertEqual(out[1], "A-9: write your feedback, or choose OK")
         page = serve.page(self.dir)
         self.assertIn('value="CONFIRM" checked> OK', page)
-        self.assertIn("if (!by) throw new Error('Enter your name", page)
+        self.assertIn("Recording as GitHub user <strong>thien-owner</strong>", page)
+        self.assertNotIn('<input type="text" class="review-by"', page)
         self.assertIn("Each card starts at OK.", page)
-        status, result = self.post({"by": "  ", "items": [{"target": "A-1", "action": "CONFIRM", "text": "OK"},
-                                                          {"target": "A-2", "action": "CONFIRM", "text": "OK"}]})
-        self.assertEqual(status, 400)
-        self.assertIn("needs --by", result["error"])
 
     def test_an_answered_card_offers_no_second_answer(self) -> None:
         """Found in the exit run: reopening an answered card confirmed it again."""

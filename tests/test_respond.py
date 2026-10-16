@@ -68,7 +68,7 @@ class TestRespond(RespondCase):
             "bytes": base64.b64encode(original).decode("ascii"),
         }]}), encoding="utf-8")
         with self.assertRaisesRegex(respond.RespondError, "interrupted archive was rolled back"):
-            respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], "Thien", recompile=False)
+            respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], recompile=False)
         self.assertEqual(responses.read_bytes(), original)
         self.assertEqual(list(recovery.glob("archive-*.json")), [])
 
@@ -76,14 +76,13 @@ class TestRespond(RespondCase):
         """AC-T-RESPOND-01-01."""
         before = self.snapshot()
         text = "Đồng ý, nhưng:\n\n  - giữ 7 ngày\n> không phải trích dẫn"
-        code, out, err = self.run_cli("respond", "A-2", "confirm", "--by", "Thien (owner)",
-                                      "--date", "2026-10-03", stdin=text + "\n")
+        code, out, err = self.run_cli("respond", "A-2", "confirm", "--date", "2026-10-03", stdin=text + "\n")
         self.assertEqual(code, 0, err)
         self.assertIn("Recorded R-3", out)
         responses = self.authority / "RESPONSES.md"
         self.assertTrue(responses.read_text(encoding="utf-8").startswith(RESPONSES))
         self.assertTrue(responses.read_text(encoding="utf-8").endswith(
-            "\n## R-3: A-2 CONFIRM\n- By: Thien (owner)\n- Date: 2026-10-03\n- Via: cli\n\n"
+            "\n## R-3: A-2 CONFIRM\n- By: thien-owner\n- Date: 2026-10-03\n- Via: cli\n\n"
             "> Đồng ý, nhưng:\n>\n>   - giữ 7 ngày\n> > không phải trích dẫn\n"))
         self.load()
         self.assertEqual(self.project.responses[-1].text, text)
@@ -91,14 +90,23 @@ class TestRespond(RespondCase):
         self.assertEqual({p for p in before if before[p] != after.get(p)}, {responses})
         file = self.dir / "answer.txt"
         file.write_text("Use the staging copy.", encoding="utf-8")
-        code, out, _ = self.run_cli("respond", "T-TWO", "guide", "--by", "Thien", "--text-file", str(file),
+        code, out, _ = self.run_cli("respond", "T-TWO", "guide", "--text-file", str(file),
                                     "--date", "2026-10-03")
         self.assertEqual(code, 0)
         self.load()
         self.assertEqual((self.project.responses[-1].id, self.project.responses[-1].text), ("R-4", "Use the staging copy."))
 
     def cli_process(self, *args: str, stdin: bytes) -> subprocess.CompletedProcess:
+        bin_dir = self.dir / "test-bin"
+        bin_dir.mkdir(exist_ok=True)
+        if os.name == "nt":
+            (bin_dir / "gh.cmd").write_text("@echo off\r\necho thien-owner\r\n", encoding="utf-8")
+        else:
+            gh = bin_dir / "gh"
+            gh.write_text("#!/bin/sh\necho thien-owner\n", encoding="utf-8")
+            gh.chmod(0o755)
         env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+        env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
         return subprocess.run([sys.executable, str(Path(cli.__file__).resolve().parents[2] / ".praukron/praukron"),
                                "-C", str(self.dir), *args], input=stdin, capture_output=True, env=env)
 
@@ -107,7 +115,7 @@ class TestRespond(RespondCase):
         text = "Đồng ý, giữ 7 ngày — tiếp tục"
         for label, raw in (("plain", text.encode("utf-8")), ("bom", text.encode("utf-8-sig"))):
             with self.subTest(label=label):
-                result = self.cli_process("respond", "A-2", "confirm", "--by", "Thien", "--date", "2026-10-03",
+                result = self.cli_process("respond", "A-2", "confirm", "--date", "2026-10-03",
                                           stdin=raw)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.load()
@@ -115,7 +123,7 @@ class TestRespond(RespondCase):
         out, err = io.StringIO(), io.StringIO()
         with io.TextIOWrapper(io.BytesIO(text.encode("utf-8")), encoding="cp1252", errors="surrogateescape") as stdin:
             with redirect_stdout(out), redirect_stderr(err), mock.patch("sys.stdin", stdin):
-                code = cli.main(["-C", str(self.dir), "respond", "A-2", "confirm", "--by", "Thien"])
+                code = cli.main(["-C", str(self.dir), "respond", "A-2", "confirm"])
         self.assertEqual(code, 0, err.getvalue())
         self.load()
         self.assertEqual(self.project.responses[-1].text, text)
@@ -123,7 +131,7 @@ class TestRespond(RespondCase):
     def test_invalid_utf8_stdin_is_refused_without_writing(self) -> None:
         """AC-T-RESPOND-STDIN-01-02."""
         before = self.snapshot()
-        result = self.cli_process("respond", "A-2", "confirm", "--by", "Thien", stdin=b"caf\xe9")
+        result = self.cli_process("respond", "A-2", "confirm", stdin=b"caf\xe9")
         self.assertEqual(result.returncode, 1)
         self.assertIn("not valid UTF-8", result.stderr.decode("utf-8", "replace"))
         self.assertNotIn(b"Traceback", result.stderr)
@@ -134,13 +142,12 @@ class TestRespond(RespondCase):
         responses = self.authority / "RESPONSES.md"
         original = responses.read_bytes()
         for args, stdin, message in (
-            (("A-99", "confirm", "--by", "Thien"), "ok", "not an assumption"),
-            (("T-NOPE", "guide", "--by", "Thien"), "ok", "not a task"),
-            (("T-TWO", "confirm", "--by", "Thien"), "ok", "a task takes GUIDE"),
-            (("A-1", "revise"), "seven", "needs --by"),
-            (("A-1", "revise", "--by", "  "), "seven", "needs --by"),
-            (("A-1", "revise", "--by", "Thien"), "  \n", "has no text"),
-            (("X-1", "guide", "--by", "Thien"), "hi", "neither an assumption nor a task"),
+            (("A-99", "confirm"), "ok", "not an assumption"),
+            (("T-NOPE", "guide"), "ok", "not a task"),
+            (("T-TWO", "confirm"), "ok", "a task takes GUIDE"),
+            (("A-1", "revise", "--by", "Thien"), "seven", "--by is no longer accepted"),
+            (("A-1", "revise"), "  \n", "has no text"),
+            (("X-1", "guide"), "hi", "neither an assumption nor a task"),
         ):
             with self.subTest(args=args):
                 code, _, err = self.run_cli("respond", *args, stdin=stdin)
@@ -162,12 +169,12 @@ class TestRespond(RespondCase):
 
         with mock.patch.object(validate, "check", poisoned):
             with self.assertRaises(respond.RespondError) as raised:
-                respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], "Thien", recompile=False)
+                respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], recompile=False)
         self.assertIn("nothing was recorded", str(raised.exception))
         self.assertEqual(responses.read_bytes(), original)
         with mock.patch.object(respond.os, "replace", side_effect=OSError("disk full")):
             with self.assertRaises(respond.RespondError):
-                respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], "Thien", recompile=False)
+                respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], recompile=False)
         self.assertEqual(responses.read_bytes(), original)
         self.assertEqual([p.name for p in self.authority.glob(".respond-*")], [])
         self.assertFalse((self.dir / layout.COMPILED_DIR / "respond.lock").exists())
@@ -180,7 +187,7 @@ class TestRespond(RespondCase):
         """AC-T-RESPOND-01-04."""
         responses = self.authority / "RESPONSES.md"
         earlier = responses.read_bytes()
-        ids = respond.append(self.dir, [respond.Item("A-1", "REVISE", "Seven days.")], "Thien", date="2026-10-03")
+        ids = respond.append(self.dir, [respond.Item("A-1", "REVISE", "Seven days.")], date="2026-10-03")
         self.assertEqual(ids, ["R-3"])
         self.assertTrue(responses.read_bytes().startswith(earlier))
         compiled = self.dir / layout.COMPILED_DIR
@@ -196,7 +203,7 @@ class TestRespond(RespondCase):
         original = responses.read_bytes()
         with self.assertRaises(respond.RespondError):
             respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok"),
-                                      respond.Item("A-404", "CONFIRM", "ok")], "Thien", recompile=False)
+                                      respond.Item("A-404", "CONFIRM", "ok")], recompile=False)
         self.assertEqual(responses.read_bytes(), original)
         batch = self.dir / "batch.json"
         batch.write_text(json.dumps([
@@ -204,7 +211,7 @@ class TestRespond(RespondCase):
             {"target": "A-2", "action": "revise", "text": "Sales read all clients in their region."},
             {"target": "T-TWO", "action": "guide", "text": "Ask before touching production."},
         ]), encoding="utf-8")
-        code, out, err = self.run_cli("respond", "--batch", str(batch), "--by", "Thien",
+        code, out, err = self.run_cli("respond", "--batch", str(batch),
                                       "--via", "dashboard", "--date", "2026-10-03")
         self.assertEqual(code, 0, err)
         self.load()
@@ -218,7 +225,7 @@ class TestRespond(RespondCase):
         (self.authority / "RESPONSES.md").unlink()
         self.write(assumptions=(self.authority / "ASSUMPTIONS.md").read_text(encoding="utf-8")
                    .replace("Responses: R-1", "Responses: none"))
-        ids = respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], "Thien", recompile=False)
+        ids = respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "ok")], recompile=False)
         self.assertEqual(ids, ["R-1"])
         self.load()
         self.assertEqual(self.project.responses[0].text, "ok")

@@ -86,7 +86,8 @@ question that an authored document answers.
 - `ASSUMPTIONS.md` is the register of provisional agent assumptions. An
   assumption holds no authority; the records it is applied in do.
 - `RESPONSES.md` is the owner's input, verbatim and append-only. Agents read and
-  reconcile it and never edit it.
+  reconcile it and never edit it. `By:` is the active GitHub CLI login, never a
+  typed name; an agent never issues `VERIFY`.
 - `.praukron/compiled/STATE.md` and `.praukron/compiled/TASK_GRAPH.md` are
   views. They report authority and never override it.
 

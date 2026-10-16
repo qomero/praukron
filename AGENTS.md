@@ -128,6 +128,10 @@ Never present an `OPEN` assumption as decided. `RESPONSES.md` is the owner's
 words: act on every response the packet shows as awaiting reconciliation, and
 never edit or clear one. Feedback the owner gives anywhere else goes into
 `RESPONSES.md` verbatim, `Via: relayed by <you> from <channel>`, before you act.
+`By:` is the active `gh` login, never a typed name. Never issue `VERIFY`: only
+the owner verifies an `Authority: owner` task, from `praukron dashboard --serve`
+or at a terminal. Set `HUMAN_VERIFIED` only once a `VERIFY` from a login named
+in an ADR's `Owners:` exists.
 
 ## Completion
 

@@ -38,6 +38,9 @@ class ArchivePlanCase(FixtureCase):
         super().setUp()
         self.root = self.root.resolve()
         self.authority = self.root / layout.AUTHORITY_DIR
+        identity = mock.patch("praukron.respond.identity", return_value="thien-owner")
+        identity.start()
+        self.addCleanup(identity.stop)
         self.rewrite("PHASES.md", "Status:\nACTIVE", "Status:\nCOMPLETE")
 
     def snapshot(self, root=None):
@@ -284,7 +287,7 @@ class TestArchiveApply(ArchivePlanCase):
 
         self.add_task("T-LATER", "M-UPKEEP", status="TODO", dependencies="T-CLOSED")
         respond.append(self.root, [respond.Item("A-CLOSED", "REJECT", "Restore before reconciling.")],
-                       "owner", date="2026-10-15", recompile=False)
+                       date="2026-10-15", recompile=False)
         later = compiler.load(self.root)
         self.assertEqual(validate.errors(validate.check(later)), [])
         self.assertEqual(analytics.awaiting_reconciliation(later), [{
