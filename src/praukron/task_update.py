@@ -145,7 +145,7 @@ def done_blockers(project: Project, task, evidence: str | None) -> list[mutate.W
 def closability(project: Project, task) -> dict:
     blockers = done_blockers(project, task, task.evidence)
     return {"canClose": not blockers, "reasons": [
-        {"code": b.code, "message": str(b), **b.details} for b in blockers]}
+        {"code": b.code, **b.details} for b in blockers]}
 
 
 def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:

@@ -823,12 +823,20 @@ def _blocks(gate, phase_id: str) -> bool:
     return any(entry.split()[:1] == [phase_id] for entry in gate.blocks if entry.split())
 
 
-def _revisions(project: Project, task, contract) -> tuple[str, str | None]:
-    from .mutate import record_revision
+def _revisions(project: Project, task, contract) -> tuple[str | None, str | None]:
+    from .mutate import WriteError, record_revision
 
     root = Path(project.root)
-    return (record_revision(root, task.source),
-            record_revision(root, contract.source) if contract else None)
+
+    def current(record):
+        if record is not None:
+            try:
+                return record_revision(root, record.source)
+            except WriteError:
+                pass
+        return None
+
+    return current(task), current(contract)
 
 
 def explain(project: Project, task_id: str) -> dict[str, object]:
@@ -1014,6 +1022,12 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
     revision, contract_revision = _revisions(project, task, contract)
     from .task_update import closability
 
+    closure = closability(project, task)
+    missing = [record.id for record, observed in ((task, revision), (contract, contract_revision))
+               if record is not None and observed is None]
+    if missing:
+        closure["canClose"] = False
+        closure["reasons"].insert(0, {"code": "record-not-found", "records": missing})
     phase = project.phase(task.phase)
     report_now = report(project)
     blockers = [o.as_json() for o in report_now.obstacles if o.subject == task_id]
@@ -1067,7 +1081,7 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
         "task": {
             "id": task.id,
             "revision": revision,
-            "closability": closability(project, task),
+            "closability": closure,
             "title": task.title,
             "module": task.module,
             "domain": task.domain,

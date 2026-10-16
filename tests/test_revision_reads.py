@@ -5,9 +5,10 @@ from __future__ import annotations
 import io
 import json
 from contextlib import redirect_stdout
+from unittest import mock
 
 from test_task_update import UpdateCase
-from praukron import analytics, cli, criterion, index, mutate, retrieve, task_update
+from praukron import analytics, cli, compile as compiler, criterion, index, mutate, retrieve, task_update
 
 
 class TestRevisionReads(UpdateCase):
@@ -52,25 +53,42 @@ class TestRevisionReads(UpdateCase):
             self.assertIn(contract_revision, text)
 
     def test_closability_and_writer_use_the_same_rule(self):
+        acceptance_path = self.authority / "ACCEPTANCE.md"
+        acceptance = acceptance_path.read_text(encoding="utf-8")
+        tasks = self.tasks.read_text(encoding="utf-8")
+        original_section = mutate.section(tasks.encode(), "T-TWO").data.decode()
+        state_line = "`TEST` · `NOT_RUN`"
+        self.assertEqual(acceptance.count(state_line), 1)
         for state in ("NOT_RUN", "FAIL", "PASS"):
-            path = self.authority / "ACCEPTANCE.md"
-            data = path.read_text(encoding="utf-8")
-            for previous in ("NOT_RUN", "FAIL", "PASS"):
-                data = data.replace(f"`TEST` Â· `{previous}`", f"`TEST` Â· `{state}`")
-            path.write_text(data, encoding="utf-8")
+            data = acceptance.replace(state_line, f"`TEST` · `{state}`", 1)
+            if state != "NOT_RUN":
+                self.assertNotEqual(data, acceptance)
+            acceptance_path.write_text(data, encoding="utf-8")
             for owner in (False, True):
                 for evidence in (False, True):
                     with self.subTest(state=state, owner=owner, evidence=evidence):
-                        path = self.tasks
-                        text = path.read_text(encoding="utf-8").replace("- Authority: owner\n", "")
-                        text = text.replace("## T-TWO: Build on it\n", "## T-TWO: Build on it\n" +
-                                            ("- Authority: owner\n" if owner else ""))
-                        text = text.replace("- Evidence: Synthetic check.\n", "- Evidence: â€”\n")
-                        if evidence:
-                            text = text.replace("- Evidence: â€”", "- Evidence: Synthetic check.", 1)
-                        path.write_text(text, encoding="utf-8")
+                        section = original_section.replace("- Evidence: —", "- Evidence: Synthetic check.", 1)
+                        self.assertNotEqual(section, original_section)
+                        if not evidence:
+                            cleared = section.replace("- Evidence: Synthetic check.", "- Evidence: —", 1)
+                            self.assertNotEqual(cleared, section)
+                            section = cleared
+                        if owner:
+                            section = section.replace("## T-TWO: Build on it\n",
+                                                      "## T-TWO: Build on it\n- Authority: owner\n", 1)
+                        self.tasks.write_text(tasks.replace(original_section, section, 1), encoding="utf-8")
+                        project = compiler.load(self.root)
+                        task = project.task("T-TWO")
+                        self.assertEqual(project.mandatory_criteria(task)[0].state, state)
+                        self.assertEqual(task.owner_held, owner)
+                        self.assertEqual(bool(task.evidence), evidence)
                         packet = json.loads(self.read_cli("context", "T-TWO"))
                         closability = packet["task"]["closability"]
+                        self.assertEqual(closability["canClose"], state == "PASS" and not owner and evidence)
+                        if state == "PASS" and not owner and not evidence:
+                            self.assertIn({"code": "evidence-required"}, closability["reasons"])
+                        for reason in closability["reasons"]:
+                            self.assertNotIn("message", reason)
                         result = task_update.update(self.root, {"id": "T-TWO",
                             "expectRevision": packet["task"]["revision"], "set": {"status": "DONE"}}, dry_run=True)
                         self.assertEqual(closability["canClose"], result["ok"], result)
@@ -79,6 +97,33 @@ class TestRevisionReads(UpdateCase):
                         if state != "PASS":
                             reason = next(r for r in closability["reasons"] if r["code"] == "unresolved-acceptance")
                             self.assertEqual(reason["criteria"], ["AC-T-TWO-01"])
+
+    def test_unlocatable_contract_degrades_reads_without_traceback(self):
+        self.rewrite("ACCEPTANCE.md", "## AC-T-TWO —", "### AC-T-TWO —")
+        packet = json.loads(self.read_cli("context", "T-TWO"))
+        self.assertIsNone(packet["acceptance"][0]["revision"])
+        self.assertFalse(packet["task"]["closability"]["canClose"])
+        self.assertIn({"code": "record-not-found", "records": ["AC-T-TWO"]},
+                      packet["task"]["closability"]["reasons"])
+        detail = json.loads(self.read_cli("explain", "T-TWO", "--json"))
+        self.assertIsNone(detail["acceptance"][0]["revision"])
+        self.assertIn("revision unavailable", self.read_cli("explain", "T-TWO"))
+        self.assertIn("T-TWO", self.read_cli("retrieve", "T-TWO"))
+
+    def test_retrieve_keeps_null_revision_when_locator_refuses(self):
+        original = mutate.record_revision
+
+        def unavailable(root, source):
+            if source.anchor == "AC-T-TWO":
+                raise mutate.WriteError("record-not-found", "missing section")
+            return original(root, source)
+
+        with mock.patch.object(mutate, "record_revision", side_effect=unavailable):
+            packet = json.loads(self.read_cli("retrieve", "T-TWO", "--json"))
+            contract = next(i for i in packet["items"] if i["kind"] == "ACCEPTANCE")
+            self.assertIsNone(contract["revision"])
+            self.assertEqual(contract["criterionRevisions"], {"AC-T-TWO-01": None})
+            self.assertIn("Revision: unavailable", self.read_cli("retrieve", "T-TWO"))
 
     def test_archived_records_have_revisions_and_cannot_close(self):
         archive = self.authority / "archive" / "P1"
@@ -126,3 +171,8 @@ class TestRevisionReads(UpdateCase):
         self.assertIn("Only for a record not", text)
         self.assertIn("expectRevision", task_update.SCHEMA["required"])
         self.assertIn("expectRevision", criterion.SCHEMA["required"])
+        hint = mutate.NEXT_STEP["invalid-revision"]
+        self.assertLess(hint.index("context"), hint.index("sixteen zeros"))
+        for name in ("docs/GUIDE.md", "docs/SPEC.md"):
+            text = (Path(__file__).resolve().parents[1] / name).read_text(encoding="utf-8")
+            self.assertIn("record not yet read", " ".join(text.split()))

@@ -28,18 +28,19 @@ class Item:
     reason: str
     text: str
     revision: str | None = None
-    criterionRevisions: dict[str, str] = field(default_factory=dict)
+    criterionRevisions: dict[str, str | None] = field(default_factory=dict)
 
     def metadata(self) -> str:
         if self.revision is None:
-            return ""
+            return "Revision: unavailable" if self.kind in ("TASK", "ACCEPTANCE") else ""
         return f"Revision: {self.revision}" + (
             " · criteria: " + ", ".join(self.criterionRevisions) + " (same revision)"
             if self.criterionRevisions else "")
 
     def as_json(self) -> dict:
         return {key: value for key, value in vars(self).items()
-                if key not in ("revision", "criterionRevisions") or value}
+                if key not in ("revision", "criterionRevisions") or value
+                or (key == "revision" and self.kind in ("TASK", "ACCEPTANCE"))}
 
 
 DEFAULT_BUDGET = 4000  # tokens, estimated as index.tokens does
@@ -94,7 +95,7 @@ class Pack:
             # Record headings are demoted under the pack's own labels; the
             # record text is otherwise verbatim.
             body = re.sub(r"(?m)^(#{1,4}) ", r"###\1 ", item.text.strip())
-            lines += ["", f"## {item.kind} · {item.id} — {item.source}", f"_{item.reason}_", *([item.metadata()] if item.revision else []), "", body]
+            lines += ["", f"## {item.kind} · {item.id} — {item.source}", f"_{item.reason}_", *([item.metadata()] if item.metadata() else []), "", body]
         if self.omitted:
             # Pointers, not bodies: the agent still sees what else is relevant
             # and expands only what it needs.
@@ -210,11 +211,14 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
         seen.add(source)
         item = Item(kind, record_id, source, reason, text)
         if kind in ("TASK", "ACCEPTANCE"):
-            from .mutate import record_revision
+            from .mutate import WriteError, record_revision
             from .model import Source
 
             name, anchor = source.split("#", 1)
-            item.revision = record_revision(root, Source(name, anchor))
+            try:
+                item.revision = record_revision(root, Source(name, anchor))
+            except WriteError:
+                item.revision = None
             contract = project.contracts.get(record_id) if kind == "ACCEPTANCE" else None
             if contract:
                 item.criterionRevisions = {c.id: item.revision for c in contract.criteria}
