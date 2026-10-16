@@ -120,7 +120,8 @@ question that an authored document answers.
 3. Hard dependencies come from `TASKS.md`. Label suggested ordering as a
    suggestion; do not silently turn it into a dependency.
 4. A contract freezes when its task becomes `WIP`. Change it only through an
-   accepted Acceptance Change Request. A reviewer preference is not a criterion.
+   accepted Acceptance Change Request (`praukron acr add` records one; the
+   owner decides it). A reviewer preference is not a criterion.
 5. Mark a task `DONE` only when every mandatory criterion in its contract holds
    and its evidence is recorded. Keep completion separate from validation
    strength: `UNTESTED`, `SYNTHETIC`, `AI_REVIEWED`, or `HUMAN_VERIFIED`.

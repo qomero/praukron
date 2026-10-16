@@ -23,7 +23,8 @@ starting an agent, never only in its own session (ADR-075).
 Mark it `WIP`, record the owner and claim date (`.praukron/praukron task update
 --input -`, which claims and dates it), and set `INTENT.md` to that one task
 before implementation. Its contract freezes at that moment; change it only
-through an accepted Acceptance Change Request. Keep intent at the exact execution point, especially
+through an accepted Acceptance Change Request (`acr add` records one for the
+owner). Keep intent at the exact execution point, especially
 before a long-running step. When a material choice is made, accepted, or acted
 on, append its ADR immediately and link affected tasks. As truth changes, update the
 task (`task update`), its criterion states and evidence (`criterion set`), the

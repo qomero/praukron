@@ -286,6 +286,7 @@ record these commands do not cover.
 | `praukron task add` | `TASKS.md`, optionally `ACCEPTANCE.md` | appends a task, and its new contract in the same write |
 | `praukron contract add` | `ACCEPTANCE.md`, `TASKS.md` | appends a contract and sets the task's `AC:` |
 | `praukron task update` | `TASKS.md` | `Status`, `Owner`, `Claimed`, `Evidence`, `Validation` of one task; appends to `Governed by` (ADR-068, ADR-074) |
+| `praukron acr add` | `ACCEPTANCE.md` | appends one `### ACR-<n>` request to the `## Acceptance Change Requests` log (ADR-076) |
 
 With `INDEX.md` (generated), `respond` (`RESPONSES.md`, ADR-055) and `archive`
 (ADR-067, only when the owner asks), these are the only chronicle writes the
@@ -313,7 +314,8 @@ again.
 **Field permissions and rules.**
 
 - IDs are supplied by the caller and refused if they exist in a working file or
-  in any archive (`duplicate-id`); they are never inferred.
+  in any archive (`duplicate-id`); they are never inferred. The one exception
+  is an ACR id, a log sequence `acr add` assigns under the lock (ADR-076).
 - `task add` needs an existing `module`, an explicit `domain` and
   `dependencies`; it has no `phase` field (a task's phase comes from its
   module). Give exactly one of `contract` (a new definition, written with the
@@ -322,7 +324,7 @@ again.
 - A contract freezes when its task is `WIP`. `contract add` is refused for a
   `WIP` or `DONE` task (`frozen-contract`). No command changes a criterion's
   text or class, or an inherited invariant criterion: that is an Acceptance
-  Change Request, made by a person.
+  Change Request, decided by a person.
 - `criterion set` changes a criterion's state and optionally its evidence, which
   is a single line because the parser reads one.
 - `task update` changes only `Status`, `Owner`, `Claimed` and `Evidence` (ADR-068),
@@ -680,7 +682,7 @@ The portable workflows are:
 
 `praukron retrieve`, `praukron codegraph` and the structured writes
 (`praukron journal append`, `praukron criterion set`, `praukron task add`,
-`praukron contract add`, `praukron task update`; §2.6) are commands of the tool,
+`praukron contract add`, `praukron task update`, `praukron acr add`; §2.6) are commands of the tool,
 not workflows; the workflows use them. `praukron archive` (§2.7) is the owner's
 command and belongs to no workflow.
 

@@ -31,7 +31,7 @@ class WriteError(Exception):
         self.code, self.field, self.details = code, field, details or {}
 
 
-# Agent-facing guidance for the five write commands: WHEN / WHEN NOT / RETURNS / EXAMPLE.
+# Agent-facing guidance for the write commands: WHEN / WHEN NOT / RETURNS / EXAMPLE.
 # Shown by `--help` and carried in each `--schema` output.
 GUIDANCE = {
     "journal.append": (
@@ -80,6 +80,16 @@ GUIDANCE = {
         "EXAMPLE: echo '{\"id\":\"T-ONE\",\"expectRevision\":\"<16 hex>\",\"set\":{\"status\":\"WIP\","
         "\"owner\":\"me\"}}' | praukron task update --input -",
     ),
+    "acr.add": (
+        "WHEN: a criterion of a WIP or DONE task's frozen contract is wrong; record an Acceptance Change "
+        "Request for the owner to decide (ADR-076).",
+        "WHEN NOT: for a task that is not WIP or DONE (edit its contract directly), an inherited invariant, or to "
+        "decide a request; the criterion itself never changes, and one request per criterion stays undecided.",
+        "RETURNS: one JSON line with ok, recordId (the ACR id the tool assigns), source, revision. A second "
+        "undecided request for the same criterion is refused as duplicate-request, naming the open one.",
+        "EXAMPLE: echo '{\"task\":\"T-ONE\",\"criterion\":\"AC-T-ONE-01\",\"proposed\":\"Given x, When y, "
+        "Then z.\",\"reason\":\"Untestable as written.\"}' | praukron acr add --input -",
+    ),
 }
 
 # The next valid step for refusals whose message does not already carry one.
@@ -120,6 +130,7 @@ NEXT_STEP = {
     "duplicate-field": "remove the repeated field from the task by hand, then retry",
     "empty-set": "set at least one of status, owner, claimed, evidence or validation, or give addGovernedBy",
     "no-change": "nothing to do; the record already has these values",
+    "unfrozen-contract": "edit the criterion in ACCEPTANCE.md directly; no request is needed before WIP",
 }
 
 
@@ -283,15 +294,19 @@ class Section:
 
 
 def section(data: bytes, record_id: str) -> Section:
-    """Find a full journal heading or an ID, retaining exact byte offsets."""
-    for match in re.finditer(rb"(?m)^## ([^\r\n]+)\r?$", data):
-        heading = match.group(1).decode("utf-8").strip()
-        parsed_id = re.split(r": | — ", heading, maxsplit=1)[0]
-        if heading != record_id and parsed_id != record_id:
-            continue
-        following = re.search(rb"(?m)^#{1,2} ", data[match.end():])
-        end = match.end() + following.start() if following else len(data)
-        return Section(data[match.start():end], (match.start(), end))
+    """Find a full journal heading or an ID, retaining exact byte offsets.
+
+    Level two comes first; level three holds records nested in a log, such as ACRs.
+    """
+    for level in (2, 3):
+        for match in re.finditer(rb"(?m)^" + b"#" * level + rb" ([^\r\n]+)\r?$", data):
+            heading = match.group(1).decode("utf-8").strip()
+            parsed_id = re.split(r": | — ", heading, maxsplit=1)[0]
+            if heading != record_id and parsed_id != record_id:
+                continue
+            following = re.search(rb"(?m)^#{1,%d} " % level, data[match.end():])
+            end = match.end() + following.start() if following else len(data)
+            return Section(data[match.start():end], (match.start(), end))
     raise WriteError("record-not-found", f"no '## ' section found for {record_id}")
 
 

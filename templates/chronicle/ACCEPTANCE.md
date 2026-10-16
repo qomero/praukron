@@ -106,8 +106,9 @@ Impact
 Decision
 ```
 
-Until a request is explicitly accepted, the existing criterion remains
-authoritative. Accepted requests are appended to the log below and the criterion
+`praukron acr add` records a request in this shape with `Decision: PENDING`
+and never changes the criterion. Until a request is explicitly accepted, the
+existing criterion remains authoritative. Accepted requests are appended to the log below and the criterion
 is edited in place with its request identifier noted.
 
 ## Acceptance Change Requests

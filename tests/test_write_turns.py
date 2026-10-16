@@ -20,7 +20,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from praukron import cli, contract, criterion, journal, layout, mutate, task, task_update  # noqa: E402
+from praukron import acr, cli, contract, criterion, journal, layout, mutate, task, task_update  # noqa: E402
 from test_praukron import FixtureCase, build_fixture  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,10 +30,11 @@ COMMANDS = {
     "task add": ("task.add", task.SCHEMA),
     "contract add": ("contract.add", contract.SCHEMA),
     "task update": ("task.update", task_update.SCHEMA),
+    "acr add": ("acr.add", acr.SCHEMA),
 }
 # AGENTS.md on main before T-WRITE-GUIDE-01 (2.0.0 plus #36 and #37), LF-normalized, and the
-# net growth that task allows.
-AGENTS_BASE_BYTES, AGENTS_BUDGET = 10800, 1200
+# net growth that task allows; T-WRITE-ACR-01 then adds the sixth command, its example and its rule.
+AGENTS_BASE_BYTES, AGENTS_BUDGET, ACR_BYTES = 10800, 1200, 300
 
 # What the AGENTS.md examples name, beside the shared fixture.
 EXTRA_MODULE = "\n## M-CORE — Core\n- Phase: P1\n- Outcome: The core works.\n"
@@ -55,12 +56,26 @@ EXTRA_TASKS = """
 - Owner: unassigned
 - AC: —
 - Evidence: —
+
+## T-4: Save
+- Status: DONE
+- Module: M-CORE
+- Validation: UNTESTED
+- Dependencies: none
+- Owner: agent
+- AC: AC-T-4
+- Evidence: tests pass
 """
 EXTRA_ACCEPTANCE = """
 ## AC-T-1 — Start the core
 
 - `AC-T-1-01` — Given the core, When it starts, Then it answers.
   `TEST` · `NOT_RUN`
+
+## AC-T-4 — Save
+
+- `AC-T-4-01` — Given a file, When saved, Then it is fine.
+  `TEST` · `PASS`
 """
 
 
@@ -142,7 +157,7 @@ class Guidance(unittest.TestCase):
 
     def test_agents_md_stays_within_its_byte_budget(self):
         size = len((ROOT / "AGENTS.md").read_bytes().replace(b"\r\n", b"\n"))
-        self.assertLessEqual(size - AGENTS_BASE_BYTES, AGENTS_BUDGET)
+        self.assertLessEqual(size - AGENTS_BASE_BYTES, AGENTS_BUDGET + ACR_BYTES)
 
     def test_every_installed_copy_comes_from_the_one_source(self):
         # The installer writes the Praukron block from the root AGENTS.md; no other copy exists to drift.
@@ -351,6 +366,8 @@ class SchemaOutput(unittest.TestCase):
 
     def test_schema_output_only_gains_keywords(self):
         for command, (operation, _) in COMMANDS.items():
+            if operation not in SCHEMA_DIGEST_2_0_0:
+                continue  # acr add is new (T-WRITE-ACR-01)
             with self.subTest(command):
                 output = self.schema(command)
                 self.assertEqual(set(output), {"schema", "example"})
@@ -358,7 +375,7 @@ class SchemaOutput(unittest.TestCase):
 
     def test_printed_example_is_unchanged_and_accepted(self):
         examples = {"journal append": journal.EXAMPLE, "criterion set": criterion.EXAMPLE, "task add": task.EXAMPLE,
-                    "contract add": contract.EXAMPLE, "task update": task_update.EXAMPLE}
+                    "contract add": contract.EXAMPLE, "task update": task_update.EXAMPLE, "acr add": acr.EXAMPLE}
         for command, (_, schema) in COMMANDS.items():
             with self.subTest(command):
                 self.assertEqual(self.schema(command)["example"], examples[command])
