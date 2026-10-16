@@ -8,7 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 from test_task_update import UpdateCase
-from praukron import acr, batch, cli, compile as compiler, mutate
+from praukron import acr, batch, cli, compile as compiler, criterion, mutate, task_update
 
 
 class BatchCase(UpdateCase):
@@ -64,6 +64,9 @@ class TestBatch(BatchCase):
                         self.assertFalse(result["ok"] or result["written"])
                         self.assertEqual(result["error"]["code"], "failing-criterion-closure")
                         self.assertIn("AC-T-TWO-01", result["error"]["message"])
+                        self.assertIn("actual corrective work and supporting evidence", result["error"]["message"])
+                        self.assertIn("A request to mark DONE is not evidence", result["error"]["message"])
+                        self.assertNotIn("record the correction and evidence while", result["error"]["message"])
                         self.assertEqual(result["error"]["criteria"], ["AC-T-TWO-01"])
                         self.assertEqual(result["error"]["index"], 4 if reset else 3)
                         self.assertEqual(result["error"]["op"], "task update")
@@ -81,6 +84,20 @@ class TestBatch(BatchCase):
         self.assertEqual(project.contracts["AC-T-TWO"].criteria[0].state, "PASS")
         result = self.apply([self.operation("task.update", id="T-TWO", expectRevision=self.revision(),
                                            set={"status": "DONE", "evidence": "Separate checked correction."})])
+        self.assertTrue(result["ok"], result)
+
+    def test_standalone_evidence_backed_correction_and_later_closure_remain_legal(self):
+        self.fail_criterion()
+        operations = self.lifecycle()
+        correction = {k: v for k, v in operations[1].items() if k != "op"}
+        correction["evidence"] = "Repaired the wall; load test now passes."
+        result = criterion.set_result(self.root, correction)
+        self.assertTrue(result["ok"], result)
+        project = compiler.load(self.root)
+        self.assertFalse(project.task("T-TWO").done)
+        self.assertEqual(project.contracts["AC-T-TWO"].criteria[0].state, "PASS")
+        result = task_update.update(self.root, {"id": "T-TWO", "expectRevision": self.revision(),
+            "set": {"status": "DONE", "evidence": correction["evidence"]}})
         self.assertTrue(result["ok"], result)
 
     def test_unrelated_failing_task_does_not_block_closure(self):

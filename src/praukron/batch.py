@@ -228,7 +228,7 @@ def apply(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                             raise mutate.WriteError(
                                 "failing-criterion-closure",
                                 f"cannot set {original.id} DONE in the same batch that clears failing criteria: "
-                                f"{', '.join(failed)}; record the correction and evidence while the task stays open",
+                                f"{', '.join(failed)}; {mutate.FAILED_ACCEPTANCE_GUIDANCE}",
                                 "status", {"criteria": failed})
                     results.append({"index": index, "op": name, **{
                         k: v for k, v in result.items() if k not in ("ok", "operation", "written", "refreshed")}})
