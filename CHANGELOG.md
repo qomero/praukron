@@ -4,6 +4,19 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 2.2.0 — 2026-10-16
+
+- Fixed: upgrades now show validation failures even when no compiled views exist.
+  Owner-held tasks marked `HUMAN_VERIFIED` before `VERIFY` existed are each named
+  with the interactive owner command that resolves the missing verification.
+  Historical records and owner identity requirements are preserved.
+- Refuse a batch that clears a task's failing criterion and marks the task DONE
+  in the same transaction, naming the failing criteria and leaving all files unchanged.
+- Clarify failed-criterion context, closure refusals and write guidance: leave the task
+  open until actual corrective work and supporting evidence exist; a request to mark
+  DONE does not justify relabelling FAIL as PASS or splitting a refused batch.
+  Legitimate standalone corrections and later closure remain supported.
+
 ## 2.1.0 — 2026-10-16
 
 ### Upgrading to 2.1
