@@ -36,8 +36,9 @@ COMMANDS = {
 EXAMPLE_COMMANDS = {**COMMANDS, "batch apply": ("batch.apply", batch.schema())}
 # AGENTS.md on main before T-WRITE-GUIDE-01 (2.0.0 plus #36 and #37), LF-normalized, and the
 # net growth that task allows; T-WRITE-ACR-01 then adds the sixth command, its example and its rule,
-# and T-WRITE-BATCH-01 the batch command, its example and its rule.
-AGENTS_BASE_BYTES, AGENTS_BUDGET, ACR_BYTES, BATCH_BYTES = 10800, 1200, 300, 400
+# and T-WRITE-BATCH-01 the batch command, its example and its rule; T-WRITE-GUIDE-02 the closing
+# and whole-lifecycle examples.
+AGENTS_BASE_BYTES, AGENTS_BUDGET, ACR_BYTES, BATCH_BYTES, CLOSE_BYTES = 10800, 1200, 300, 400, 600
 
 # What the AGENTS.md examples name, beside the shared fixture.
 EXTRA_MODULE = "\n## M-CORE — Core\n- Phase: P1\n- Outcome: The core works.\n"
@@ -68,6 +69,15 @@ EXTRA_TASKS = """
 - Owner: agent
 - AC: AC-T-4
 - Evidence: tests pass
+
+## T-5: Load
+- Status: WIP
+- Module: M-CORE
+- Validation: UNTESTED
+- Dependencies: none
+- Owner: agent
+- AC: AC-T-5
+- Evidence: —
 """
 EXTRA_ACCEPTANCE = """
 ## AC-T-1 — Start the core
@@ -80,6 +90,11 @@ EXTRA_ACCEPTANCE = """
 ## AC-T-4 — Save
 
 - `AC-T-4-01` — Given a file, When saved, Then it is fine.
+  `TEST` · `PASS`
+
+## AC-T-5 — Load
+
+- `AC-T-5-01` — Given a file, When loaded, Then its rows appear.
   `TEST` · `PASS`
 """
 
@@ -132,16 +147,55 @@ class Guidance(unittest.TestCase):
             with self.subTest(name), tempfile.TemporaryDirectory() as temp:
                 root = self.chronicle(Path(temp))
                 authority = root / layout.AUTHORITY_DIR
-                target = {"criterion set": ("ACCEPTANCE.md", "AC-T-1"), "contract add": ("TASKS.md", "T-3"),
-                          "task update": ("TASKS.md", "T-1"), "batch apply": ("ACCEPTANCE.md", "AC-T-1")}.get(name)
-                if target:
-                    revision = mutate.section((authority / target[0]).read_bytes(), target[1]).revision
-                    # A batch reuses the one revision it read for every operation on that record.
-                    self.assertEqual(raw.count("<rev>"), 2 if name == "batch apply" else 1)
-                    raw = raw.replace("<rev>", revision)
-                code, result = run(root, name, raw)
+                payload = json.loads(raw)
+                # A batch reuses the revision read before it for every operation on that record.
+                for operation in payload.get("operations", [payload]):
+                    field = next((f for f in ("expectRevision", "expectTaskRevision") if f in operation), None)
+                    if field:
+                        self.assertEqual(operation[field], "<rev>")
+                        file, record = (("ACCEPTANCE.md", operation["criterion"].rsplit("-", 1)[0])
+                                        if "criterion" in operation else ("TASKS.md", operation.get("task", operation.get("id"))))
+                        operation[field] = mutate.section((authority / file).read_bytes(), record).revision
+                code, result = run(root, name, payload)
                 self.assertEqual(code, 0, result)
                 self.assertTrue(result["written"] and result["refreshed"], result)
+
+    def test_task_update_example_closes_with_evidence(self):
+        payload = json.loads(dict(agents_examples())["task update"])
+        self.assertEqual(payload["set"]["status"], "DONE")
+        self.assertTrue(payload["set"]["evidence"].strip())
+
+    def test_batch_example_runs_a_whole_lifecycle_on_one_task(self):
+        """AC-T-WRITE-GUIDE-02-01: claim, pass every criterion, close with evidence, journal; never FAIL."""
+        operations = json.loads(dict(agents_examples())["batch apply"])["operations"]
+        self.assertEqual([op["op"] for op in operations],
+                         ["task update", "criterion set", "criterion set", "task update", "journal append"])
+        claim, *criteria, close, _ = operations
+        self.assertEqual(claim["set"]["status"], "WIP")
+        self.assertEqual(close["set"]["status"], "DONE")
+        self.assertTrue(close["set"]["evidence"].strip())
+        self.assertEqual(claim["id"], close["id"])
+        self.assertEqual({c["state"] for c in criteria}, {"PASS"})
+        self.assertIn("A revision read once serves every operation on that record in the batch, even after an "
+                      "earlier operation changed it.", self.text)
+        with tempfile.TemporaryDirectory() as temp:
+            root = self.chronicle(Path(temp))
+            authority = root / layout.AUTHORITY_DIR
+            # The lifecycle passes criteria that were NOT_RUN, never FAIL (ADR-081).
+            contract = mutate.section((authority / "ACCEPTANCE.md").read_bytes(), "AC-T-1")
+            self.assertNotIn(b"`FAIL`", contract.data)
+            task_rev = mutate.section((authority / "TASKS.md").read_bytes(), "T-1").revision
+            for operation in (claim, close):
+                operation["expectRevision"] = task_rev
+            for operation in criteria:
+                operation["expectRevision"] = contract.revision
+            code, result = run(root, "batch apply", {"operations": operations})
+            self.assertEqual(code, 0, result)
+            self.assertEqual(len(result["results"]), 5, result)
+            tasks = (authority / "TASKS.md").read_text(encoding="utf-8")
+            section = tasks.split("## T-1: ")[1].split("\n## ")[0]
+            self.assertIn("- Status: DONE", section)
+            self.assertIn("- Evidence: tests pass", section)
 
     def chronicle(self, base: Path) -> Path:
         root = build_fixture(base).resolve()
@@ -163,7 +217,7 @@ class Guidance(unittest.TestCase):
 
     def test_agents_md_stays_within_its_byte_budget(self):
         size = len((ROOT / "AGENTS.md").read_bytes().replace(b"\r\n", b"\n"))
-        self.assertLessEqual(size - AGENTS_BASE_BYTES, AGENTS_BUDGET + ACR_BYTES + BATCH_BYTES)
+        self.assertLessEqual(size - AGENTS_BASE_BYTES, AGENTS_BUDGET + ACR_BYTES + BATCH_BYTES + CLOSE_BYTES)
 
     def test_every_installed_copy_comes_from_the_one_source(self):
         # The installer writes the Praukron block from the root AGENTS.md; no other copy exists to drift.
