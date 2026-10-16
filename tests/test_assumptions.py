@@ -216,7 +216,9 @@ class AssumptionCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         build_fixture(self.dir)
         self.authority = self.dir / layout.AUTHORITY_DIR
-        self.enterContext(mock.patch("praukron.respond.identity", return_value="thien-owner"))
+        identity = mock.patch("praukron.respond.identity", return_value="thien-owner")
+        identity.start()
+        self.addCleanup(identity.stop)
         self.write(ASSUMPTIONS, RESPONSES, POLICY_ADR)
 
     def write(self, assumptions: str | None = None, responses: str | None = None,

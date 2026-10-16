@@ -68,6 +68,11 @@ class TestIdentity(OwnerCase):
         self.assertEqual(code, 1)
         self.assertIn("--by is no longer accepted", error)
         self.assertEqual((self.authority / "RESPONSES.md").read_bytes(), before)
+        with mock.patch("praukron.respond.identity", side_effect=respond.RespondError("no GitHub login")):
+            code, _, error = self.run_cli("respond", "T-TWO", "guide", stdin="hi")
+        self.assertEqual(code, 1)
+        self.assertIn("no GitHub login", error)
+        self.assertEqual((self.authority / "RESPONSES.md").read_bytes(), before)
 
     def test_identity_uses_gh_and_refuses_missing_login(self) -> None:
         with mock.patch("praukron.respond.shutil.which", return_value=None):
@@ -91,7 +96,8 @@ class TestOwnersAndVerify(OwnerCase):
         self.load()
         data = compiler.as_json(self.project)
         self.assertEqual(data["owners"], {"logins": ["thien-owner"], "decision": "ADR-003"})
-        self.assertTrue(data["responses"][-1]["fromOwner"])
+        self.assertEqual({response["id"]: response["fromOwner"] for response in data["responses"]},
+                         {"R-1": False, "R-2": False, "R-3": True})
         (self.authority / "ADR" / "ADR-003.md").write_text(
             OWNERS_ADR.replace("thien-owner", "not a login!, ok-one"), encoding="utf-8")
         self.load()
@@ -109,9 +115,12 @@ class TestOwnersAndVerify(OwnerCase):
                          encoding="utf-8")
         self.load()
         self.assertIn("verification-without-owner", self.codes())
+        responses = self.authority / "RESPONSES.md"
+        before = responses.read_bytes()
         for target in ("T-ONE", "A-1", "T-NOPE"):
             with self.subTest(target=target), self.assertRaisesRegex(respond.RespondError, "only to an Authority"):
                 respond.append(self.dir, [respond.Item(target, "VERIFY", "ok")], recompile=False, verify=True)
+        self.assertEqual(responses.read_bytes(), before)
         (self.authority / "ADR" / "ADR-003.md").write_text(
             OWNERS_ADR.replace("thien-owner", "someone-else"), encoding="utf-8")
         respond.append(self.dir, [respond.Item("T-TWO", "VERIFY", "Checked.")], recompile=False, verify=True)
@@ -128,6 +137,19 @@ class TestOwnersAndVerify(OwnerCase):
         responses = self.authority / "RESPONSES.md"
         before = responses.read_bytes()
         code, _, error = self.run_cli("respond", "T-TWO", "verify", stdin="Checked.")
+        self.assertEqual(code, 1)
+        self.assertIn("only interactively", error)
+        with self.assertRaisesRegex(respond.RespondError, "never by an agent"):
+            respond.append(self.dir, [respond.Item("T-TWO", "VERIFY", "Checked.")], recompile=False)
+        batch = self.dir / "verify-batch.json"
+        batch.write_text(json.dumps([{"target": "T-TWO", "action": "VERIFY", "text": "Checked."}]),
+                         encoding="utf-8")
+        code, _, error = self.run_cli("respond", "--batch", str(batch))
+        self.assertEqual(code, 1)
+        self.assertIn("only interactively", error)
+        text_file = self.dir / "verify.txt"
+        text_file.write_text("Checked.", encoding="utf-8")
+        code, _, error = self.run_cli("respond", "T-TWO", "verify", "--text-file", str(text_file))
         self.assertEqual(code, 1)
         self.assertIn("only interactively", error)
         code, _, error = self.run_cli("respond", "T-TWO", "verify", tty=True, answers=("Checked.", "T-ONE"))
@@ -167,6 +189,34 @@ class TestServedIdentity(ServeCase):
             page = serve.page(self.dir)
         self.assertIn("No GitHub login", page)
         self.assertIn('<button type="button" disabled>Submit review</button>', page)
+        before = (self.authority / "RESPONSES.md").read_bytes()
+        with mock.patch("praukron.respond.identity", side_effect=respond.RespondError("no GitHub login")):
+            status, result = self.post({"items": [
+                {"target": "T-TWO", "action": "GUIDE", "text": "x"}]})
+        self.assertEqual(status, 400)
+        self.assertIn("no GitHub login", result["error"])
+        self.assertEqual((self.authority / "RESPONSES.md").read_bytes(), before)
+
+
+class TestCompatibility(AssumptionCase):
+    def test_typed_names_still_parse_and_are_not_rewritten(self) -> None:
+        responses = self.authority / "RESPONSES.md"
+        before = responses.read_bytes()
+        self.load()
+        self.assertEqual([response.by for response in self.project.responses],
+                         ["Thien (owner)", "Thien (owner)"])
+        self.assertEqual(validate.errors(validate.check(self.project)), [])
+        compiler.write(self.dir, self.project)
+        self.assertEqual(responses.read_bytes(), before)
+
+
+class TestGuidance(unittest.TestCase):
+    def test_agents_are_told_never_to_issue_verify(self) -> None:
+        self.assertIn("Never issue `VERIFY`", (ROOT / "AGENTS.md").read_text(encoding="utf-8"))
+        for name in ("README.md", "RESPONSES.md"):
+            with self.subTest(name=name):
+                self.assertIn("never issues `VERIFY`",
+                              (ROOT / "templates" / "chronicle" / name).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

@@ -38,6 +38,9 @@ class ArchivePlanCase(FixtureCase):
         super().setUp()
         self.root = self.root.resolve()
         self.authority = self.root / layout.AUTHORITY_DIR
+        identity = mock.patch("praukron.respond.identity", return_value="thien-owner")
+        identity.start()
+        self.addCleanup(identity.stop)
         self.rewrite("PHASES.md", "Status:\nACTIVE", "Status:\nCOMPLETE")
 
     def snapshot(self, root=None):
