@@ -6,6 +6,10 @@ measurement of that, by three methods, at two chronicle sizes. It describes a
 method and one machine on one day. It is not a guarantee, and every token figure
 is an estimate.
 
+[write-tokens-2026-10-16.md](write-tokens-2026-10-16.md) measures the other side: whole
+agent sessions, where each turn's fixed cost dominates, on 1.3.0, 2.0.0 and `main`, across
+four models.
+
 ## Method
 
 [`tests/bench_writes.py`](../tests/bench_writes.py) copies a real chronicle into
