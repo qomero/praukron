@@ -36,10 +36,15 @@ class WriteError(Exception):
 # Shown by `--help` and carried in each `--schema` output.
 GUIDANCE = {
     "batch.apply": (
-        "WHEN: apply several governed writes in order with one atomic commit and one refresh.",
-        "WHEN NOT: nested batches, generic edits, owner-only acts, or changing frozen contracts; every operation keeps its existing rules.",
-        "RETURNS: ordered operation results and final section revisions; a refusal names operationIndex and writes nothing. Reuse an original 16-hex revision within a batch, or use $previous only after this batch has written that section. A committed refresh failure needs only compile, graph and dashboard.",
-        "EXAMPLE: praukron batch apply --input lifecycle.json (see --schema for a complete payload)",
+        "WHEN: several structured writes belong together, such as a claim, its criteria, DONE and a journal "
+        "entry; one call, one lock, one validation and one refresh instead of one per write.",
+        "WHEN NOT: generic edits, owner-only acts or frozen contracts; each operation keeps its command's rules.",
+        "RETURNS: each operation's result in order and the final revision of every section written; a refusal "
+        "names the operation's index and op, and nothing is written. Each operation is a command's payload plus "
+        "\"op\" (\"criterion set\"). Give every operation on one section the revision read before the batch; "
+        "$previous only for a section an earlier operation created. A committed refresh failure needs only "
+        "compile, graph and dashboard.",
+        "EXAMPLE: praukron batch apply --input - < done.json",
     ),
     "journal.append": (
         "WHEN: record a dated progress note, finding or handoff detail in JOURNAL.md.",

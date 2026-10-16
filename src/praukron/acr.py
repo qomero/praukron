@@ -139,7 +139,7 @@ def add(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                                         f"{payload['criterion']} is not a criterion of {owned.id}", "criterion")
             authority = root / AUTHORITY_DIR
             path = authority / "ACCEPTANCE.md"
-            original = path.read_bytes()
+            original = mutate.read_bytes(path)
             known = requests(original.decode("utf-8"))
             for archived in sorted((authority / ARCHIVE_DIR).glob("*/ACCEPTANCE.md")):
                 known += requests(archived.read_text(encoding="utf-8"))

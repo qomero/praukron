@@ -421,30 +421,32 @@ $ echo '{"id":"T-DOCS-01","title":"Write the retry guide","module":"M-FOUNDATION
 {"ok":true,"operation":"task.add","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"9101852277a8233c","validation":"passed","written":true,"refreshed":true}
 ```
 
-To record several lifecycle steps in one call, save this shape as
-`lifecycle.json`, filling in the task and contract revisions from
-`praukron context T-DOCS-01`:
+To record several steps in one call, give `batch apply` an `operations` list.
+Each entry is the payload of one of the commands above plus `"op"`, the
+command's name. Take the task's and the contract's revisions from
+`praukron context T-DOCS-01` once, and give every operation on that record the
+same revision:
 
-```json
+```console
+$ cat done.json
 {"operations":[
-  {"operation":"task.update","payload":{"id":"T-DOCS-01","expectRevision":"0123456789abcdef","set":{"status":"WIP","owner":"worker"}}},
-  {"operation":"criterion.set","payload":{"criterion":"AC-T-DOCS-01-01","expectRevision":"fedcba9876543210","state":"PASS","evidence":"Reviewed the guide."}},
-  {"operation":"task.update","payload":{"id":"T-DOCS-01","expectRevision":"0123456789abcdef","set":{"status":"DONE","evidence":"Guide reviewed; criterion PASS."}}},
-  {"operation":"journal.append","payload":{"title":"Guide complete","body":"Reviewed T-DOCS-01."}}
+  {"op":"task update","id":"T-DOCS-01","expectRevision":"0123456789abcdef","set":{"status":"WIP","owner":"worker"}},
+  {"op":"criterion set","criterion":"AC-T-DOCS-01-01","expectRevision":"fedcba9876543210","state":"PASS","evidence":"Reviewed the guide."},
+  {"op":"task update","id":"T-DOCS-01","expectRevision":"0123456789abcdef","set":{"status":"DONE","evidence":"Guide reviewed; criterion PASS."}},
+  {"op":"journal append","title":"Guide complete","body":"Reviewed T-DOCS-01."}
 ]}
+$ praukron batch apply --input done.json
 ```
 
-Run `praukron batch apply --input lifecycle.json` (`--dry-run` validates the
-whole proposal without writing). Reuse the original revision for later writes
-to the same section, as above. `$previous` also works once an earlier operation
-in this batch has written that section; use it for a new task or contract
-created earlier in the batch. Revision fields are always required.
-
-Operations run in order and keep their usual rules. A refused operation names
-its zero-based `operationIndex` and leaves every chronicle byte unchanged.
-Success reports each step and final `file#anchor` revisions, commits once and
-refreshes once. If only refresh fails, rerun `compile`, `graph` and `dashboard`.
-`praukron batch apply --schema` describes every supported operation.
+Operations run in order under one lock and keep their command's rules; the
+batch validates once and refreshes once. If any operation is refused, nothing
+is written, and the refusal names its zero-based `index` and its `op`; a stale
+revision names the revision to retry the whole batch with. Success lists each
+operation's result and the final revision of every section written, keyed by
+`file#anchor`. A section an earlier operation in the same batch created, such
+as a new task, takes `"$previous"` instead of a revision. `--dry-run` checks the
+whole batch without writing, and `praukron batch apply --schema` describes every
+operation. If only the refresh fails, rerun `compile`, `graph` and `dashboard`.
 
 **3. Claim it.** Take `expectRevision` from the task's `revision` in `context`,
 `explain` or `retrieve`, or from the last write result. A stale one is

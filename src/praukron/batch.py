@@ -10,9 +10,9 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable
 
-from . import compile as compiler, contract, criterion, journal, mutate, task, task_update
+from . import acr, compile as compiler, contract, criterion, journal, mutate, task, task_update
 from .layout import AUTHORITY_DIR
-from .model import Project, Source
+from .model import Project
 from .snapshot import Snapshot
 
 
@@ -25,7 +25,7 @@ class Operation:
 
 def _task_target(field: str, key: str):
     def locate(project, payload):
-        found = project.task(payload.get(key))
+        found = project.task(payload.get(key)) if isinstance(payload.get(key), str) else None
         return (field, found.source) if found else None
     return locate
 
@@ -35,33 +35,35 @@ def _criterion_target(project, payload):
     return ("expectRevision", found[0].source) if found and not found[0].is_global else None
 
 
+# Keyed by the command name, so an entry is that command's payload plus "op".
 OPERATIONS = {
-    "journal.append": Operation(journal.SCHEMA, journal.append),
-    "criterion.set": Operation(criterion.SCHEMA, criterion.set_result, _criterion_target),
-    "task.add": Operation(task.SCHEMA, task.add),
-    "contract.add": Operation(contract.SCHEMA, contract.add, _task_target("expectTaskRevision", "task")),
-    "task.update": Operation(task_update.SCHEMA, task_update.update, _task_target("expectRevision", "id")),
+    "journal append": Operation(journal.SCHEMA, journal.append),
+    "criterion set": Operation(criterion.SCHEMA, criterion.set_result, _criterion_target),
+    "task add": Operation(task.SCHEMA, task.add),
+    "contract add": Operation(contract.SCHEMA, contract.add, _task_target("expectTaskRevision", "task")),
+    "task update": Operation(task_update.SCHEMA, task_update.update, _task_target("expectRevision", "id")),
+    "acr add": Operation(acr.SCHEMA, acr.add),
 }
-
-ENTRY_SCHEMA = {
-    "type": "object", "additionalProperties": False,
-    "properties": {"operation": {"type": "string"}, "payload": {"type": "object"}},
-    "required": ["operation", "payload"],
-}
+PREVIOUS = "$previous"
+# Details of a staged section, which a caller retrying the whole batch cannot use.
+STAGED_DETAILS = ("section", "record", "currentCriterion")
 
 
 def schema() -> dict:
     choices = []
     for name, operation in OPERATIONS.items():
         payload = copy.deepcopy(operation.schema)
+        payload.pop("description", None)
         for field in ("expectRevision", "expectTaskRevision"):
             if field in payload["properties"]:
                 payload["properties"][field] = {
                     "type": "string", "pattern": r"^(?:[0-9a-f]{16}|\$previous)$",
-                    "description": "Original or staged section revision; $previous requires an earlier write to this section in this batch",
+                    "description": "The revision read before the batch, reused by every operation on that "
+                                   "section; $previous only for a section an earlier operation created",
                 }
-        choices.append({**ENTRY_SCHEMA, "properties": {
-            "operation": {"type": "string", "enum": [name]}, "payload": payload}})
+        payload["properties"] = {"op": {"type": "string", "enum": [name]}, **payload["properties"]}
+        payload["required"] = ["op", *payload.get("required", [])]
+        choices.append(payload)
     return {
         "type": "object", "additionalProperties": False,
         "properties": {"operations": {"type": "array", "minItems": 1, "items": {"oneOf": choices}}},
@@ -71,9 +73,11 @@ def schema() -> dict:
 
 
 EXAMPLE = {"operations": [
-    {"operation": "task.update", "payload": {"id": "T-EXAMPLE-01", "expectRevision": "0123456789abcdef",
-                                             "set": {"status": "WIP", "owner": "worker"}}},
-    {"operation": "journal.append", "payload": {"title": "Claimed work", "body": "Started T-EXAMPLE-01."}},
+    {"op": "criterion set", "criterion": "AC-T-EXAMPLE-01", "state": "PASS", "evidence": "unit tests pass",
+     "expectRevision": "0123456789abcdef"},
+    {"op": "criterion set", "criterion": "AC-T-EXAMPLE-02", "state": "PASS", "evidence": "unit tests pass",
+     "expectRevision": "0123456789abcdef"},
+    {"op": "journal append", "title": "Checked T-EXAMPLE-01", "body": "Both criteria pass."},
 ]}
 
 
@@ -88,6 +92,8 @@ def _anchor(heading: str) -> str:
 
 
 class Overlay:
+    """The captured chronicle plus every change staged by earlier operations."""
+
     def __init__(self, root: Path, snapshot: Snapshot):
         self.root, self.snapshot = root, snapshot
         self.authority = (root / AUTHORITY_DIR).resolve()
@@ -114,6 +120,7 @@ class Overlay:
         return compiler.load(self.root, authority=view.path())
 
     def transaction(self, root: Path, operation: str, prepare) -> dict:
+        """Stage one operation's plan; nothing is locked, validated, written or refreshed here."""
         try:
             if root != self.root:
                 raise mutate.WriteError("invalid-target", "batch operation changed project root")
@@ -139,15 +146,16 @@ class Overlay:
         except mutate.WriteError as error:
             return mutate.refusal(operation, error)
 
-    def payload(self, operation: Operation, value: dict) -> dict:
+    def payload(self, operation: Operation, value: dict) -> tuple[dict, tuple[str, str] | None]:
+        """Map the caller's revision onto the staged section; return the revision to retry with."""
         payload = copy.deepcopy(value)
         target = operation.revision_target(self.project(), payload) if operation.revision_target else None
         if target is None:
-            return payload
+            return payload, None
         field, source = target
         expected = payload.get(field)
         if not isinstance(expected, str):
-            return payload
+            return payload, None
         key = self.snapshot.resolve(source.file)
         pointer = f"{key}#{source.anchor}"
         current = mutate.section(self.files[key], source.anchor).revision
@@ -156,13 +164,37 @@ class Overlay:
             initial = mutate.section(original, source.anchor).revision if original is not None else None
         except mutate.WriteError:
             initial = None
-        if expected == "$previous":
+        if expected == PREVIOUS:
             if pointer not in self.touched:
-                raise mutate.WriteError("invalid-revision", "$previous needs an earlier write to this section", field)
+                raise mutate.WriteError("invalid-revision",
+                                        "$previous needs an earlier operation in this batch to have written "
+                                        "this section; give the revision read before the batch", field)
             payload[field] = current
-        elif expected == initial or expected == current:
+        elif expected in (initial, current):
             payload[field] = current
-        return payload
+        retry = (field, initial) if initial is not None and initial != current else None
+        return payload, retry
+
+
+def _entry(entry: object) -> tuple[str, dict]:
+    if not isinstance(entry, dict):
+        raise mutate.WriteError("wrong-type", "each operation must be a JSON object", "operations")
+    name = entry.get("op")
+    if "op" not in entry:
+        raise mutate.WriteError("missing-field", "required field: op", "op")
+    if not isinstance(name, str) or name not in OPERATIONS:
+        raise mutate.WriteError("invalid-value", f"op must be one of {', '.join(OPERATIONS)}", "op")
+    return name, {key: value for key, value in entry.items() if key != "op"}
+
+
+def _staged_refusal(error: mutate.WriteError, retry: tuple[str, str]) -> mutate.WriteError:
+    """A stale revision is reported against the chronicle, not against this batch's staged bytes."""
+    field, initial = retry
+    details = {key: value for key, value in error.details.items() if key not in STAGED_DETAILS}
+    details["currentRevision"] = initial
+    return mutate.WriteError("stale-revision",
+                             f"the record changed before this batch; retry the batch with {field} {initial}",
+                             field, details)
 
 
 def apply(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
@@ -176,25 +208,28 @@ def apply(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
         results = []
         with mutate.planning(overlay):
             for index, entry in enumerate(payload["operations"]):
-                name = entry.get("operation") if isinstance(entry, dict) else None
+                name = entry.get("op") if isinstance(entry, dict) else None
+                retry = None
                 try:
-                    mutate.validate_payload(entry, ENTRY_SCHEMA)
-                    if name not in OPERATIONS:
-                        raise mutate.WriteError("invalid-value", f"unsupported batch operation: {name}", "operation")
+                    name, body = _entry(entry)
                     operation = OPERATIONS[name]
-                    result = operation.handler(root, overlay.payload(operation, entry["payload"]))
+                    body, retry = overlay.payload(operation, body)
+                    result = operation.handler(root, body)
                     if not result["ok"]:
                         error = result["error"]
                         raise mutate.WriteError(error["code"], error["message"], error.get("field"),
                                                 {k: v for k, v in error.items() if k not in ("code", "message", "field")})
-                    results.append({"index": index, **{k: v for k, v in result.items()
-                                                      if k not in ("written", "refreshed")}, "operation": name})
+                    results.append({"index": index, "op": name, **{
+                        k: v for k, v in result.items() if k not in ("ok", "operation", "written", "refreshed")}})
                 except mutate.WriteError as error:
-                    error.details.update(operationIndex=index, operation=name)
-                    raise
+                    if error.code == "stale-revision" and retry:
+                        error = _staged_refusal(error, retry)
+                    if isinstance(error.details.get("example"), dict):
+                        error.details["example"] = {"op": name, **error.details["example"]}
+                    error.details.update(index=index, op=name)
+                    raise error
                 except Exception as error:
-                    raise mutate.WriteError("write-failed", str(error), details={
-                        "operationIndex": index, "operation": name}) from error
+                    raise mutate.WriteError("write-failed", str(error), details={"index": index, "op": name}) from error
             proposed = overlay.project()
         changes = {overlay.authority / name: data for name, data in overlay.files.items()
                    if overlay.snapshot.original(name) != data}

@@ -36,8 +36,9 @@ people arriving from a release page.
   with the template's seven fields and `Decision: PENDING`. The tool assigns the id. The criterion never changes, and
   the owner still decides the request. A `TODO` task, an inherited invariant, an unknown task or criterion, and a
   second undecided request for the same criterion are refused (T-WRITE-ACR-01).
-- `batch apply` composes structured writes in order with one atomic commit, shared revision checks and one refresh.
-
+- `batch apply` runs several structured writes in one call: each entry is a write command's payload plus `op`, applied
+  in order under one lock with one validation and one refresh, all or nothing. A record's revision read before the batch
+  serves every operation on it, so recording several criteria needs no revision round trip per criterion (T-WRITE-BATCH-01).
 - Task context, explain and retrieve carry write revisions; task packets report whether DONE is allowed and why.
 
 ## 2.0.0 — 2026-10-16

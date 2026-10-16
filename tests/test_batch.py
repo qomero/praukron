@@ -8,12 +8,12 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest import mock
 
 from test_task_update import UpdateCase
-from praukron import batch, cli, compile as compiler, mutate
+from praukron import acr, batch, cli, compile as compiler, mutate
 
 
 class BatchCase(UpdateCase):
     def operation(self, name, **payload):
-        return {"operation": name, "payload": payload}
+        return {"op": name.replace(".", " "), **payload}
 
     def lifecycle(self):
         revision = self.revision()
@@ -69,7 +69,7 @@ class TestBatch(BatchCase):
     def test_shared_contract_revision_can_be_reused_for_sibling_criteria(self):
         self.rewrite("ACCEPTANCE.md", "## AC-T-THREE", "- `AC-T-TWO-02` — Given walls, When checked, Then they stand.\n  `TEST` · `NOT_RUN`\n\n## AC-T-THREE")
         operations = self.lifecycle()
-        sibling = {**operations[1], "payload": {**operations[1]["payload"], "criterion": "AC-T-TWO-02"}}
+        sibling = {**operations[1], "criterion": "AC-T-TWO-02"}
         operations.insert(2, sibling)
         result = self.apply(operations)
         self.assertTrue(result["ok"], result)
@@ -121,8 +121,8 @@ class TestBatch(BatchCase):
                 self.assertFalse(result["ok"], result)
                 self.assertFalse(result["written"])
                 self.assertEqual(result["error"]["code"], code)
-                self.assertEqual(result["error"]["operationIndex"], 1)
-                self.assertEqual(result["error"]["operation"], operation["operation"])
+                self.assertEqual(result["error"]["index"], 1)
+                self.assertEqual(result["error"]["op"], operation["op"])
                 self.assertEqual(self.snapshot(), before)
                 refresh.assert_not_called()
 
@@ -132,7 +132,7 @@ class TestBatch(BatchCase):
         before = self.snapshot()
         result = self.apply(operations)
         self.assertEqual(result["error"]["code"], "owner-held")
-        self.assertEqual(result["error"]["operationIndex"], 2)
+        self.assertEqual(result["error"]["index"], 2)
         self.assertEqual(self.snapshot(), before)
         archive = self.authority / "archive" / "P1"
         archive.mkdir(parents=True)
@@ -153,7 +153,7 @@ class TestBatch(BatchCase):
                 criteria=[{"text": "Given work, When checked, Then it passes.", "class": "TEST"}]),
         ])
         self.assertEqual(result["error"]["code"], "frozen-contract")
-        self.assertEqual(result["error"]["operationIndex"], 1)
+        self.assertEqual(result["error"]["index"], 1)
         self.assertEqual(compiler.load(self.root).task("T-TWO").status, "TODO")
 
     def test_duplicate_journal_heading_is_seen_in_overlay(self):
@@ -161,13 +161,13 @@ class TestBatch(BatchCase):
         before = self.snapshot()
         result = self.apply([entry, entry])
         self.assertEqual(result["error"]["code"], "duplicate-heading")
-        self.assertEqual(result["error"]["operationIndex"], 1)
+        self.assertEqual(result["error"]["index"], 1)
         self.assertEqual(self.snapshot(), before)
 
     def test_final_validation_and_dry_run_write_nothing(self):
         operations = self.lifecycle()
         operations.append(self.operation("criterion.set", criterion="AC-T-TWO-01",
-            expectRevision=operations[1]["payload"]["expectRevision"], state="FAIL"))
+            expectRevision=operations[1]["expectRevision"], state="FAIL"))
         before = self.snapshot()
         for dry_run in (False, True):
             with self.subTest(dry_run=dry_run), mock.patch.object(mutate, "_replace") as persist:
@@ -216,7 +216,9 @@ class TestBatch(BatchCase):
 
     def test_schema_cli_and_payload_refusals(self):
         for payload, code in (({"operations": []}, "invalid-value"), ({"operations": [4]}, "wrong-type"),
-                              ({"operations": [{"operation": "task.update"}]}, "missing-field")):
+                              ({"operations": [{"op": "task update"}]}, "missing-field"),
+                              ({"operations": [{"id": "T-TWO"}]}, "missing-field"),
+                              ({"operations": [{"op": "task.update"}]}, "invalid-value")):
             result = batch.apply(self.root, payload)
             self.assertEqual(result["error"]["code"], code)
         for options, stdin in ((("--schema",), ""), (("--input", "-", "--dry-run"), json.dumps({"operations": self.lifecycle()}))):
@@ -233,7 +235,7 @@ class TestBatch(BatchCase):
                 self.assertTrue(result["ok"], result)
 
     def test_registry_accepts_an_additional_governed_operation(self):
-        with mock.patch.dict(batch.OPERATIONS, {"journal.note": batch.OPERATIONS["journal.append"]}):
+        with mock.patch.dict(batch.OPERATIONS, {"journal note": batch.OPERATIONS["journal append"]}):
             result = self.apply([self.operation("journal.note", title="Extension", body="Reused governed handler.")])
         self.assertTrue(result["ok"], result)
 
@@ -243,3 +245,64 @@ class TestBatch(BatchCase):
         self.assertTrue(result["ok"], result)
         for item in result["results"]:
             self.assertEqual(result["revisions"][item["source"]], item["revision"])
+
+    def test_acr_add_sees_a_claim_staged_earlier_in_the_batch(self):
+        acr_entry = self.operation("acr.add", task="T-TWO", criterion="AC-T-TWO-01",
+                                   proposed="Given walls, When measured, Then they stand.", reason="Untestable.")
+        before = self.snapshot()
+        result = self.apply([acr_entry])
+        self.assertEqual(result["error"]["code"], "unfrozen-contract")
+        self.assertEqual((result["error"]["index"], result["error"]["op"]), (0, "acr add"))
+        self.assertEqual(self.snapshot(), before)
+        result = self.apply([self.lifecycle()[0], acr_entry, acr_entry])
+        self.assertEqual(result["error"]["code"], "duplicate-request")
+        self.assertEqual(result["error"]["index"], 2)
+        self.assertEqual(self.snapshot(), before)
+        result = self.apply([self.lifecycle()[0], acr_entry])
+        self.assertTrue(result["ok"], result)
+        self.assertEqual(result["results"][1]["op"], "acr add")
+        requests = acr.requests((self.authority / "ACCEPTANCE.md").read_text(encoding="utf-8"))
+        self.assertEqual([r["criterion"] for r in requests], ["AC-T-TWO-01"])
+        self.assertEqual(compiler.load(self.root).task("T-TWO").status, "WIP")
+
+    def test_stale_revision_after_a_staged_write_names_the_revision_to_retry_with(self):
+        revision = self.revision()
+        stale = self.operation("task.update", id="T-TWO", expectRevision="f" * 16, set={"owner": "other"})
+        before = self.snapshot()
+        result = self.apply([self.lifecycle()[0], stale])
+        self.assertEqual(result["error"]["code"], "stale-revision")
+        self.assertEqual(result["error"]["index"], 1)
+        self.assertEqual(result["error"]["currentRevision"], revision)
+        self.assertIn(revision, result["error"]["message"])
+        self.assertNotIn("section", result["error"])
+        self.assertEqual(self.snapshot(), before)
+        retried = self.apply([self.lifecycle()[0], {**stale, "expectRevision": result["error"]["currentRevision"]}])
+        self.assertTrue(retried["ok"], retried)
+        self.assertEqual(compiler.load(self.root).task("T-TWO").owner, "other")
+
+    def test_untouched_stale_revision_keeps_the_command_refusal(self):
+        result = self.apply([self.operation("task.update", id="T-TWO", expectRevision="f" * 16,
+                                            set={"owner": "other"})])
+        self.assertEqual(result["error"]["code"], "stale-revision")
+        self.assertEqual(result["error"]["currentRevision"], self.revision())
+        self.assertIn("section", result["error"])
+
+    def test_a_shape_refusal_shows_an_accepted_entry_with_its_op(self):
+        result = self.apply([self.operation("criterion.set", criterion="AC-T-TWO-01", state="PASS")])
+        self.assertEqual(result["error"]["code"], "missing-field")
+        self.assertEqual(result["error"]["example"]["op"], "criterion set")
+        self.assertIn("expectRevision", result["error"]["example"])
+        result = self.apply([self.operation("journal.append", title="Wrong", body="x", status="DONE")])
+        self.assertEqual(result["error"]["code"], "unknown-field")
+        self.assertEqual(result["error"]["example"]["op"], "journal append")
+
+    def test_schema_example_is_one_entry_per_command_payload_plus_op(self):
+        choices = batch.schema()["properties"]["operations"]["items"]["oneOf"]
+        self.assertEqual([c["properties"]["op"]["enum"] for c in choices], [[name] for name in batch.OPERATIONS])
+        self.assertEqual(sorted(batch.OPERATIONS), sorted(
+            ["journal append", "criterion set", "task add", "contract add", "task update", "acr add"]))
+        for choice in choices:
+            self.assertEqual(choice["required"][0], "op")
+        for entry in batch.EXAMPLE["operations"]:
+            body = {k: v for k, v in entry.items() if k != "op"}
+            mutate.validate_payload(body, batch.OPERATIONS[entry["op"]].schema)
