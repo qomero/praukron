@@ -84,9 +84,9 @@ journal append  {"title":"Ran the tests","body":"All green."}
 criterion set   {"criterion":"AC-T-1-01","state":"PASS","evidence":"unit tests pass","expectRevision":"<rev>"}
 task add        {"id":"T-2","title":"Export","module":"M-CORE","domain":"execution","dependencies":[],"contract":{"id":"AC-T-2","title":"Export","criteria":[{"text":"Given data, When exported, Then a file exists.","class":"TEST"}]}}
 contract add    {"task":"T-3","expectTaskRevision":"<rev>","id":"AC-T-3","title":"Import","criteria":[{"text":"Given a file, When imported, Then its rows load.","class":"TEST"}]}
-task update     {"id":"T-1","expectRevision":"<rev>","set":{"status":"WIP","owner":"agent","claimed":"2026-10-16"}}
+task update     {"id":"T-5","expectRevision":"<rev>","set":{"status":"DONE","evidence":"tests pass"}}
 acr add         {"task":"T-4","criterion":"AC-T-4-01","proposed":"Given a file, When saved, Then it is valid.","reason":"Untestable as written."}
-batch apply     {"operations":[{"op":"criterion set","criterion":"AC-T-1-01","state":"PASS","expectRevision":"<rev>"},{"op":"criterion set","criterion":"AC-T-1-02","state":"PASS","expectRevision":"<rev>"}]}
+batch apply     {"operations":[{"op":"task update","id":"T-1","expectRevision":"<rev>","set":{"status":"WIP","owner":"agent","claimed":"2026-10-16"}},{"op":"criterion set","criterion":"AC-T-1-01","state":"PASS","expectRevision":"<rev>"},{"op":"criterion set","criterion":"AC-T-1-02","state":"PASS","expectRevision":"<rev>"},{"op":"task update","id":"T-1","expectRevision":"<rev>","set":{"status":"DONE","evidence":"tests pass"}},{"op":"journal append","title":"Closed T-1","body":"Both criteria pass."}]}
 ```
 
 Each validates before and after it writes and refreshes every compiled view
@@ -98,7 +98,9 @@ for `contract add`). Take the task's and criteria's `revision` from `context <ta
 Only for a record not yet read, use 16 zeros. Stale refusals carry the current revision.
 `closability` says whether DONE is allowed and why.
 `batch apply` runs `operations` in order (each a payload above plus `op`) with one
-validation and one refresh; a record read once keeps that revision for every operation.
+validation and one refresh, so one batch can claim, pass and close a task. A
+revision read once serves every operation on that record in the batch, even
+after an earlier operation changed it.
 `criterion set` records state/evidence on any task, including `WIP`.
 Writes cannot set `HUMAN_VERIFIED`, close `Authority: owner` tasks, edit criterion
 text/class, or touch `archive/`. Add contracts only to `TODO` tasks; for frozen
