@@ -352,7 +352,8 @@ and returns `currentRevision` with the current record, inside `error` (`section`
 task, `currentCriterion` for a criterion), or beside it (`current`, for
 `contract add`). Every success
 returns the record's new `revision`, so a chain of writes needs no re-read. To
-learn a revision for the first time, send sixteen zeros and read the refusal.
+learn a revision, first read `context <task>`, `explain <task>` or
+`retrieve <task>`; sixteen zeros are only a fallback for a record not yet read.
 
 **Results.** A success is `{"ok":true,"operation","recordId","source",
 "revision","validation":"passed","written":true,"refreshed":true}`; a dry run

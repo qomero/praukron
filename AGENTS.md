@@ -72,11 +72,11 @@ instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 .praukron/praukron criterion set --input -    # a criterion's state and evidence
 .praukron/praukron task add --input -         # a task and its new contract
 .praukron/praukron contract add --input -     # the contract of a TODO task
-.praukron/praukron task update --input -      # status, owner, claimed, evidence, validation (never HUMAN_VERIFIED), addGovernedBy (ADR-074)
+.praukron/praukron task update --input -      # update fields or addGovernedBy (ADR-074)
 .praukron/praukron acr add --input -          # an Acceptance Change Request for a frozen criterion
 ```
 
-Minimal payloads, accepted as written once `<rev>` is the record's revision:
+Minimal payloads; replace `<rev>` with the record's revision:
 
 ```text
 journal append  {"title":"Ran the tests","body":"All green."}
@@ -89,16 +89,16 @@ acr add         {"task":"T-4","criterion":"AC-T-4-01","proposed":"Given a file, 
 
 Each validates before and after it writes and refreshes every compiled view
 itself, so run neither `validate` nor `compile && graph && dashboard` after
-it. Each takes a JSON payload (`--schema` prints it, `--dry-run` previews; a
-refusal includes a minimal accepted payload), prints one JSON line, and exits
-nonzero when refused. Updates need the record's revision
-(`expectRevision`; `expectTaskRevision` for `contract add`); a stale one is
-refused with the current revision to retry with (send 16 zeros to learn it).
-`criterion set` records state and evidence on any task's criteria, `WIP`
-included. The commands never set `HUMAN_VERIFIED`, close an `Authority: owner`
-task, change a criterion's text or class, add a contract once the task is `WIP`
-or `DONE` (raise an Acceptance Change Request with `acr add`), decide a request, or
-touch `archive/`.
+it. JSON input (`--schema`, `--dry-run`) returns one JSON line; refusals exit nonzero
+and include a minimal payload. Updates require `expectRevision` (`expectTaskRevision`
+for `contract add`). Take the task's and criteria's `revision` from `context <task>`,
+`explain <task>` or `retrieve <task>`; criteria share a contract revision.
+Only for a record not yet read, use 16 zeros. Stale refusals carry the current revision.
+`closability` says whether DONE is allowed and why.
+`criterion set` records state/evidence on any task, including `WIP`.
+Writes cannot set `HUMAN_VERIFIED`, close `Authority: owner` tasks, edit criterion
+text/class, or touch `archive/`. Add contracts only to `TODO` tasks; for frozen
+criteria, use `acr add` (the owner decides).
 
 For any other direct edit of a chronicle file, do not read the whole file. Read
 only the record you change: locate its `## <id>` heading (a search for the id),

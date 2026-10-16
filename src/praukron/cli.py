@@ -242,7 +242,7 @@ def cmd_explain(root: Path, args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps(detail, indent=2))
         return 0
-    print(f"{detail['id']} — {detail['title']}")
+    print(f"{detail['id']} — {detail['title']} [revision {detail['revision'] or 'unavailable'}]")
     print(f"  thesis {detail['lineage']['thesis'] or 'not authored'}")
     print(
         f"  phase {detail['phase']} · module {detail['module'] or 'none (legacy)'} · "
@@ -256,7 +256,7 @@ def cmd_explain(root: Path, args: argparse.Namespace) -> int:
     print("\n  Acceptance")
     for criterion in detail["acceptance"] or []:
         mark = {"PASS": "✓", "FAIL": "✗", "NOT_RUN": "○"}[criterion["state"]]
-        print(f"    {mark} {criterion['id']} [{criterion['class']}] {criterion['text'][:90]}")
+        print(f"    {mark} {criterion['id']} [{criterion['class']}] {criterion['text'][:90]} [revision {criterion['revision'] or 'unavailable'}]")
     if detail["invariants"]:
         print(f"\n  Inherited invariants: {', '.join(detail['invariants'])}")
     if detail["blocks"]:

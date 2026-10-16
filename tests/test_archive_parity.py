@@ -63,7 +63,14 @@ def packets(root, project, queries=QUERIES, tasks=None):
     """
     out = {}
     for task in (project.tasks if tasks is None else [project.task(i) for i in tasks]):
-        out[f"context {task.id}"] = unlocated(analytics.context(project, task.id))
+        packet = analytics.context(project, task.id)
+        # Write authorization changes when records become immutable; record
+        # content and revisions still have to survive archive and restore.
+        closability = packet["task"].pop("closability")
+        if task.source.file.startswith("archive/"):
+            assert not closability["canClose"]
+            assert closability["reasons"][0]["code"] == "archived-record"
+        out[f"context {task.id}"] = unlocated(packet)
     report = analytics.report(project)
     for query in queries:
         pack = retrieve.retrieve(project, report, root, query, budget=0)

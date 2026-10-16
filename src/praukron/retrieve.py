@@ -27,6 +27,20 @@ class Item:
     source: str
     reason: str
     text: str
+    revision: str | None = None
+    criterionRevisions: dict[str, str | None] = field(default_factory=dict)
+
+    def metadata(self) -> str:
+        if self.revision is None:
+            return "Revision: unavailable" if self.kind in ("TASK", "ACCEPTANCE") else ""
+        return f"Revision: {self.revision}" + (
+            " · criteria: " + ", ".join(self.criterionRevisions) + " (same revision)"
+            if self.criterionRevisions else "")
+
+    def as_json(self) -> dict:
+        return {key: value for key, value in vars(self).items()
+                if key not in ("revision", "criterionRevisions") or value
+                or (key == "revision" and self.kind in ("TASK", "ACCEPTANCE"))}
 
 
 DEFAULT_BUDGET = 4000  # tokens, estimated as index.tokens does
@@ -62,7 +76,7 @@ class Pack:
         return {
             "query": self.query,
             "routed": [{"entity": e, "why": w} for e, w in self.routed],
-            "items": [vars(item) for item in self.items],
+            "items": [item.as_json() for item in self.items],
             "omitted": [{**vars(o), "followUp": o.follow_up()} for o in self.omitted],
             "loadedBytes": self.loaded_bytes,
             "chronicleBytes": self.chronicle_bytes,
@@ -81,7 +95,7 @@ class Pack:
             # Record headings are demoted under the pack's own labels; the
             # record text is otherwise verbatim.
             body = re.sub(r"(?m)^(#{1,4}) ", r"###\1 ", item.text.strip())
-            lines += ["", f"## {item.kind} · {item.id} — {item.source}", f"_{item.reason}_", "", body]
+            lines += ["", f"## {item.kind} · {item.id} — {item.source}", f"_{item.reason}_", *([item.metadata()] if item.metadata() else []), "", body]
         if self.omitted:
             # Pointers, not bodies: the agent still sees what else is relevant
             # and expands only what it needs.
@@ -109,9 +123,10 @@ class Pack:
 class Chronicle:
     """Section-level access to the canonical files, read lazily."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, record_bytes: dict[str, bytes] | None = None) -> None:
         self.authority = root / layout.AUTHORITY_DIR
         self._cache: dict[str, list[tuple[str, str]]] = {}
+        self.record_bytes = dict(record_bytes or {})
 
     def total_bytes(self) -> int:
         return sum(
@@ -133,7 +148,11 @@ class Chronicle:
     def _find(self, name: str, anchor: str) -> str | None:
         if name not in self._cache:
             path = self.authority / name
-            self._cache[name] = _sections(path.read_text(encoding="utf-8"), "##") if path.is_file() else []
+            if name not in self.record_bytes and path.is_file():
+                self.record_bytes[name] = path.read_bytes()
+            data = self.record_bytes.get(name)
+            text = data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n") if data is not None else ""
+            self._cache[name] = _sections(text, "##")
         for heading, body in self._cache[name]:
             head = re.split(r":| — ", heading, maxsplit=1)[0].strip()
             if heading == anchor or head == anchor:
@@ -179,7 +198,7 @@ def _listed(value: str | None) -> list[str]:
 
 def retrieve(project: Project, report: Report, root: Path, query: str,
              budget: int = DEFAULT_BUDGET) -> Pack:
-    chronicle = Chronicle(root)
+    chronicle = Chronicle(root, project.record_bytes)
     pack = Pack(query=query, chronicle_bytes=chronicle.total_bytes(), budget=budget)
     spent = 0
     markers, pack.index_note = _markers(root, project, report)
@@ -195,7 +214,22 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
         if text is None or source in seen:
             return
         seen.add(source)
-        cost = index.tokens(text)
+        item = Item(kind, record_id, source, reason, text)
+        if kind in ("TASK", "ACCEPTANCE"):
+            from .mutate import WriteError, record_revision
+            from .model import Source
+
+            name, anchor = source.split("#", 1)
+            try:
+                data = chronicle.record_bytes.get(name)
+                if data is not None:
+                    item.revision = record_revision(root, Source(name, anchor), data=data)
+            except WriteError:
+                item.revision = None
+            contract = project.contracts.get(record_id) if kind == "ACCEPTANCE" else None
+            if contract:
+                item.criterionRevisions = {c.id: item.revision for c in contract.criteria}
+        cost = index.tokens(text + item.metadata())
         # Items arrive most relevant first. The first is always loaded; once one
         # does not fit, everything after it is listed rather than loaded, so the
         # cut is a clean prefix of the neighbourhood.
@@ -203,7 +237,7 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
             pack.omitted.append(Omitted(kind, record_id, source, reason, cost))
             return
         spent += cost
-        pack.items.append(Item(kind, record_id, source, reason, text))
+        pack.items.append(item)
         pack.loaded_bytes += len(text.encode())
 
     def task(task_id: str, reason: str) -> None:

@@ -114,7 +114,7 @@ NEXT_STEP = {
     "ambiguous-evidence": "tidy the criterion's Evidence lines by hand, then retry",
     "round-trip-failed": "nothing was written; edit the criterion by hand and retry",
     "invariant-criterion": "an inherited invariant changes only through an Acceptance Change Request, made by a person",
-    "invalid-revision": "use the 16 hex revision from the last result or from a stale-revision refusal",
+    "invalid-revision": "use the 16 hex revision from context, explain, retrieve or the last result; only for a record not yet read, send sixteen zeros and use currentRevision",
     "invalid-evidence": "give one non-empty line without line breaks",
     "invalid-id": "use an identifier with the required prefix",
     "invalid-contract": "give contract (a new definition) or ac (an existing contract id), not both and not neither",
@@ -308,6 +308,13 @@ def section(data: bytes, record_id: str) -> Section:
             end = match.end() + following.start() if following else len(data)
             return Section(data[match.start():end], (match.start(), end))
     raise WriteError("record-not-found", f"no '## ' section found for {record_id}")
+
+
+def record_revision(root: Path, source: Source, *, data: bytes | None = None) -> str:
+    """Hash exact section bytes, optionally from the snapshot that supplied content."""
+    if data is None:
+        data = (root / AUTHORITY_DIR / source.file).read_bytes()
+    return section(data, source.anchor).revision
 
 
 def working_section(root: Path, source: Source) -> Section:

@@ -397,8 +397,10 @@ the JSON to a file and pass `--input payload.json`.
 
 **1. Give an existing TODO task its contract.** `task add` always writes a
 contract or names an existing one, so `contract add` is for a task that was
-written by hand or is missing its contract. It needs the task's revision. If
-you have never seen one, send sixteen zeros on purpose: the refusal returns it.
+written by hand or is missing its contract. Take the task's revision first
+from `context <task>`, `explain <task>` or `retrieve <task>`. Only for a record
+not yet read, sixteen zeros are a fallback: the refusal returns it. The
+zero-revision examples below demonstrate that fallback.
 
 ```console
 $ echo '{"id":"AC-T-DOCS-02","task":"T-DOCS-02","title":"Review the guide","expectTaskRevision":"0000000000000000","criteria":[{"text":"Given the guide, When a reviewer follows it, Then every example runs.","class":"RUNTIME"}]}' | praukron contract add --input -
@@ -419,7 +421,8 @@ $ echo '{"id":"T-DOCS-01","title":"Write the retry guide","module":"M-FOUNDATION
 {"ok":true,"operation":"task.add","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"9101852277a8233c","validation":"passed","written":true,"refreshed":true}
 ```
 
-**3. Claim it.** `expectRevision` is the revision you last saw. A stale one is
+**3. Claim it.** Take `expectRevision` from the task's `revision` in `context`,
+`explain` or `retrieve`, or from the last write result. A stale one is
 refused and the refusal returns the current revision and record.
 
 ```console
@@ -442,7 +445,8 @@ appends an existing ADR to `Governed by`; an id already listed is skipped and
 named in `alreadyGoverned`, and entries are never removed or reordered.
 
 **4. Record a criterion's result.** The revision is the contract's, not the
-criterion's. A stale one returns the current criterion line and revision.
+criterion's; take each criterion's `revision` from `context`, `explain` or
+`retrieve` first. A stale one returns the current criterion line and revision.
 
 ```console
 $ echo '{"criterion":"AC-T-DOCS-01-01","state":"PASS","evidence":"reviewed docs/GUIDE.md","expectRevision":"0000000000000000"}' | praukron criterion set --input -

@@ -510,6 +510,8 @@ class Project:
     responses: list[Response] = field(default_factory=list)
     conventions: list[Convention] = field(default_factory=list)
     briefs: list[Brief] = field(default_factory=list)
+    # Exact bytes parsed for writable records; never serialized into compiled views.
+    record_bytes: dict[str, bytes] = field(default_factory=dict, repr=False, compare=False)
     journal_validation: list[Finding] | None = field(default=None, repr=False, compare=False)
 
     @property
