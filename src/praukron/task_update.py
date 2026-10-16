@@ -17,7 +17,7 @@ SCHEMA = {
     "properties": {
         "id": {"type": "string", "minLength": 1, "description": "Task id, e.g. T-EXAMPLE-01", "examples": ["T-EXAMPLE-01"]},
         "expectRevision": {"type": "string", "minLength": 16,
-                           "description": "16 hex revision of the task section, from context/explain/retrieve, the last result or a stale-revision refusal",
+                           "description": "16 hex revision of the task section, from the last result or a stale-revision refusal",
                            "examples": ["0123456789abcdef"]},
         "set": {
             "type": "object", "additionalProperties": False,

@@ -17,7 +17,7 @@ SCHEMA = {
         "state": {"type": "string", "enum": CRITERION_STATES, "examples": ["PASS"]},
         "evidence": {"type": "string", "description": "One non-empty line; omit to keep the current evidence"},
         "expectRevision": {"type": "string", "minLength": 1,
-                           "description": "16 hex revision of the contract section, from context/explain/retrieve, the last result or a stale-revision refusal",
+                           "description": "16 hex revision of the contract section, from the last result or a stale-revision refusal",
                            "examples": ["0123456789abcdef"]},
     },
     "required": ["criterion", "state", "expectRevision"],
