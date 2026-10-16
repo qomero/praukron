@@ -19,6 +19,10 @@ people arriving from a release page.
   without its required `Conventions` field, and text that looks like a credential. `archive` never moves the file and keeps a task with an `ACTIVE`
   brief. The installer ships the template and never overwrites an existing file; a chronicle without it is
   unchanged.
+- Journal references understand range shorthand. `T-P0-01..05`, `T-P0-01..T-P0-05` and `ADR-003..005` name each
+  id they span; `unknown-journal-reference` names only the members that do not exist, and a range that cannot be
+  read (different stems or tail widths, backwards, non-numeric, or more than 100 ids) is one warning naming it.
+  Archive journal eligibility reads the same expansion, so an entry moves only when every member is archived.
 
 ## 2.0.0 — 2026-10-16
 

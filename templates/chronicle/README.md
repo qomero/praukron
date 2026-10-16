@@ -63,6 +63,10 @@ question that an authored document answers.
 - `INTENT.md` is overwritten and holds zero or one current task.
 - `HANDOFF.md` is overwritten and holds current implementation continuity.
 - `JOURNAL.md` is append-only history, not product or acceptance authority.
+  An entry may name ranges: `T-P0-01..05`, `T-P0-01..T-P0-05` and
+  `ADR-003..005` name each id they span (same stem, same tail width, at most
+  100 ids). `validate` warns about members that do not exist and about a range
+  it cannot read; an entry moves to an archive only when every member has.
   Its authored bytes and observed same-date order govern the ordering sidecar.
 - `archive/JOURNAL.order.json` remembers the order of unique journal headings
   across files (ADR-072). Commit it with the archive; never hand-edit it or

@@ -457,8 +457,8 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
     Archive/restore use this same analysis to keep only the affected journal
     entries. A captured/proposed authority must never be checked against disk.
     """
-    from .archive import (_JOURNAL, _JOURNAL_ORDER, _NAMED, _ORDER_REPAIR,
-                          _journal_order_state)
+    from .archive import (_JOURNAL, _JOURNAL_ORDER, _ORDER_REPAIR, _journal_order_state,
+                          journal_references)
 
     if snapshot is None and project.journal_validation is not None:
         return list(project.journal_validation)
@@ -489,10 +489,19 @@ def journal_findings(project: Project, snapshot: Snapshot | None = None) -> list
                 if name.casefold().startswith(f"{ARCHIVE_DIR}/") and not _JOURNAL.fullmatch(heading):
                     findings.append(Finding("error", "invalid-journal-heading",
                                             "archived journal heading must read '## YYYY-MM-DD — <title>'", where))
-                for reference in dict.fromkeys(_NAMED.findall(text[start:end])):
-                    if reference not in known:
+                reported = set()
+                for reference in journal_references(text[start:end]):
+                    if reference.problem:
                         findings.append(Finding("warning", "unknown-journal-reference",
-                                                f"names {reference}, which does not exist", where))
+                                                f"names {reference.text}, which is not a valid range: "
+                                                f"{reference.problem}", where))
+                        continue
+                    span = "" if reference.ids == (reference.text,) else f" (in {reference.text})"
+                    for named in reference.ids:
+                        if named not in known and named not in reported:
+                            reported.add(named)
+                            findings.append(Finding("warning", "unknown-journal-reference",
+                                                    f"names {named}{span}, which does not exist", where))
     if snapshot is None:
         project.journal_validation = list(findings)
     return findings

@@ -410,6 +410,19 @@ identifier prefix is ever interpreted.
 | Trace event | its task is archived or moving (no task: `P-NONE`) | part of an unresolved failure or retry chain |
 | Journal entry | names at least one archivable record, and every record it names is archived or moving | names nothing, only ADRs, an open or unknown record, or its heading is not unique |
 
+**Journal references.** An entry names an id by writing it (`T-`, `AC-`, `A-`,
+`TD-`, `EV-` or `ADR-` followed by letters, digits, dots and hyphens, ending in a
+letter or digit, so trailing punctuation is not part of it). A range names every
+id it spans: `T-P0-01..05`, `T-P0-01..T-P0-05` and `ADR-003..005` each stand for
+the ids from the lower end to the upper. Both ends share the stem before a
+numeric tail, the tails have the same width (`ADR-003..005` keeps three digits;
+`T-01..5` and `T-9..10` are refused), the lower end is not above the upper, and a
+range spans at most 100 ids. `Closed T-1..T-3.` names `T-1`, `T-2` and `T-3`.
+Validation names only the members that do not exist; a range that breaks a rule
+stands for no id and is one `unknown-journal-reference` warning naming the range.
+Archive eligibility reads the same expansion, so an entry naming a range moves
+only when every member is archived or moving.
+
 A record naming tasks of several phases goes to the latest of them in `PHASES.md`
 order, `P-NONE` last. `RESPONSES.md`, `COORDINATION.md` and `ADR/` are never archived. Records move
 verbatim, journal entries as exact byte spans placed by date and the saved order
@@ -447,7 +460,7 @@ references resolve (`unknown-dependency`, `unknown-contract`, `unknown-decision`
 `unknown-assumption-reference`, `unknown-debt-reference` errors; an event's missing
 task or affected record is a warning); archived journal headings are well formed
 (`invalid-journal-heading` error), unique (`duplicate-journal-heading` warning) and
-name existing ids (`unknown-journal-reference` warning); no recovery record is left
+name existing ids (`unknown-journal-reference` warning, see journal references below); no recovery record is left
 (`interrupted-archive` error); a task in the wrong phase directory is a warning
 (`wrong-archive-phase`). Later references to archived records are never findings.
 A successful `apply` or `restore` refreshes `INDEX.md` and the compiled data

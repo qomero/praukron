@@ -200,7 +200,7 @@ it. No id prefix such as `T-OPS-` means anything to it.
 | Assumption | `ASSUMPTIONS.md` | `CONFIRMED`, `REJECTED`, `REVISED` or `WITHDRAWN`, no response awaits reconciliation, and every task it names is archived or moving | any other status, or a task it names still works. One that names no task is never a candidate |
 | Technical debt | `TECH_DEBT.md` | `RESOLVED` or `INVALIDATED`, naming at least one task, all archived or moving | any other status, or a task it names still works; under `P-NONE`, one that names no task is reported as staying |
 | Trace event | `TRACE.md` | its task is archived or moving (an event with no task belongs to `P-NONE`) | it belongs to an unresolved failure or retry chain |
-| Journal entry | `JOURNAL.md` | it names at least one archivable record, and every record it names is archived or moving | it names nothing, only ADRs, an open or unknown record, or its heading is duplicated |
+| Journal entry | `JOURNAL.md` | it names at least one archivable record, and every record it names (each member of a range) is archived or moving | it names nothing, only ADRs, an open or unknown record, or its heading is duplicated |
 
 A record that names tasks of several phases goes to the archive of the latest of
 those phases in `PHASES.md` order, with `P-NONE` last. Each file keeps its line
@@ -282,7 +282,7 @@ files and every `archive/<phase>/` together.
 | references resolve across both | errors such as `unknown-dependency`, `unknown-contract`, `unknown-decision`, `unknown-assumption-reference`, `unknown-debt-reference`; an event naming a missing task or affected record is a warning (`unknown-event-task`, `unknown-event-affects`) |
 | every archived journal heading reads `## YYYY-MM-DD — <title>` | error `invalid-journal-heading` |
 | no journal heading appears twice across journals | warning `duplicate-journal-heading` |
-| every id a journal entry names exists | warning `unknown-journal-reference` |
+| every id a journal entry names exists | warning `unknown-journal-reference`. A range such as `T-P0-01..05`, `T-P0-01..T-P0-05` or `ADR-003..005` names each id it spans, and only missing members are reported. A range whose ends differ in stem or tail width (`T-01..5`), run backwards, are not numeric, or span more than 100 ids is one warning naming the range |
 | the journal order file agrees with the journals | warning `invalid-journal-order` |
 | no recovery record is left behind | error `interrupted-archive` |
 | a task sits in its own phase's directory | warning `wrong-archive-phase` |
