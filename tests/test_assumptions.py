@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -215,6 +216,7 @@ class AssumptionCase(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         build_fixture(self.dir)
         self.authority = self.dir / layout.AUTHORITY_DIR
+        self.enterContext(mock.patch("praukron.respond.identity", return_value="thien-owner"))
         self.write(ASSUMPTIONS, RESPONSES, POLICY_ADR)
 
     def write(self, assumptions: str | None = None, responses: str | None = None,

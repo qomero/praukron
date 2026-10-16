@@ -800,7 +800,7 @@ class TestMutationPipeline(WriteCase):
             with self.assertRaises(SystemExit):
                 journal.append(self.root, self.payload)
         with self.assertRaisesRegex(respond.RespondError, "rolled back"):
-            respond.append(self.root, [respond.Item("T-ONE", "GUIDE", "hello")], "owner")
+            respond.append(self.root, [respond.Item("T-ONE", "GUIDE", "hello")])
         self.assertEqual(self.snapshot(), before)
 
     def test_existing_errors_are_allowed_but_new_errors_are_undone(self):
@@ -1001,7 +1001,7 @@ class TestSymlinkedMutationRoot(WriteCase):
         own_errors = mutate._errors(compiler.load(self.alias), records[0])
         self.assertNotIn("interrupted-write", {code for code, _, _ in own_errors})
         with self.assertRaisesRegex(respond.RespondError, "rolled back"):
-            respond.append(self.alias, [respond.Item("T-ONE", "GUIDE", "hello")], "owner")
+            respond.append(self.alias, [respond.Item("T-ONE", "GUIDE", "hello")])
         self.assertEqual(self.snapshot(), before)
         self.assertEqual(mutate._recovery_records(self.alias), [])
         # Archive callers can supply an unresolved root with resolved originals too.

@@ -1573,7 +1573,8 @@ _BOOT = """(function () {
 })();"""
 
 
-def render(project: Project, report: Report, compiled: dict, interactive: bool = False) -> str:
+def render(project: Project, report: Report, compiled: dict, interactive: bool = False,
+           reviewer: str = "") -> str:
     """Lay out the compiled project. Every selection — what is in flight, what
     blocks, which gate is next, which domain a task belongs to — was made by
     analytics and arrives in `compiled`; nothing here decides it (ADR-045)."""
@@ -2238,7 +2239,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 
     exec_in_flight = in_flight
     assumptions_body, queue, queued, awaiting_agent = review.panel_body(compiled, ref, interactive)
-    waiting = len(owner_held) + queued
+    verify_list, to_verify = review.verification(compiled, ref, interactive)
+    waiting = len(owner_held) + queued + to_verify
 
     # --- Attention: what to act on, before any progress figure -------------
     review_gaps = [o for o in execution_obstacles if o["type"] == "VALIDATION_GAP"]
@@ -2384,9 +2386,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         '<p class="note">Everything waiting on a person, whichever tab is open.</p>'
         '<p class="xf-needs" id="needs-filtered" hidden><span></span> '
         '<button type="button" class="linkbtn" data-xf-clear>Show all</button></p>'
-        + (review.review_bar(True) + '<p class="note">Each card starts at OK. A card you open or mark '
+        + (review.review_bar(True, reviewer) + '<p class="note">Each card starts at OK. A card you open or mark '
            "reviewed is recorded as confirmed when you submit; a card you never open records nothing. "
-           "Feedback is recorded verbatim with your name.</p>" if interactive and waiting else "")
+           "Feedback is recorded verbatim under your GitHub login.</p>" if interactive and waiting else "")
         + ('<p class="respond-hint">This page is read-only. To answer, run '
            "<code>praukron dashboard --serve</code> and open the link it prints.</p>"
            if waiting and not interactive else "")
@@ -2397,6 +2399,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             f'<ul class="plain owner-list xf-list">{"".join(obstacle_item(o, True) for o in owner_held)}</ul>'
             if owner_held else ""
         )
+        + (f"<h3>Owner tasks to verify</h3>{verify_list}" if verify_list else "")
         + ("" if waiting else '<p class="note">Nothing waits for you.</p>')
         + (f'<p class="note">{awaiting_agent} answered, waiting for the agent: '
            '<a href="#assumptions">Assumptions</a>.</p>' if awaiting_agent else "")

@@ -389,7 +389,11 @@ class TestLiveNeedsPanel(test_review.TestBlockerGuidance):
         report = self.compiled["assumptionReport"]
         waiting = {w["assumption"] for w in report["awaitingReconciliation"]}
         queued = [a for a in report["open"] if a not in waiting]
-        self.assertIn(f'data-waiting="{len(held) + len(queued)}"', self.html)
+        to_verify = [task_id for task_id in report["ownerHeld"] if not any(
+            response["target"] == task_id and response["action"] == "VERIFY" and response["fromOwner"]
+            for response in self.compiled["responses"]
+        )]
+        self.assertIn(f'data-waiting="{len(held) + len(queued) + len(to_verify)}"', self.html)
 
 
 # The fixture is borrowed; its own tests run in test_review, not twice.

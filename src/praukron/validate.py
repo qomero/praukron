@@ -20,7 +20,9 @@ from .model import (
     POLICY_GROUPS,
     RESPONSE_ACTIONS,
     RESPONSE_STATUS,
+    GITHUB_LOGIN,
     TASK_AUTHORITIES,
+    VERIFY,
     DEBT_STATUSES,
     DECISION_ORIGINS,
     DOMAINS,
@@ -319,15 +321,21 @@ def assumption_findings(project: Project) -> list[Finding]:
                                     f"{r.id} follows R-{previous}; responses are append-only", where))
         previous = max(previous, number)
         if r.action not in RESPONSE_ACTIONS:
-            error("invalid-response-action", f"'{r.action}' is not CONFIRM, REVISE, REJECT, or GUIDE")
+            error("invalid-response-action", f"'{r.action}' is not CONFIRM, REVISE, REJECT, GUIDE, or VERIFY")
         if r.target.startswith("A-"):
             if r.target not in assumption_ids:
                 error("unknown-response-target", f"answers {r.target}, which does not exist")
+            elif r.action == VERIFY:
+                error("invalid-response-action", "VERIFY applies only to an Authority: owner task")
         elif r.target.startswith("T-"):
             if r.target not in task_ids:
                 error("unknown-response-target", f"answers {r.target}, which does not exist")
             elif r.action in RESPONSE_STATUS:
                 error("invalid-response-action", f"{r.action} applies to assumptions; a task takes GUIDE")
+            elif r.action == VERIFY and not project.task(r.target).owner_held:
+                error("invalid-response-action", "VERIFY applies only to an Authority: owner task")
+        elif r.action == VERIFY:
+            error("invalid-response-action", "VERIFY applies only to an Authority: owner task")
         else:
             error("unknown-response-target", f"'{r.target}' is neither an assumption nor a task")
         for field, value in (("By", r.by), ("Date", r.date), ("Via", r.via)):
@@ -346,6 +354,23 @@ def assumption_findings(project: Project) -> list[Finding]:
         elif task.done and task.validation != "HUMAN_VERIFIED":
             findings.append(Finding("error", "owner-task-not-verified",
                                     "an Authority: owner task is DONE only with HUMAN_VERIFIED", where))
+        if task.owner_held and task.validation == "HUMAN_VERIFIED" and not project.verified_by_owner(task.id):
+            findings.append(Finding("error", "verification-without-owner",
+                                    "HUMAN_VERIFIED needs a VERIFY from a named owner", where))
+
+    named_owners = [decision for decision in project.decisions if decision.owners is not None]
+    for decision in named_owners:
+        where = f"{decision.source.file}#{decision.id}"
+        invalid = [owner for owner in decision.owners if not GITHUB_LOGIN.match(owner)]
+        if not decision.owners:
+            findings.append(Finding("error", "invalid-owners", "Owners names no GitHub login", where))
+        if invalid:
+            findings.append(Finding("error", "invalid-owners",
+                                    f"Owners contains invalid GitHub login(s): {', '.join(invalid)}", where))
+    if (any(task.owner_held for task in project.tasks) or any(response.action == VERIFY for response in project.responses)) \
+            and not project.owners_decision:
+        findings.append(Finding("warning", "owners-missing",
+                                "Authority: owner work exists but no ACCEPTED ADR names Owners", "ADR/"))
 
     for decision in project.decisions:
         if (decision.policy or "").lower() != "assumptions":

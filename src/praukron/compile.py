@@ -319,7 +319,10 @@ def as_json(project: Project) -> dict[str, object]:
         # Assumptions hold no authority; responses are the owner's words as
         # written; the policy in force is read from its ADR (ADR-054, ADR-057).
         "assumptions": [assumption_json(project, a) for a in project.assumptions],
-        "responses": [r.as_json() for r in project.responses],
+        "responses": [{**response.as_json(), "fromOwner": project.is_owner(response.by)}
+                      for response in project.responses],
+        "owners": {"logins": project.owners,
+                   "decision": project.owners_decision.id if project.owners_decision else None},
         "policy": project.policy.as_json(),
         # Derived diagnostics; nothing here changes a status (ADR-054).
         "assumptionReport": report.assumptions,

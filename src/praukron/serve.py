@@ -25,7 +25,12 @@ _MAX_BODY = 1_000_000
 
 def page(root: Path) -> str:
     project = compiler.load(root)
-    return dashboard.render(project, analytics.report(project), compiler.as_json(project), interactive=True)
+    try:
+        reviewer = respond.identity()
+    except respond.RespondError:
+        reviewer = ""
+    return dashboard.render(project, analytics.report(project), compiler.as_json(project), interactive=True,
+                            reviewer=reviewer)
 
 
 def make_server(root: Path, port: int = 0) -> tuple[HTTPServer, str, str]:
@@ -84,7 +89,7 @@ def make_server(root: Path, port: int = 0) -> tuple[HTTPServer, str, str]:
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")
                 items = [respond.Item(i["target"], i["action"], i["text"]) for i in body["items"]]
-                ids = respond.append(root, items, body.get("by", ""), via="dashboard")
+                ids = respond.append(root, items, via="dashboard", verify=True)
             except (ValueError, KeyError, TypeError) as error:
                 self._send(400, json.dumps({"ok": False, "error": f"malformed request: {error}"}))
                 return
