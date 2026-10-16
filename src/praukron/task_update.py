@@ -48,7 +48,9 @@ _FIELD = re.compile(r"- ([A-Za-z][A-Za-z ]*): ?(.*)")
 _WIDTH = 100
 
 
-SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"])
+# Preserve the published description; new guidance is an additive annotation.
+SCHEMA["description"] = "\n".join(mutate.GUIDANCE["task.update"]).replace(" " + mutate.FAILED_ACCEPTANCE_GUIDANCE, "")
+SCHEMA["$comment"] = mutate.FAILED_ACCEPTANCE_GUIDANCE
 mutate.SCHEMAS["task.update"] = (SCHEMA, ("set.status", "set.owner"))
 
 

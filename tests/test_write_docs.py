@@ -73,7 +73,8 @@ INLINE_STEP = {"stale-revision", "frozen-contract", "owner-held", "owner-require
 class RefusalText(unittest.TestCase):
     def test_failed_acceptance_guidance_reaches_help_and_schemas(self):
         for command in (("criterion", "set"), ("task", "update"), ("batch", "apply")):
-            for text in (help_text(*command), schema_output(*command)["schema"]["description"]):
+            schema = schema_output(*command)["schema"]
+            for text in (help_text(*command), schema.get("$comment", schema["description"])):
                 with self.subTest(command=command):
                     text = " ".join(text.split())
                     self.assertIn("actual corrective work and supporting evidence", text)
