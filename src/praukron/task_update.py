@@ -212,7 +212,7 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 raise mutate.WriteError("no-change", "the update would change nothing",
                                         details={"alreadyGoverned": list(skipped)} if skipped else None)
             path = root / AUTHORITY_DIR / task.source.file
-            data = path.read_bytes()
+            data = mutate.read_bytes(path)
             located = mutate.section(data, task.source.anchor)
             start, end = located.span
             return mutate.Plan({path: data[:start] + _edit(located.data, edits) + data[end:]},

@@ -726,7 +726,13 @@ def build_parser() -> argparse.ArgumentParser:
     write_options(append_entry, "journal.append")
     append_entry.set_defaults(handler=cmd_journal_append, write_operation="journal.append")
 
-    from . import acr, contract, task
+    from . import acr, batch, contract, task
+
+    batches = subparsers.add_parser("batch", help="apply several structured writes atomically")
+    batch_commands = batches.add_subparsers(dest="batch_command", required=True)
+    apply_batch = batch_commands.add_parser("apply", help="apply ordered governed writes in one transaction")
+    write_options(apply_batch, "batch.apply")
+    apply_batch.set_defaults(handler=batch.command, write_operation="batch.apply")
 
     tasks = subparsers.add_parser("task", help="structured task writes")
     task_commands = tasks.add_subparsers(dest="task_command", required=True)

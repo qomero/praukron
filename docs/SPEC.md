@@ -282,6 +282,7 @@ record these commands do not cover.
 | Command | Writes | Changes |
 |---|---|---|
 | `praukron journal append` | `JOURNAL.md` | appends one `## <date> — <title>` section |
+| `praukron batch apply` | combined targets of its operations | composes existing governed writes in order; commits all or none |
 | `praukron criterion set` | `ACCEPTANCE.md` | one criterion's state and its one-line evidence |
 | `praukron task add` | `TASKS.md`, optionally `ACCEPTANCE.md` | appends a task, and its new contract in the same write |
 | `praukron contract add` | `ACCEPTANCE.md`, `TASKS.md` | appends a contract and sets the task's `AC:` |
@@ -383,6 +384,44 @@ write; run `compile && graph && dashboard`.
 | `task update` with the current revision and the values already set | refused: `no-change` (with `alreadyGoverned` when ADR ids were already listed) |
 | lock held by another writer | refused: `locked`; wait and retry |
 | an earlier write was interrupted | refused once: `interrupted-write`, after the restore; retry |
+
+**Batch composition.** `batch apply` takes a non-empty `operations` array, each entry containing an
+`operation` name and its `payload`. The supported names are `journal.append`,
+`criterion.set`, `task.add`, `contract.add` and `task.update`. An operation
+registry holds each schema, handler and optional revision target, so future
+governed operations can be added without a second transaction engine. Nested
+batches and unknown operations are refused.
+
+The batch acquires the existing write lock once, captures the chronicle and
+plans every operation against a byte overlay in array order. New records,
+criterion states and journal headings are visible to later operations. Every
+operation retains its governance checks at the point it runs, including
+frozen contracts, owner authority and archive immutability. Intermediate
+projects are not validated. The existing baseline/final error comparison runs
+once for the combined proposed state, before persistence; dry-run performs that
+same validation. Only new errors are refused, as with single writes.
+
+Revision fields remain required. An original 16-hex section revision from a
+read can be reused across operations on that section; it is checked against
+the captured original and translated to the staged revision for the ordinary
+handler. A current staged revision is also accepted. `$previous` requires an
+earlier write to that exact section in this batch, including a section created
+by `task.add` or `contract.add`; it cannot authorize a first touch of an
+existing section. Criteria in one contract share its section revision.
+
+After all operations and final validation pass, the combined bytes are persisted
+using one durable recovery record and the existing atomic replacements and
+byte-exact rollback. A refusal or persistence failure writes nothing. After
+commit and lock release, INDEX, compiled data, graphs and dashboard refresh
+once. A refresh failure reports `written:true, refreshed:false`; refresh only,
+without repeating the batch.
+
+The single JSON result includes ordered `results` with zero-based indexes and
+per-step revisions, final `revisions` keyed by `file#anchor` for all changed
+sections, and shared `written`/`refreshed` flags. An operation refusal includes
+`error.operationIndex` and `error.operation`; final validation and persistence
+failures identify their stage. Dry-run returns proposed results and
+`wouldWrite` without changing any file. The CLI exits nonzero on any refusal.
 
 ### 2.7 Archive lifecycle
 

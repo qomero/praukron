@@ -10,6 +10,7 @@ import re
 import sys
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable
@@ -34,6 +35,12 @@ class WriteError(Exception):
 # Agent-facing guidance for the write commands: WHEN / WHEN NOT / RETURNS / EXAMPLE.
 # Shown by `--help` and carried in each `--schema` output.
 GUIDANCE = {
+    "batch.apply": (
+        "WHEN: apply several governed writes in order with one atomic commit and one refresh.",
+        "WHEN NOT: nested batches, generic edits, owner-only acts, or changing frozen contracts; every operation keeps its existing rules.",
+        "RETURNS: ordered operation results and final section revisions; a refusal names operationIndex and writes nothing. Reuse an original 16-hex revision within a batch, or use $previous only after this batch has written that section. A committed refresh failure needs only compile, graph and dashboard.",
+        "EXAMPLE: praukron batch apply --input lifecycle.json (see --schema for a complete payload)",
+    ),
     "journal.append": (
         "WHEN: record a dated progress note, finding or handoff detail in JOURNAL.md.",
         "WHEN NOT: to change a task, criterion or decision (use task update, criterion set or an ADR); "
@@ -278,6 +285,29 @@ def load_payload(path: str | None, schema: dict) -> dict:
         raise
 
 
+_planning = ContextVar("structured_write_planning", default=None)
+
+
+@contextmanager
+def planning(overlay):
+    """Route existing operation planners through one isolated batch overlay."""
+    token = _planning.set(overlay)
+    try:
+        yield
+    finally:
+        _planning.reset(token)
+
+
+def read_bytes(path: Path) -> bytes:
+    overlay = _planning.get()
+    return overlay.read_bytes(path) if overlay is not None else path.read_bytes()
+
+
+def is_file(path: Path) -> bool:
+    overlay = _planning.get()
+    return overlay.is_file(path) if overlay is not None else path.is_file()
+
+
 def revision(section_bytes: bytes) -> str:
     """Hash record content without its trailing CR/LF separators."""
     return hashlib.sha256(section_bytes.rstrip(b"\r\n")).hexdigest()[:16]
@@ -313,13 +343,13 @@ def section(data: bytes, record_id: str) -> Section:
 def record_revision(root: Path, source: Source, *, data: bytes | None = None) -> str:
     """Hash exact section bytes, optionally from the snapshot that supplied content."""
     if data is None:
-        data = (root / AUTHORITY_DIR / source.file).read_bytes()
+        data = read_bytes(root / AUTHORITY_DIR / source.file)
     return section(data, source.anchor).revision
 
 
 def working_section(root: Path, source: Source) -> Section:
     ensure_mutable(source)
-    return section((root / AUTHORITY_DIR / source.file).read_bytes(), source.anchor)
+    return section(read_bytes(root / AUTHORITY_DIR / source.file), source.anchor)
 
 
 def ensure_mutable(source: Source | str) -> None:
@@ -490,11 +520,17 @@ class Plan:
     changes: dict[Path, bytes]
     record_id: str
     source: str
+    results: list[dict] | None = None
+    revisions: dict[str, str] | None = None
+    proposed: Project | None = None
 
 
 def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], *, dry_run: bool = False) -> dict:
     """Plan under the lock, verify, commit or restore, then refresh once."""
     root = root.resolve()
+    overlay = _planning.get()
+    if overlay is not None:
+        return overlay.transaction(root, operation, prepare)
     result = None
     try:
         try:
@@ -517,11 +553,21 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
                 if resolved in changes:
                     raise WriteError("duplicate-target", "multiple changes resolve to the same chronicle file")
                 changes[resolved] = data
-            name, anchor = plan.source.split("#", 1)
-            target = (root / AUTHORITY_DIR / name).resolve()
-            result = {"ok": True, "operation": operation, "recordId": plan.record_id,
-                      "source": plan.source, "revision": section(changes[target], anchor).revision,
-                      "validation": "passed", "written": False, "refreshed": False}
+            result = {"ok": True, "operation": operation, "validation": "passed",
+                      "written": False, "refreshed": False}
+            if plan.results is None:
+                name, anchor = plan.source.split("#", 1)
+                target = (root / AUTHORITY_DIR / name).resolve()
+                result.update(recordId=plan.record_id, source=plan.source,
+                              revision=section(changes[target], anchor).revision)
+            else:
+                result.update(results=plan.results, revisions=plan.revisions)
+            if plan.proposed is not None:
+                introduced = _errors(plan.proposed) - before
+                if introduced:
+                    detail = "; ".join(f"{code}: {message}" for code, _, message in sorted(introduced))
+                    raise WriteError("validation-failed", f"nothing was written: {detail}",
+                                     details={"stage": "validation"})
             if dry_run:
                 return {**result, "dryRun": True, "wouldWrite": [
                     {"file": p.relative_to(authority).as_posix(), "bytes": len(data)}
@@ -532,7 +578,8 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
                 with staged_replacements(root, recovery):
                     for path, data in changes.items():
                         _replace(path, data)
-                introduced = _errors(compiler.load(root), recovery) - before
+                introduced = (_errors(compiler.load(root), recovery) - before
+                              if plan.proposed is None else set())
                 if introduced:
                     detail = "; ".join(f"{code}: {message}" for code, _, message in sorted(introduced))
                     raise WriteError("validation-failed", f"nothing was written: {detail}")
@@ -547,8 +594,10 @@ def transaction(root: Path, operation: str, prepare: Callable[[Project], Plan], 
         if result is not None and result["written"]:
             return {**result, "ok": False,
                     "error": {"code": "lock-release-failed", "message": str(error)}}
-        return refusal(operation, error if isinstance(error, WriteError)
-                       else WriteError("write-failed", str(error)))
+        failure = error if isinstance(error, WriteError) else WriteError("write-failed", str(error))
+        if result is not None and "results" in result:
+            failure.details.setdefault("stage", "persistence")
+        return refusal(operation, failure)
     try:
         refresh(root)
     except Exception as error:

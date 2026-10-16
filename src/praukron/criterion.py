@@ -121,7 +121,7 @@ def _find(project: Project, criterion_id: object) -> tuple[Contract, Criterion] 
 
 def _contract_section(root: Path, contract: Contract) -> tuple[bytes, mutate.Section]:
     path = root / mutate.AUTHORITY_DIR / contract.source.file
-    data = path.read_bytes()
+    data = mutate.read_bytes(path)
     if not contract.is_global:
         return data, mutate.section(data, contract.source.anchor)
     heading = rb"### " + re.escape(contract.source.anchor.encode("utf-8")) + rb"(?: \xe2\x80\x94 [^\r\n]+)?\r?$"

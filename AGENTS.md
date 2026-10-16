@@ -95,6 +95,7 @@ for `contract add`). Take the task's and criteria's `revision` from `context <ta
 `explain <task>` or `retrieve <task>`; criteria share a contract revision.
 Only for a record not yet read, use 16 zeros. Stale refusals carry the current revision.
 `closability` says whether DONE is allowed and why.
+`praukron batch apply --input -` groups writes atomically; see `--schema`.
 `criterion set` records state/evidence on any task, including `WIP`.
 Writes cannot set `HUMAN_VERIFIED`, close `Authority: owner` tasks, edit criterion
 text/class, or touch `archive/`. Add contracts only to `TODO` tasks; for frozen

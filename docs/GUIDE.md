@@ -421,6 +421,31 @@ $ echo '{"id":"T-DOCS-01","title":"Write the retry guide","module":"M-FOUNDATION
 {"ok":true,"operation":"task.add","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"9101852277a8233c","validation":"passed","written":true,"refreshed":true}
 ```
 
+To record several lifecycle steps in one call, save this shape as
+`lifecycle.json`, filling in the task and contract revisions from
+`praukron context T-DOCS-01`:
+
+```json
+{"operations":[
+  {"operation":"task.update","payload":{"id":"T-DOCS-01","expectRevision":"0123456789abcdef","set":{"status":"WIP","owner":"worker"}}},
+  {"operation":"criterion.set","payload":{"criterion":"AC-T-DOCS-01-01","expectRevision":"fedcba9876543210","state":"PASS","evidence":"Reviewed the guide."}},
+  {"operation":"task.update","payload":{"id":"T-DOCS-01","expectRevision":"0123456789abcdef","set":{"status":"DONE","evidence":"Guide reviewed; criterion PASS."}}},
+  {"operation":"journal.append","payload":{"title":"Guide complete","body":"Reviewed T-DOCS-01."}}
+]}
+```
+
+Run `praukron batch apply --input lifecycle.json` (`--dry-run` validates the
+whole proposal without writing). Reuse the original revision for later writes
+to the same section, as above. `$previous` also works once an earlier operation
+in this batch has written that section; use it for a new task or contract
+created earlier in the batch. Revision fields are always required.
+
+Operations run in order and keep their usual rules. A refused operation names
+its zero-based `operationIndex` and leaves every chronicle byte unchanged.
+Success reports each step and final `file#anchor` revisions, commits once and
+refreshes once. If only refresh fails, rerun `compile`, `graph` and `dashboard`.
+`praukron batch apply --schema` describes every supported operation.
+
 **3. Claim it.** Take `expectRevision` from the task's `revision` in `context`,
 `explain` or `retrieve`, or from the last write result. A stale one is
 refused and the refusal returns the current revision and record.
