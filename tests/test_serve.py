@@ -106,6 +106,8 @@ class TestServe(ServeCase):
         served = serve.page(self.dir)
 
         def strip(page: str) -> str:
+            # The localization map mirrors the form text removed below.
+            page = re.sub(r'<script type="application/json" id="i18n-data">.*?</script>', "", page, flags=re.S)
             page = page.replace(review.SERVE_SCRIPT, "")
             page = re.sub(r'<div class="(?:controls review-bar|aform)".*?</div>', "", page, flags=re.S)
             page = re.sub(r'<(p|span) class="respond-hint">.*?</\1>', "", page, flags=re.S)

@@ -3,6 +3,45 @@
 The dashboard is a deterministic view of the Chronicle. Its four workspaces
 support a short path from project state to a decision and its evidence.
 
+## Language
+
+Add `- Language: vi` to the thesis in `THESIS.md` for Vietnamese, or `en` for
+English. This field is included in the compiled thesis. Missing or unsupported
+values render English; `validate` warns about unsupported values.
+`praukron dashboard --lang en` overrides the field, including with `--serve`.
+
+The static HTML is localized on the server and works without JavaScript. The
+labelled header selector offers English and Tiếng Việt. A saved viewer choice
+takes precedence, followed by the explicit CLI/project language. Only when
+neither is recorded does the browser language apply. Storage reads and writes
+are guarded; unavailable storage does not prevent using the selector.
+
+Both catalogues and the original UI text are embedded, so switching works
+offline and never changes the chronicle. Generation does not read the clock,
+browser settings or process locale: identical input and CLI options produce
+identical bytes. Record titles, outcomes, criteria, evidence, responses, source
+text and identifiers remain as authored. Vietnamese metadata dates use
+day/month/year; English retains unambiguous ISO dates. Dates inside recorded
+prose remain verbatim. Counts use language-appropriate labels, including
+singular/plural search and filter messages.
+
+### Adding a language
+
+Add one entry to `CATALOGUES` in `src/praukron/i18n.py`, containing its native
+`name`, `dateOrder` (`ymd` or `dmy`), and a complete `messages` dictionary with
+the same keys as English. No selector, CLI, validator or renderer changes are
+needed. The English messages are the lookup keys. Prefer complete messages;
+shared labels also cover dynamic state summaries. Keep `{name}` placeholders
+unchanged. Authored interpolations are protected before the HTML boundary;
+identifiers, links, form values, code and embedded project data are not translated.
+
+Run `python -m unittest discover -s tests -p test_i18n.py`. The tests enforce
+catalogue parity and detect uncatalogued visible text and accessible names in
+the synthetic dashboard, as well as server/client translation parity, fallback,
+CLI overrides, deterministic output and the response pathway in both languages.
+When adding UI, include its new states in the coverage fixture and check live
+search, task details and review feedback as well as static markup.
+
 | Workspace | First view | Further inspection |
 | --- | --- | --- |
 | Home | Phase timeline, current-phase card, next human action | Module progress, gate, root blocker, active work and separate execution/validation/operations figures |

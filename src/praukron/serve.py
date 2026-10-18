@@ -17,23 +17,23 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import analytics, compile as compiler, dashboard, respond
+from . import analytics, compile as compiler, dashboard, respond, i18n
 
 HOST = "127.0.0.1"
 _MAX_BODY = 1_000_000
 
 
-def page(root: Path) -> str:
+def page(root: Path, lang: str | None = None) -> str:
     project = compiler.load(root)
     try:
         reviewer = respond.identity()
     except respond.RespondError:
         reviewer = ""
     return dashboard.render(project, analytics.report(project), compiler.as_json(project), interactive=True,
-                            reviewer=reviewer)
+                            reviewer=reviewer, lang=lang)
 
 
-def make_server(root: Path, port: int = 0) -> tuple[HTTPServer, str, str]:
+def make_server(root: Path, port: int = 0, lang: str | None = None) -> tuple[HTTPServer, str, str]:
     token = secrets.token_urlsafe(24)
 
     class Handler(BaseHTTPRequestHandler):
@@ -61,14 +61,15 @@ def make_server(root: Path, port: int = 0) -> tuple[HTTPServer, str, str]:
             if urlparse(self.path).path != "/" or not self._token_ok():
                 # A person who typed the address without its token should be
                 # told what to open, not handed a JSON error.
-                self._send(403, (
-                    "<!doctype html><meta charset=utf-8><title>Praukron: link needed</title>"
+                selected = i18n.language(lang if lang is not None else compiler.load(root).thesis.language)
+                self._send(403, i18n.localize((
+                    f'<!doctype html><html lang="{selected}"><meta charset=utf-8><title>Praukron: link needed</title>'
                     "<body style='font:16px system-ui;margin:3em'><h1>Open the full link</h1>"
                     "<p>This review page needs the link printed by <code>praukron dashboard --serve</code>, "
                     "including its <code>?token=…</code> part. The token keeps other pages on this "
-                    "machine from writing your answers.</p></body>"), "text/html")
+                    "machine from writing your answers.</p></body></html>"), selected), "text/html")
                 return
-            self._send(200, page(root), "text/html")
+            self._send(200, page(root, lang), "text/html")
 
         def do_POST(self) -> None:  # noqa: N802 - stdlib name
             origin = self.headers.get("Origin")
@@ -103,8 +104,8 @@ def make_server(root: Path, port: int = 0) -> tuple[HTTPServer, str, str]:
     return server, token, url
 
 
-def run(root: Path, port: int = 0, open_browser: bool = False) -> int:
-    server, _, url = make_server(root, port)
+def run(root: Path, port: int = 0, open_browser: bool = False, lang: str | None = None) -> int:
+    server, _, url = make_server(root, port, lang)
     print(f"Serving the dashboard at {url}")
     print("Answers are written to RESPONSES.md through `praukron respond`. Press Ctrl-C to stop.")
     sys.stdout.flush()

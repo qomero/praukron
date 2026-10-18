@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from .analytics import Report
 from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATIONS, Project, event_order
-from . import drawings, mermaid, review
+from . import drawings, mermaid, review, i18n
 
 
 def esc(value: object) -> str:
@@ -104,6 +104,9 @@ button { font: inherit; color: inherit; }
                 padding: 4px 12px; border-radius: 999px; color: var(--muted); }
 .theme button:hover { color: var(--ink); }
 .theme button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.language-control { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
+.language-control select { min-height: 44px; max-width: 100%; font: inherit; color: var(--ink);
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-s); padding: 6px 10px; }
 
 /* Top-level tabs and the filter bar stay in reach while the page scrolls.
    Without script every panel shows, one after another. */
@@ -143,7 +146,7 @@ html.js[data-tab="audit"] #panel-audit { display: block; }
 .chip-x svg { width: 14px; height: 14px; flex: none; }
 .xf-count { color: var(--muted); margin-left: auto; }
 .xf-out { display: none !important; }
-.tablewrap.xf-none::after { content: "No task here matches the active filters."; display: block;
+.tablewrap.xf-none::after { content: var(--ui-empty); display: block;
          padding: 10px; color: var(--muted); font-size: 13px; }
 .xf-needs { font-size: 13px; color: var(--ink); background: var(--sunken); border-radius: var(--radius-s);
          padding: 6px 10px; margin: 8px 0; }
@@ -507,7 +510,7 @@ function showTask(id) {
   if (!task) return;
   const contract = DATA.acceptance[task.ac] || { criteria: [], inherits: [] };
   const criteria = contract.criteria.map(c =>
-    `<li>${pill(c.state)} <code>${esc(c.id)}</code> <span class="note">${esc(c.class || c.evidenceClass)}</span><br>${esc(c.text)}</li>`
+    `<li>${pill(c.state)} <code>${esc(c.id)}</code> <span class="note">${esc(c.class || c.evidenceClass)}</span><br>${esc(protectedText(c.text))}</li>`
   ).join('') || '<li class="note">No criteria recorded.</li>';
   const deps = task.deps.length
     ? task.deps.map(d => `<code>${esc(d)}</code> ${pill(byId[d] ? byId[d].status : 'MISSING')}`).join('<br>')
@@ -517,12 +520,12 @@ function showTask(id) {
     : '<span class="note">Nothing downstream</span>';
   const obstacles = DATA.obstacles.filter(o => o.subject === id);
   document.querySelector('#detail .body').innerHTML = `
-    <h3>${esc(task.id)} — ${esc(task.title)}</h3>
+    <h3>${esc(task.id)} — ${esc(protectedText(task.title))}</h3>
     <p class="sub">${pill(task.status)} ${pill(task.validation)}
        <span class="pill">${esc(task.phase)}</span>
        ${task.module ? `<span class="pill">${esc(task.module)}</span>` : ''}
        <span class="pill ${esc(task.domain)}">${esc(task.domain)}</span>
-       ${task.owner ? `<span class="pill">${esc(task.owner)}</span>` : ''}</p>
+       ${task.owner ? `<span class="pill">${esc(protectedText(task.owner))}</span>` : ''}</p>
     <dl>
       <dt>Dependencies</dt><dd>${deps}</dd>
       <dt>Blocks</dt><dd>${blocks}</dd>
@@ -532,10 +535,10 @@ function showTask(id) {
       ${obstacles.length ? `<dt>Obstacles</dt><dd>${obstacles.map(o => `${pill(o.type)} ${esc(o.detail)}`).join('<br>')}</dd>` : ''}
       <dt>Domain</dt><dd>${esc(task.domain)} <span class="note">(${esc(task.domainSource)})</span></dd>
       ${task.externalBlockers.length ? `<dt>External blockers · project operations</dt><dd>${task.externalBlockers.map(o => `<code>${esc(o)}</code> ${pill(byId[o] ? byId[o].status : 'MISSING')}`).join('<br>')}</dd>` : ''}
-      <dt>Evidence</dt><dd>${task.evidence ? esc(task.evidence) : '<span class="note">None recorded</span>'}</dd>
-      ${task.events.length ? `<dt>Operational events</dt><dd>${task.events.map(e => { const ev = eventById[e]; return ev ? `<code>${esc(e)}</code> ${pill(ev.type)} ${pill(ev.outcome)} ${esc(ev.title)}` : `<code>${esc(e)}</code>`; }).join('<br>')}</dd>` : ''}
+      <dt>Evidence</dt><dd>${task.evidence ? esc(protectedText(task.evidence)) : '<span class="note">None recorded</span>'}</dd>
+      ${task.events.length ? `<dt>Operational events</dt><dd>${task.events.map(e => { const ev = eventById[e]; return ev ? `<code>${esc(e)}</code> ${pill(ev.type)} ${pill(ev.outcome)} ${esc(protectedText(ev.title))}` : `<code>${esc(e)}</code>`; }).join('<br>')}</dd>` : ''}
       ${task.decisions.length ? `<dt>Decisions</dt><dd>${task.decisions.map(d => `<code>${esc(d)}</code>${decisionById[d] && decisionById[d].origin === 'RECONSTRUCTED' ? ' ' + pill('RECONSTRUCTED') : ''}`).join(', ')}</dd>` : ''}
-      <dt>Schedule</dt><dd>${task.schedule ? esc(JSON.stringify(task.schedule)) : '<span class="note">Unscheduled</span>'}</dd>
+      <dt>Schedule</dt><dd>${task.schedule ? esc(protectedText(JSON.stringify(task.schedule))) : '<span class="note">Unscheduled</span>'}</dd>
       <dt>Source</dt><dd><code>${esc(DATA.project.authority)}/${esc(task.source.file)} → ${esc(task.source.anchor)}</code></dd>
     </dl>`;
   document.getElementById('detail').showModal();
@@ -614,7 +617,7 @@ function scopeMatches(element) {
 function keyLabel(dim, value) {
   const key = [...document.querySelectorAll(`[data-chart] .key[data-dim="${dim}"]`)]
     .find(node => node.dataset.value === value);
-  return key ? key.querySelector('.lab').textContent : value;
+  return key ? uiSource(key.querySelector('.lab')) : value;
 }
 
 function renderCharts() {
@@ -642,7 +645,7 @@ function renderCharts() {
 // Every figure that counts tasks carries its compiled entries in data-agg.
 // Unfiltered it shows exactly what it was rendered with; filtered, the sums.
 function original(node, value) {
-  if (!('aggOrig' in node.dataset)) node.dataset.aggOrig = value;
+  if (!('aggOrig' in node.dataset)) node.dataset.aggOrig = value === node.textContent ? uiSource(node) : value;
   return node.dataset.aggOrig;
 }
 
@@ -681,7 +684,7 @@ function renderAggregates() {
       const before = original(node, node.textContent);
       node.textContent = !on ? before
         : holder.dataset.tone && !count ? 'Clear'
-        : node.dataset.aggText.replace(/\\{(\\w+)\\}/g, (_, key) => sums[key]);
+        : uiAttribute(node, 'data-agg-text').replace(/\\{(\\w+)\\}/g, (_, key) => sums[key]);
     });
     if (holder.dataset.tone) {
       holder.classList.toggle('clear', !count);
@@ -710,7 +713,7 @@ function renderChips() {
         `data-remove-value="${esc(value)}" aria-label="Remove filter ${esc(DIM_LABEL[dim])}: ${esc(label)}">` +
         `${esc(DIM_LABEL[dim])}: <strong>${esc(label)}</strong>${CLOSE_ICON}</button></li>`;
     })).join('');
-  const summary = `${matching} of ${DATA.tasks.length} tasks match`;
+  const summary = `${matching} of ${DATA.tasks.length} ${DATA.tasks.length === 1 ? 'task matches' : 'tasks match'}`;
   document.getElementById('xf-count').textContent = summary;
   const status = document.getElementById('xf-status');
   status.textContent = filtering() ? summary : status.textContent ? 'Filters cleared' : '';
@@ -747,7 +750,7 @@ function syncSelects() {
     const select = document.getElementById(id);
     if (!select) return;
     const all = select.options[0];
-    all.dataset.label = all.dataset.label || all.textContent;
+    all.dataset.label = all.dataset.label || uiSource(all);
     const chosen = [...filters[dim]];
     select.value = chosen.length === 1 ? chosen[0] : '';
     all.textContent = chosen.length > 1
@@ -1628,7 +1631,7 @@ globalQuery.addEventListener('input', () => {
     const li = document.createElement('li');
     const link = document.createElement('a');
     link.href = '#' + encodeURIComponent(item.destination);
-    link.textContent = item.kind + ' · ' + item.id + ' — ' + item.title;
+    link.textContent = item.kind + ' · ' + protectedText(item.id + ' — ' + item.title);
     link.addEventListener('click', event => {
       event.preventDefault();
       searchOpener = null;
@@ -1637,12 +1640,12 @@ globalQuery.addEventListener('input', () => {
       if (target) { reveal(target); history.replaceState(null, '', '#' + encodeURIComponent(item.destination)); }
     });
     const source = document.createElement('a');
-    source.className = 'search-source'; source.textContent = item.source;
+    source.className = 'search-source'; source.textContent = protectedText(item.source);
     const split = item.source.indexOf('#');
     source.href = '../chronicle/' + item.source.slice(0, split).split('/').map(encodeURIComponent).join('/') + '#' + encodeURIComponent(item.source.slice(split + 1));
     li.append(link, source); results.append(li);
   });
-  searchStatus.textContent = matches.length ? matches.length + ' results. Use arrow keys or Tab to navigate.'
+  searchStatus.textContent = matches.length ? matches.length + (matches.length === 1 ? ' result. Use arrow keys or Tab to navigate.' : ' results. Use arrow keys or Tab to navigate.')
     : globalQuery.value.trim() ? 'Nothing matched. Try an ID or fewer words.' : 'Search by ID, title or recorded words.';
 });
 globalSearch.addEventListener('keydown', event => {
@@ -1744,7 +1747,7 @@ if (initialTarget && !initialTarget.classList.contains('panel')) reveal(initialT
 
 def source_link(source: dict) -> str:
     pointer = source["file"] + "#" + source["anchor"]
-    return f'<a href="../chronicle/{quote(source["file"])}#{quote(source["anchor"])}">{esc(pointer)}</a>'
+    return f'<a href="../chronicle/{quote(source["file"])}#{quote(source["anchor"])}">{esc(i18n.verbatim(pointer))}</a>'
 
 
 def dependency_svg(tasks: dict) -> str:
@@ -1804,10 +1807,14 @@ _BOOT = """(function () {
 
 
 def render(project: Project, report: Report, compiled: dict, interactive: bool = False,
-           reviewer: str = "") -> str:
+           reviewer: str = "", lang: str | None = None) -> str:
     """Lay out the compiled project. Every selection — what is in flight, what
     blocks, which gate is next, which domain a task belongs to — was made by
     analytics and arrives in `compiled`; nothing here decides it (ADR-045)."""
+    recorded_language = lang if lang is not None else project.thesis.language
+    selected_language = i18n.language(recorded_language)
+    original_compiled = compiled
+    compiled = i18n.protect(compiled)
     metrics = compiled["metrics"]
     diagrams = mermaid.render_all(project, report)
     # The drawing names its nodes by a sanitized identifier. The map back to
@@ -2213,7 +2220,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     # --- Governance --------------------------------------------------------
     gate_verifiers = {g["id"]: g for g in (gate["gates"] if gate else [])}
     gates = "".join(
-        f'<li>{_pill(g["status"])} <strong>{esc(g["id"])}</strong> — {esc(g["name"])}'
+        f'<li>{_pill(g["status"])} <strong>{esc(i18n.verbatim(g["id"]))}</strong> — {esc(g["name"])}'
         + (f' <span class="note">blocks {esc(", ".join(g["blocks"]))}</span>' if g["blocks"] else "")
         + f'<br><span class="note">{esc(g["description"])}</span>'
         + "".join(
@@ -2285,7 +2292,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         detail.append((
             "Source", f'{compiled["project"]["authority"]}/{decision["source"]["file"]}'
         ))
-        body = "".join(f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in detail)
+        body = "".join(f"<dt>{esc(k)}</dt><dd>{esc(i18n.verbatim(v))}</dd>" for k, v in detail)
         return (
             f'<details class="adr" id="decision-{esc(decision["id"])}" data-status="{esc(decision["status"])}"'
             f' data-origin="{esc(decision["origin"])}"'
@@ -2585,7 +2592,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     review_workspace = panel("review", f'<div id="needs-you" data-waiting="{review_count}">'
         f'<div class="needs-head"><h2>Human decision inbox</h2><span class="needcount{"" if review_count else " zero"}">{review_count}</span>'
         '<span class="live">Answering live</span></div>'
-        + review.review_bar(interactive, reviewer)
+        + review.review_bar(interactive, i18n.verbatim(reviewer) if reviewer else "")
         + ('<p class="note">Each card starts at OK. A card you open or mark reviewed is confirmed when you submit. Unopened cards record nothing.</p>' if interactive else
            '<p class="respond-hint">This page is read-only. To answer, run <code>praukron dashboard --serve</code>.</p>')
         + '<p id="needs-filtered" hidden><span></span><button data-xf-clear>Show all</button></p>'
@@ -2598,9 +2605,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                     f'<p>{_pill(task["status"])} {_pill(task["validation"])} · {esc(task["domain"])} · Authority: {esc(task["authority"] or "agent")}</p>'
                     f'<p>Evidence: {esc(task["evidence"] or "none recorded")}</p>'
                     f'<p>Responsible: {esc(task["owner"] or "unassigned")} · Claimed: {esc(task["claimed"] or "not recorded")}</p>'
-                    f'<p>Implementation files: {esc(", ".join(task["implementation"]["files"]) or "none recorded")}</p>'
-                    f'<p>Implementation symbols: {esc(", ".join(task["implementation"]["symbols"]) or "none recorded")}</p>'
-                    f'<p>Schedule: {esc(json.dumps(task["schedule"])) if task["schedule"] else "No schedule recorded"}</p>'
+                    f'<p>Implementation files: {esc(i18n.verbatim(", ".join(task["implementation"]["files"]))) if task["implementation"]["files"] else "none recorded"}</p>'
+                    f'<p>Implementation symbols: {esc(i18n.verbatim(", ".join(task["implementation"]["symbols"]))) if task["implementation"]["symbols"] else "none recorded"}</p>'
+                    f'<p>Schedule: {esc(i18n.verbatim(json.dumps(task["schedule"]))) if task["schedule"] else "No schedule recorded"}</p>'
                     + '<p>Dependencies: ' + (', '.join(ref(d) for d in task["deps"]) or 'none') + '</p>'
                     + '<p>Acceptance: ' + (', '.join(f'<a href="#criterion-{esc(c["id"])}">{esc(c["id"])}</a>' for c in contract.get("criteria", [])) or 'none') + '</p>'
                     + '<p>Assumptions: ' + (', '.join(f'<a href="#assumption-{esc(a)}">{esc(a)}</a>' for a in task["assumptions"]) or 'none') + '</p>'
@@ -2635,20 +2642,20 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                   + (response_records or '<p>No responses recorded.</p>') + '</details>'
                   + '<details class="group"><summary>Journal history</summary>' + (history or '<p>No journal entries recorded.</p>') + '</details>')
 
-    return f"""<!doctype html>
-<html lang="en">
+    page = f"""<!doctype html>
+<html lang="{selected_language}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{esc(project.name)} — project state</title>
+<title>{esc(i18n.verbatim(project.name))} — project state</title>
 <script>{_BOOT}</script>
-<style>{_STYLE}{review.STYLE}{_MISSION_STYLE}</style>
+<style>{_STYLE}{review.STYLE}{_MISSION_STYLE}{i18n.style()}</style>
 </head>
 <body>
 <main>
   <header class="top">
     <div>
-      <h1>{esc(project.name)}</h1>
+      <h1>{esc(i18n.verbatim(project.name))}</h1>
       <p class="sub">
         Current phase <strong>{esc(compiled["project"]["currentPhase"] or "none")}</strong> ·
         {metrics["taskCompletion"]["done"]} of {metrics["taskCompletion"]["total"]} execution tasks done ·
@@ -2656,6 +2663,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
       </p>
     </div>
     <button type="button" class="search-control" id="search-open" aria-haspopup="dialog" aria-controls="global-search">Search everything <kbd>Ctrl K</kbd></button>
+    <label class="language-control" for="dashboard-language">Language
+      <select id="dashboard-language">{''.join(f'<option value="{code}"' + (' selected' if code == selected_language else '') + f'>{esc(i18n.verbatim(catalog["name"]))}</option>' for code, catalog in i18n.CATALOGUES.items())}</select>
+    </label>
     <div class="theme" role="group" aria-label="Theme">
       <button type="button" data-theme-choice="system" aria-pressed="false">System</button>
       <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
@@ -2694,10 +2704,12 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   <p id="search-status" role="status" aria-live="polite">Search by ID, title or recorded words.</p><ul id="search-results"></ul>
 </dialog>
 
-<script type="application/json" id="project-data">{embed(compiled)}</script>
+<script type="application/json" id="project-data">{embed(original_compiled)}</script>
 <script type="application/json" id="diagram-data">{embed(diagrams)}</script>
 <script type="application/json" id="node-map">{embed(node_map)}</script>
+<!--i18n-runtime-->
 <script>{FILTER_JS}{_SCRIPT}{SEARCH_JS}{_MISSION_SCRIPT}{review.script(interactive)}</script>
 </body>
 </html>
 """
+    return i18n.localize(page, selected_language, recorded_language)
