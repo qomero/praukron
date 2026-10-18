@@ -10,6 +10,21 @@ support a short path from project state to a decision and its evidence.
 | Review | Counted groups; each item has a title, one-line why, affected task and primary action | One disclosure per item for records, reasoning, response controls, reconciliation and verification |
 | Audit | Evidence and governance | ADRs, criteria, task records, technical debt, operational events, failures and journal history |
 
+Work starts with a state board: Ready, In progress, Upcoming, Waiting for human,
+Waiting for dependencies and Blocked by failure. Populated columns use the
+available width; empty columns keep a compact label and count. Each task card
+names its ID, title, module and responsible person or owner authority. Completed
+has a separate count and disclosure. Current work / All work updates the cards,
+counts, column widths and ready/waiting summary together. On narrow screens the
+board scrolls horizontally inside a focusable strip.
+
+Root blockers and the next gate with milestones sit beside one another below
+the board, stacking on phones. Five inspection tabs open Critical path, Phases,
+Task registry, Dependency graph (including drawings and sources), and Breakdown.
+Arrow keys, Home and End select tabs; search results and legacy links reveal the
+appropriate view before moving focus. Without JavaScript, the tabs are ordinary
+anchor links and all inspection sections and task cards remain available.
+
 Home keeps execution completion, validation strength and operations activity
 separate. WIP describes a task, not a running agent: runtime is **unknown** until
 authoritative session information exists. The latest recorded chronicle date

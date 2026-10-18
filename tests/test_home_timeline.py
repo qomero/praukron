@@ -91,7 +91,7 @@ class TestHomeTimeline(FixtureCase):
         self.assertNotIn('Execution completion by phase', home)
         work = page.split('id="panel-work"', 1)[1].split('id="panel-review"', 1)[0]
         for title in ['Execution completion by phase', 'Execution status breakdown',
-                      'Root blockers', 'Next milestones', 'Next phase gate', 'Full task registry']:
+                      'Root blockers', 'Next milestones', 'Next gate &amp; milestones', 'Full task registry']:
             self.assertIn(title, work)
         mission = data['mission']
         self.assertTrue(mission['affected'])
@@ -100,7 +100,7 @@ class TestHomeTimeline(FixtureCase):
         summary = (f'{sum(r["current"] for r in mission["roots"])} active root blockers · '
                    f'{len(mission["affected"])} distinct downstream tasks · '
                    f'{len(mission["future"])} future owner obligations.')
-        self.assertIn('<h2>Root blockers</h2><p class="note">' + summary + '</p>', work)
+        self.assertIn('<h2 id="work-blockers-title">Root blockers</h2><p class="note">' + summary + '</p>', work)
         ids = {html.unescape(x) for x in re.findall(r'\bid="([^"]+)"', page)}
         for target in re.findall(r'href="#([^"]+)"', home):
             self.assertIn(html.unescape(target), ids)
@@ -162,6 +162,7 @@ positionHomeTimeline(); console.log(JSON.stringify(strip.scrollLeft));
         for header_height in (49, 112):
             result = run_js('''
 const target = {hidden:true, style:{}, parentElement:null, tagName:'ARTICLE',
+  closest(){return null;},
   classList:{remove(){}, contains(){return false;}}, setAttribute(){},
   focus(){}, scrollIntoView(){this.marginAtScroll = this.style.scrollMarginTop || '0px';}};
 function clearFilters() {}
