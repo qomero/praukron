@@ -1180,6 +1180,71 @@ TOP_TABS = (
     ("home", "Home"), ("work", "Work"), ("review", "Review"), ("audit", "Audit"),
 )
 
+def _progress_chart(title: str, rows: list[tuple[str, int, int]], *, status: bool = False) -> str:
+    """Labelled bars and their exact counts share one readable table."""
+    if not rows:
+        return f'<p class="note">{esc(title)}: nothing recorded.</p>'
+    body = []
+    for label, count, total in rows:
+        percent = _percent(count, total)
+        description = (f'{label}: {count} of {total} execution tasks' if status else
+                       f'{label}: {count} of {total} tasks complete') if total else f'{label}: no tasks'
+        body.append(
+            f'<tr><th scope="row">{esc(label)}</th><td class="progress-value">{count} / {total}</td>'
+            f'<td class="progress-mark"><svg viewBox="0 0 240 12" preserveAspectRatio="none" '
+            f'role="img" aria-label="{esc(description)}"><title>{esc(description)}</title>'
+            '<rect class="progress-track" x="0.5" y="0.5" width="239" height="11"/>'
+            + (f'<rect class="progress-fill" x="1" y="1" width="{238 * count / total:.2f}" height="10"/>' if total and count else '')
+            + f'</svg><span class="note">{str(percent) + "%" if total else "No tasks"}</span></td></tr>')
+    return ('<table class="progress-chart"><caption>' + esc(title) + '</caption>'
+            '<thead><tr><th scope="col">' + ('State' if status else 'Scope') + '</th>'
+            '<th scope="col">' + ('Tasks / total' if status else 'Done / total') + '</th>'
+            '<th scope="col">' + ('Share' if status else 'Completion') + '</th></tr></thead>'
+            '<tbody>' + ''.join(body) + '</tbody></table>')
+
+
+def _home_progress(compiled: dict) -> tuple[str, str]:
+    """Execution progress is never combined with operations or validation."""
+    tasks = compiled["tasks"]
+    current_id = compiled["project"]["currentPhase"]
+    current = next((p for p in compiled["phases"] if p["id"] == current_id), None)
+
+    def completion(label: str, selected: list[dict]) -> tuple[str, int, int]:
+        return label, sum(t["status"] == "DONE" for t in selected), len(selected)
+
+    module_rows = []
+    for module in compiled["modules"] if current else []:
+        if module["phase"] != current_id:
+            continue
+        selected = [t for t in tasks if t["module"] == module["id"]]
+        label = f'{module["id"]} — {module["name"]}'
+        module_rows.append(completion(label + ' · execution', [t for t in selected if t["domain"] == "execution"]))
+        operations = [t for t in selected if t["domain"] == "operations"]
+        if operations:
+            module_rows.append(completion(label + ' · operations', operations))
+    phase_heading = (f'<h2 id="current-phase-title">{esc(current["id"])} — {esc(current["name"])}</h2>'
+                     f'<p class="phase-outcome">{esc(current["outcome"] or "No phase outcome recorded.")}</p>') if current else (
+                         '<h2 id="current-phase-title">No current phase</h2><p>No phase is active.</p>')
+    modules = (_progress_chart('Modules in this phase', module_rows) if module_rows else
+               '<p class="note">No modules recorded for this phase.</p>' if current else '')
+    overview = (f'<section class="phase-overview" aria-labelledby="current-phase-title">'
+                f'<div>{phase_heading}</div><div>{modules}</div></section>')
+    execution = [t for t in tasks if t["domain"] == "execution"]
+    phase_rows = [completion(f'{p["id"]} — {p["name"]}', [t for t in execution if t["phase"] == p["id"]])
+                  for p in compiled["phases"]]
+    phase_ids = {p["id"] for p in compiled["phases"]}
+    unphased = [t for t in execution if t["phase"] not in phase_ids]
+    if unphased:
+        phase_rows.append(completion('No phase', unphased))
+    execution_ids = {t["id"] for t in execution}
+    states = [(state, len(execution_ids.intersection(ids)), len(execution))
+              for state, ids in compiled["mission"]["states"].items()]
+    charts = ('<section class="home-progress" aria-label="Execution progress">'
+              + _progress_chart('Execution completion by phase', phase_rows)
+              + _progress_chart('Execution status breakdown', states, status=True) + '</section>')
+    return overview, charts
+
+
 _MISSION_STYLE = """
 .secondary { padding: 0 16px 16px; }
 .secondary > summary { margin: 0 -16px; }
@@ -1194,15 +1259,41 @@ _MISSION_STYLE = """
 .pulse-facts { display: grid; grid-template-columns: max-content 1fr; gap: 10px 20px; margin: 0; }
 .pulse-facts dt { color: var(--muted); }
 .pulse-facts dd { margin: 0; }
-.next-action { background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius); padding: 20px; }
+.phase-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 40px; padding: 24px 0 28px; border-bottom: 1px solid var(--line); }
+.phase-overview h2 { font-size: 28px; line-height: 1.25; margin: 0 0 12px; overflow-wrap: anywhere; }
+.phase-outcome { max-width: 65ch; margin: 0; }
+.home-progress { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 32px; margin: 28px 0; }
+.progress-chart { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.progress-chart caption { text-align: left; font-size: 18px; font-weight: 650; padding-bottom: 12px; }
+.progress-chart th, .progress-chart td { padding: 10px 8px; overflow-wrap: anywhere; min-width: 0; }
+.progress-chart th { white-space: normal; }
+.progress-chart th:first-child { width: 48%; }
+.progress-chart thead { font-size: 12px; color: var(--muted); }
+.progress-chart tbody th { font-size: 14px; font-weight: 500; text-align: left; color: var(--ink); background: transparent; }
+.progress-value { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.progress-mark svg { display: block; width: 100%; height: 12px; margin-bottom: 4px; }
+.progress-mark .note { font-variant-numeric: tabular-nums; }
+.progress-track { fill: var(--sunken); stroke: var(--line-strong); }
+.progress-fill { fill: var(--accent); }
+.next-action { padding: 20px 0; border-bottom: 1px solid var(--line); }
 .next-action h2 { margin: 0 0 12px; }
 .next-action .primary-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-weight: 650; }
 .pulse-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
 .root-list, .work-list { list-style: none; padding: 0; }
 .root-list > li, .work-list > li { padding: 12px 0; border-bottom: 1px solid var(--line); }
 .review-item { border-block-end: 1px solid var(--line); }
-.review-item > summary { cursor: pointer; padding: 16px 0; }
-.review-item > summary .note { display: block; margin-top: 4px; }
+#needs-you .review-item > summary, #needs-you .acard > summary { cursor: pointer; padding: 16px 0; display: grid; grid-template-columns: 1fr auto; gap: 6px 24px; list-style: none; }
+#needs-you summary::-webkit-details-marker { display: none; }
+.review-title { font-size: 16px; line-height: 1.4; }
+.review-why, .review-target { grid-column: 1; color: var(--muted); font-size: 13px; }
+.review-action { grid-column: 2; grid-row: 1 / span 3; align-self: center; color: var(--accent); font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.review-action::after { content: " +"; }
+details[open] > summary .review-action::after { content: " −"; }
+.review-group { margin-top: 28px; }
+.review-group > h2 { margin-bottom: 4px; }
+.review-empty { margin: 24px 0; color: var(--muted); }
+.review-empty .count { margin-inline: 8px; }
+.review-body, .abody { overflow-wrap: anywhere; }
 .review-body { padding: 0 16px 16px; }
 #needs-you { max-width: 1000px; }
 #needs-you .review-bar { position: sticky; top: 60px; z-index: 3; background: var(--panel); padding: 12px; }
@@ -1270,6 +1361,19 @@ input, textarea { caret-color: var(--accent); }
   main { padding: 12px 12px 80px; }
   .stickyhead { margin-inline: -12px; padding-inline: 12px; }
   .pulse, .pulse-bottom { grid-template-columns: 1fr; gap: 20px; }
+  .phase-overview, .home-progress { grid-template-columns: 1fr; gap: 20px; }
+  .phase-overview { padding-top: 16px; }
+  .phase-overview h2 { font-size: 24px; }
+  .progress-chart thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .progress-chart tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .progress-chart th:first-child { width: auto; }
+  .progress-chart th, .progress-chart td { border: 0; padding: 4px 0; }
+  .progress-chart .progress-value { padding-left: 12px; }
+  .progress-mark { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
+  .progress-mark svg { flex: 1; min-width: 0; margin: 0; }
+  .progress-mark .note { min-width: 4em; text-align: right; }
+  #needs-you .review-item > summary, #needs-you .acard > summary { grid-template-columns: 1fr; gap: 6px; }
+  .review-action { grid-column: 1; grid-row: auto; padding-block: 8px; }
   .pulse-facts { grid-template-columns: 1fr; gap: 4px; }
   .pulse-facts dd { margin-bottom: 8px; }
   .toptabs { display: grid; grid-template-columns: repeat(4, 1fr); }
@@ -2107,15 +2211,16 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     milestone_body = ''.join(f'<li>{esc(m["text"])} {ref(m["task"]) if m["task"] else ""}</li>' for m in milestones)
     freshness = compiled["project"].get("recordedDate")
     freshness_text = (esc(freshness["date"]) + ' · ' + source_link(freshness["source"])) if freshness else "Not recorded"
+    phase_overview, progress_charts = _home_progress(compiled)
     home = panel("home", f'''
-      <div class="pulse"><div><h2>{esc(current["name"]) if current else "Project pulse"}</h2>
-      <p>{esc(current["outcome"]) if current else "No phase is active."}</p>
-      <p><strong>Most consequential blocker</strong><br>{main_blocker}</p></div>
+      {phase_overview}
+      <section class="next-action"><h2>Next human action</h2>{next_action}</section>
+      {progress_charts}
+      <div class="pulse"><div><h2>Most consequential blocker</h2><p>{main_blocker}</p></div>
       <dl class="pulse-facts"><dt>Execution completion</dt><dd>{metrics["taskCompletion"]["done"]} / {metrics["taskCompletion"]["total"]} tasks</dd>
       <dt>Validation strength</dt><dd>{metrics["validationCoverage"]["done"]} / {metrics["validationCoverage"]["total"]} reviewed or verified</dd>
       <dt>Operations activity</dt><dd>{om["tasks"]["active"]} active · {om["events"]["total"]} recorded events</dd>
       <dt>Latest recorded chronicle date</dt><dd>{freshness_text}</dd></dl></div>
-      <section class="next-action"><h2>Next human action</h2>{next_action}</section>
       <div class="pulse-bottom"><section><h2>Work in progress</h2><ul class="work-list">{wip_list}</ul>
       {"" if wip_list else '<p class="note">No work in progress. No active agent sessions are recorded.</p>'}</section>
       <section><h2>Next milestones</h2><ul class="work-list">{milestone_body}</ul>

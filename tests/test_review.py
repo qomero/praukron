@@ -78,7 +78,7 @@ class TestAssumptionsTab(ReviewCase):
         # A-1 awaits the agent (R-1 REVISE), so it is not in the owner's queue.
         self.assertNotIn('data-id="A-1"', review)
         self.assertLess(review.index('data-id="A-2"'), review.index('data-id="A-4"'))
-        answered = self.needs.split('<summary>Previously answered', 1)[1]
+        answered = self.needs.split('aria-label="Previously answered"', 1)[1]
         self.assertIn('data-id="A-1"', answered)
         self.assertIn('data-id="A-3"', answered)
         for element in ('id="assume-search"', 'id="assume-phase"', 'id="assume-impact"', 'id="assume-status"'):

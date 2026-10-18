@@ -255,7 +255,7 @@ class TestMissionPage(FixtureCase):
         self.assertIn('data-work-task="T-ONE"', upcoming)
         ready = page.split('<summary>Ready ·', 1)[1].split('</details>', 1)[0]
         self.assertNotIn('data-work-task="T-ONE"', ready)
-        review = page.split('<summary>Upcoming decisions', 1)[1].split('id="review-T-ONE"', 1)
+        review = page.split('aria-label="Upcoming decisions"', 1)[1].split('id="review-T-ONE"', 1)
         self.assertEqual(len(review), 2)
 
     def test_home_work_and_review_name_upcoming_owner_blocking_current_work(self):
@@ -279,7 +279,7 @@ class TestMissionPage(FixtureCase):
                 self.assertIn('2 downstream', root)
                 self.assertNotIn('Direct human action', root)
                 self.assertNotIn('Direct technical blocker', root)
-                upcoming = page.split('<summary>Upcoming decisions', 1)[1].split('id="review-T-ONE"', 1)[1]
+                upcoming = page.split('aria-label="Upcoming decisions"', 1)[1].split('id="review-T-ONE"', 1)[1]
                 card = upcoming.split('</details>', 1)[0]
                 self.assertIn(mission.UPCOMING_BLOCKER_NOTE, card)
                 self.assertIn('2 downstream', card)
