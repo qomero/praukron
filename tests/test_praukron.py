@@ -1000,23 +1000,22 @@ class TestDashboard(FixtureCase):
         the one embedded project. Only tasks are offered: a gate or a phase is
         a node too, and marking it clickable would promise a dialog that does
         not exist."""
-        self.assertIn("if (id) showTask(id);", self.html)
-        self.assertIn("NODE_MAP[node.dataset.id]", self.html)
-        self.assertIn("node.classList.toggle('opens', Boolean(NODE_MAP", self.html)
-        self.assertIn("if (panned) return;", self.html)
+        graph = self.html.split('class="offline-graph"', 1)[1].split('</svg>', 1)[0]
+        self.assertIn('data-task="T-TWO"', graph)
+        self.assertIn("showTask(opener.dataset.task)", self.html)
+        self.assertNotIn('data-task="Gate A"', graph)
+        self.assertNotIn('data-task="P1"', graph)
 
     def test_rendering_twice_gives_the_same_page(self) -> None:
         again = dashboard.render(self.project, self.report, compiler.as_json(self.project))
         self.assertEqual(self.html, again)
 
     def test_the_page_survives_mermaid_being_unreachable(self) -> None:
-        """The diagram library is loaded from a CDN. Every number on the page
-        is computed here, so losing the library may cost the drawing and
-        nothing else."""
+        """Every drawing and its source are available without a network."""
         self.assertNotRegex(self.html, r'<script[^>]+src=')
         self.assertIn('class="offline-graph"', self.html)
-        self.assertIn("canvas.classList.add('plain')", self.html)
-        self.assertIn('id="offline-note"', self.html)
+        self.assertNotIn("window.mermaid", self.html)
+        self.assertEqual(self.html.count('class="diagram-source"'), 6)
 
 
 class TestDashboardTabs(FixtureCase):
@@ -1143,23 +1142,20 @@ class TestDashboardTabs(FixtureCase):
         self.assertIn(':root[data-theme="dark"]', self.html)
         self.assertIn(":root:not([data-theme])", self.html)
 
-    def test_graph_controls_survive_pointer_capture(self) -> None:
-        """Found in a real browser: the canvas captures the pointer to pan, and
-        a captured click lands on the canvas. Zoom buttons never fired and a
-        node never opened its dialog until both were handled."""
-        self.assertIn("if (event.target.closest && event.target.closest('.zoom')) return;", self.html)
-        self.assertIn("document.elementFromPoint(event.clientX, event.clientY)", self.html)
+    def test_native_graph_scrolling_does_not_capture_task_clicks(self) -> None:
+        self.assertNotIn("setPointerCapture", self.html)
+        self.assertIn('href="#task-record-T-TWO"', self.html)
+        self.assertIn(".native-drawing, .diagram-source pre { overflow: auto;", self.html)
 
-    def test_a_redraw_is_measured_unscaled(self) -> None:
-        """Mermaid measured labels under the zoomed stage, so every redraw
-        drew them at the current zoom, 60% on a large project."""
-        draw = self.html.split("function draw() {", 1)[1].split("}", 1)[0]
-        self.assertIn("view.k = 1; view.x = 0; view.y = 0;", draw)
-        self.assertLess(draw.index("applyView()"), draw.index("window.mermaid.run") if "window.mermaid.run" in draw else len(draw))
+    def test_native_drawings_need_no_runtime_redraw(self) -> None:
+        self.assertNotIn("window.mermaid", self.html)
+        self.assertIn('<title id="critical-title">', self.html)
+        self.assertIn('Mermaid source · Critical path', self.html)
 
-    def test_the_diagram_is_drawn_only_when_its_tab_is_shown(self) -> None:
-        self.assertIn("if (name === 'work') graphShown();", self.html)
-        self.assertNotIn("traceNote.textContent = HINT;\n  draw();", self.html)
+    def test_native_views_are_visible_without_javascript(self) -> None:
+        self.assertIn('class="native-view is-selected"', self.html)
+        self.assertIn("html.js .native-view:not(.is-selected) { display: none; }", self.html)
+        self.assertNotIn('class="native-view" hidden', self.html)
 
     def test_the_footer_still_says_it_is_derived(self) -> None:
         self.assertIn("This page is derived and read-only", self.html)

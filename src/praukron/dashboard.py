@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from .analytics import Report
 from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATIONS, Project, event_order
-from . import mermaid, review
+from . import drawings, mermaid, review
 
 
 def esc(value: object) -> str:
@@ -363,38 +363,6 @@ details.adr dd { margin: 2px 0 0; }
 .diagram { background: var(--panel); border: 1px solid var(--line);
            border-radius: var(--radius); position: relative; overflow: hidden; }
 .diagram pre { margin: 0; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
-.canvas { position: relative; height: clamp(380px, 64vh, 780px); overflow: hidden;
-          cursor: grab; touch-action: none; }
-.canvas.grabbing { cursor: grabbing; }
-/* Without a rendered diagram the canvas holds diagram source, which is read by
-   scrolling like any other text. */
-.canvas.plain { height: auto; overflow: auto; padding: 16px; cursor: auto; }
-.canvas.plain .stage { position: static; transform: none !important; }
-.canvas.plain .zoom, .canvas.plain .trace { display: none; }
-.stage { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
-.stage svg { max-width: none !important; display: block; }
-.zoom { position: absolute; right: 10px; top: 10px; z-index: 2; display: flex; gap: 2px;
-        align-items: center; background: var(--panel); border: 1px solid var(--line-strong);
-        border-radius: 999px; padding: 3px; }
-.zoom button { font: inherit; font-size: 13px; line-height: 1; width: 28px; height: 26px;
-        cursor: pointer; background: none; border: 0; color: var(--muted); border-radius: 999px; }
-.zoom button.wide { width: auto; padding: 0 10px; font-size: 12px; }
-.zoom button:hover { color: var(--ink); background: var(--panel-raised); }
-.zoom .level { font-size: 12px; color: var(--muted); min-width: 42px; text-align: center; }
-.trace { position: absolute; left: 12px; bottom: 10px; z-index: 2; font-size: 12px;
-         color: var(--muted); pointer-events: none; max-width: calc(100% - 140px);
-         overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* Tracing dims everything outside the hovered task's chain. Opacity is used
-   rather than colour so a task's status colour still reads. */
-.stage.tracing g.node { opacity: 0.12; }
-.stage.tracing g.node.chain { opacity: 1; }
-.stage.tracing g.node.focus > rect, .stage.tracing g.node.focus > polygon,
-.stage.tracing g.node.focus > path { stroke-width: 3px; }
-.stage.tracing .flowchart-link { opacity: 0.06; }
-.stage.tracing .flowchart-link.chain { opacity: 1; }
-.stage.tracing g.cluster { opacity: 0.45; }
-/* Only nodes that are tasks open anything, so only those look clickable. */
-.stage g.node.opens { cursor: pointer; }
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .tabs button { font: inherit; font-size: 13px; padding: 5px 12px; cursor: pointer;
   background: var(--panel); color: var(--muted); border: 1px solid var(--line-strong);
@@ -435,7 +403,6 @@ footer { color: var(--muted); font-size: 12px; margin-top: 48px;
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .phases { grid-template-columns: minmax(0, 1fr); }
   .shown, .xf-count { margin-left: 0; width: 100%; }
-  .canvas { height: 60vh; }
   .row .lab { flex-basis: 46%; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -597,303 +564,28 @@ document.addEventListener('click', event => {
   reveal(document.getElementById(link.dataset.record));
 });
 
-// --- The diagram canvas ------------------------------------------------
-// A 48-task graph drawn to fit a panel is too small to read, so the diagram
-// is given its natural size and the canvas is zoomed and panned instead.
-
-const canvas = document.getElementById('canvas');
-const stage = document.getElementById('stage');
-const target = document.getElementById('diagram');
-const levelText = document.getElementById('zoom-level');
-const traceNote = document.getElementById('trace-note');
-const view = { k: 1, x: 0, y: 0 };
-let adjusted = false;   // the reader has zoomed or panned; stop re-fitting
-let drag = null;
-let panned = false;
-let traced = null;
-
-function applyView() {
-  stage.style.transform =
-    `translate(${view.x}px, ${view.y}px) scale(${view.k})`;
-  levelText.textContent = Math.round(view.k * 100) + '%';
-}
-
-function naturalSize() {
-  const svg = stage.querySelector('svg');
-  if (!svg) return null;
-  // Mermaid ships the drawing at width:100% with a max-width, which is what
-  // shrinks it. The viewBox carries the size it was actually laid out at.
-  const box = svg.viewBox && svg.viewBox.baseVal;
-  const width = box && box.width ? box.width : svg.getBoundingClientRect().width;
-  const height = box && box.height ? box.height : svg.getBoundingClientRect().height;
-  if (!width || !height) return null;
-  svg.style.maxWidth = 'none';
-  svg.style.width = width + 'px';
-  svg.style.height = height + 'px';
-  return { width, height };
-}
-
-function fitScale(size, box) {
-  return Math.min(box.width / size.width, box.height / size.height, 1);
-}
-
-function fit() {
-  const size = naturalSize();
-  if (!size) return;
-  const box = canvas.getBoundingClientRect();
-  if (!box.width || !box.height) return;
-  view.k = fitScale(size, box);
-  view.x = (box.width - size.width * view.k) / 2;
-  view.y = (box.height - size.height * view.k) / 2;
-  adjusted = false;
-  applyView();
-}
-
-// Fitting a large graph into a panel is what made it unreadable in the first
-// place, so a diagram that only fits below this is opened at a legible scale,
-// centred on the work that matters now, with Fit one click away.
-const LEGIBLE = 0.6;
-
-function openingTask() {
-  // What is in flight, else what can start, else the critical path.
-  const candidates = [...DATA.wip, ...DATA.ready, ...DATA.criticalPath];
-  return candidates.find(id => byId[id]) || null;
-}
-
-function centreOn(taskId) {
-  const node = taskId && stage.querySelector(
-    `g.node[data-id="${NODE_KEY[taskId] || ''}"]`);
-  if (!node) return false;
-  const nodeBox = node.getBoundingClientRect();
-  const canvasBox = canvas.getBoundingClientRect();
-  view.x += canvasBox.left + canvasBox.width / 2 - (nodeBox.left + nodeBox.width / 2);
-  view.y += canvasBox.top + canvasBox.height / 2 - (nodeBox.top + nodeBox.height / 2);
-  applyView();
-  return true;
-}
-
-function openView() {
-  const size = naturalSize();
-  if (!size) return;
-  const box = canvas.getBoundingClientRect();
-  if (!box.width || !box.height) return;
-  const fitted = fitScale(size, box);
-  if (fitted >= LEGIBLE) { fit(); return; }
-  view.k = LEGIBLE;
-  view.x = (box.width - size.width * view.k) / 2;
-  view.y = (box.height - size.height * view.k) / 2;
-  adjusted = false;
-  applyView();
-  centreOn(openingTask());
-}
-
-function zoomAt(factor, cx, cy) {
-  const next = Math.min(8, Math.max(0.05, view.k * factor));
-  const ratio = next / view.k;
-  view.x = cx - (cx - view.x) * ratio;
-  view.y = cy - (cy - view.y) * ratio;
-  view.k = next;
-  adjusted = true;
-  applyView();
-}
-
-function zoomCentre(factor) {
-  const box = canvas.getBoundingClientRect();
-  zoomAt(factor, box.width / 2, box.height / 2);
-}
-
-document.querySelectorAll('.zoom button').forEach(button =>
-  button.addEventListener('click', () => {
-    if (button.dataset.zoom === 'fit') fit();
-    else zoomCentre(button.dataset.zoom === 'in' ? 1.25 : 1 / 1.25);
-  }));
-
-// Plain wheel keeps scrolling the page. A trackpad pinch arrives as
-// ctrl+wheel, so pinch-to-zoom works without claiming ordinary scrolling.
-canvas.addEventListener('wheel', event => {
-  if (!event.ctrlKey && !event.metaKey) return;
-  event.preventDefault();
-  const box = canvas.getBoundingClientRect();
-  zoomAt(Math.exp(-event.deltaY / 240),
-         event.clientX - box.left, event.clientY - box.top);
-}, { passive: false });
-
-canvas.addEventListener('pointerdown', event => {
-  if (event.button !== 0) return;
-  // The zoom controls sit on the canvas. Capturing the pointer for them would
-  // deliver their click to the canvas, and the button would never fire.
-  if (event.target.closest && event.target.closest('.zoom')) return;
-  drag = { x: event.clientX - view.x, y: event.clientY - view.y,
-           fromX: event.clientX, fromY: event.clientY };
-  panned = false;
-  canvas.setPointerCapture(event.pointerId);
-  canvas.classList.add('grabbing');
-});
-canvas.addEventListener('pointermove', event => {
-  if (!drag) return;
-  // A click carries a little movement with it. Past this the gesture was a
-  // pan, and releasing over a task must not open it.
-  if (Math.abs(event.clientX - drag.fromX) > 3 ||
-      Math.abs(event.clientY - drag.fromY) > 3) panned = true;
-  view.x = event.clientX - drag.x;
-  view.y = event.clientY - drag.y;
-  adjusted = true;
-  applyView();
-});
-['pointerup', 'pointercancel'].forEach(name =>
-  canvas.addEventListener(name, () => {
-    drag = null;
-    canvas.classList.remove('grabbing');
-  }));
-canvas.addEventListener('dblclick', fit);
-// Re-open rather than re-fit: fitting is what made the graph unreadable,
-// and openView() is the rule for what a fresh view should show.
-addEventListener('resize', () => { if (!adjusted) openView(); });
-
-// --- Tracing a dependency chain ----------------------------------------
-// The chain comes from the compiled dependencies, never from the drawing, so
-// a highlight and `praukron explain` cannot disagree (ADR-025).
-
-function chainOf(id) {
-  const chain = new Set([id]);
-  for (const direction of ['deps', 'blocks']) {
-    const queue = [id];
-    while (queue.length) {
-      const task = byId[queue.pop()];
-      if (!task) continue;
-      for (const next of task[direction]) {
-        if (!chain.has(next)) { chain.add(next); queue.push(next); }
-      }
-    }
-  }
-  return chain;
-}
-
-function edgeEnd(element, prefix) {
-  for (const name of element.classList) {
-    if (name.startsWith(prefix)) return NODE_MAP[name.slice(prefix.length)];
-  }
-  return null;
-}
-
-function trace(id) {
-  const chain = chainOf(id);
-  const task = byId[id];
-  stage.classList.add('tracing');
-  stage.querySelectorAll('g.node[data-id]').forEach(node => {
-    const taskId = NODE_MAP[node.dataset.id];
-    node.classList.toggle('chain', chain.has(taskId));
-    node.classList.toggle('focus', taskId === id);
+// Native drawings and their sources are already in the document.
+const diagramTabs = [...document.querySelectorAll('[data-diagram]')];
+function selectDiagram(button) {
+  diagramTabs.forEach(tab => {
+    const selected = tab === button;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    document.getElementById(tab.getAttribute('aria-controls')).classList.toggle('is-selected', selected);
   });
-  stage.querySelectorAll('.flowchart-link').forEach(edge => {
-    const from = edgeEnd(edge, 'LS-');
-    const to = edgeEnd(edge, 'LE-');
-    edge.classList.toggle('chain', chain.has(from) && chain.has(to));
+}
+diagramTabs.forEach((button, index) => {
+  button.addEventListener('click', () => selectDiagram(button));
+  button.addEventListener('keydown', event => {
+    const next = event.key === 'ArrowRight' ? (index + 1) % diagramTabs.length :
+      event.key === 'ArrowLeft' ? (index + diagramTabs.length - 1) % diagramTabs.length :
+      event.key === 'Home' ? 0 : event.key === 'End' ? diagramTabs.length - 1 : null;
+    if (next === null) return;
+    event.preventDefault();
+    selectDiagram(diagramTabs[next]);
+    diagramTabs[next].focus();
   });
-  const others = chain.size - 1;
-  traceNote.textContent = `${id} — ${task ? task.title : ''} · ` +
-    (others ? `${others} connected task${others === 1 ? '' : 's'}` : 'nothing connected');
-}
-
-function clearTrace() {
-  stage.classList.remove('tracing');
-  stage.querySelectorAll('.chain, .focus').forEach(
-    element => element.classList.remove('chain', 'focus'));
-  traceNote.textContent = HINT;
-}
-
-const HINT = 'Hover a task to trace its chain · click it for detail · drag to pan · ' +
-  'pinch or \u2318/Ctrl-scroll to zoom';
-
-canvas.addEventListener('mousemove', event => {
-  if (drag) return;
-  const node = event.target.closest && event.target.closest('g.node[data-id]');
-  const id = node ? NODE_MAP[node.dataset.id] : null;
-  if (id === traced) return;
-  traced = id;
-  if (id) trace(id); else clearTrace();
 });
-canvas.addEventListener('mouseleave', () => { traced = null; clearTrace(); });
-
-// The drawing is only how the element is found. What opens is the same dialog
-// the task tables open, reading the same compiled project (ADR-025).
-// The canvas captures the pointer so a drag can leave it, and a captured
-// pointer's click is delivered to the canvas, not the node under it. The node
-// is therefore found from where the click landed.
-function nodeAt(event) {
-  const direct = event.target.closest && event.target.closest('g.node[data-id]');
-  if (direct) return direct;
-  const under = document.elementFromPoint(event.clientX, event.clientY);
-  return under && under.closest ? under.closest('g.node[data-id]') : null;
-}
-canvas.addEventListener('click', event => {
-  if (panned) return;
-  const node = nodeAt(event);
-  const id = node ? NODE_MAP[node.dataset.id] : null;
-  if (id) showTask(id);
-});
-
-function markOpenable() {
-  stage.querySelectorAll('g.node[data-id]').forEach(node =>
-    node.classList.toggle('opens', Boolean(NODE_MAP[node.dataset.id])));
-}
-
-// --- Rendering ---------------------------------------------------------
-// A diagram is drawn only once its tab is visible: laid out inside a hidden
-// panel, every measurement Mermaid takes would be zero (ADR-044).
-
-const graphPanel = document.getElementById('panel-graph');
-let currentDiagram = 'task-graph.mmd';
-let drawn = false;
-
-function graphVisible() { return graphPanel.getBoundingClientRect().width > 0; }
-
-function mermaidTheme() {
-  return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'neutral';
-}
-
-function draw() {
-  // Mermaid sizes each label from the rendered text. Under a scaled stage it
-  // would measure the scaled size and draw every label that much too small.
-  view.k = 1; view.x = 0; view.y = 0;
-  applyView();
-  target.textContent = DIAGRAMS[currentDiagram];
-  target.removeAttribute('data-processed');
-  traced = null;
-  clearTrace();
-  drawn = true;
-  const ready = () => { openView(); markOpenable(); };
-  const done = window.mermaid.run({ nodes: [target] });
-  if (done && typeof done.then === 'function') done.then(ready, ready);
-  else ready();
-}
-
-const tabs = document.querySelectorAll('.tabs button');
-tabs.forEach(button => button.addEventListener('click', () => {
-  tabs.forEach(other => other.setAttribute('aria-selected', String(other === button)));
-  currentDiagram = button.dataset.diagram;
-  if (window.mermaid) draw();
-  else target.textContent = DIAGRAMS[currentDiagram];
-}));
-
-if (window.mermaid) {
-  window.mermaid.initialize({ startOnLoad: false, maxTextSize: 200000, theme: mermaidTheme() });
-  traceNote.textContent = HINT;
-} else {
-  // Nothing below depends on a diagram: the page shows the source and every
-  // number on it still reports.
-  canvas.classList.add('plain');
-  document.querySelectorAll('.mermaid').forEach(node => {
-    node.style.whiteSpace = 'pre';
-  });
-  document.getElementById('offline-note').hidden = false;
-}
-
-function graphShown() {
-  if (!window.mermaid) return;
-  if (!drawn) draw();
-  else if (!adjusted) openView();
-}
 
 // --- Cross-filtering ---------------------------------------------------
 // Selecting a chart segment narrows every chart, table, figure and the Needs
@@ -1161,7 +853,6 @@ function selectTab(name, { focus = false, record = true } = {}) {
   });
   if (record && location.hash !== '#' + hashFor(name)) history.replaceState(null, '', '#' + hashFor(name));
   if (record) window.scrollTo(0, 0);
-  if (name === 'work') graphShown();
   const legacy = document.getElementById('panel-' + old);
   if (legacy && legacy.tagName === 'DETAILS') legacy.open = true;
 }
@@ -1227,10 +918,7 @@ function applyTheme(theme) {
   const choice = stored === 'light' || stored === 'dark' ? stored : 'system';
   themeButtons.forEach(button =>
     button.setAttribute('aria-pressed', String(button.dataset.themeChoice === choice)));
-  if (!window.mermaid) return;
-  window.mermaid.initialize({ startOnLoad: false, maxTextSize: 200000, theme: mermaidTheme() });
-  if (drawn && graphVisible()) draw();
-  else drawn = false;
+
 }
 
 themeButtons.forEach(button => button.addEventListener('click', () => {
@@ -1529,6 +1217,35 @@ _MISSION_STYLE = """
 .work-scope button, #search-open, #search-close { min-height: 44px; padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); background: var(--panel); cursor: pointer; }
 .work-scope button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .scope-hidden { display: none; }
+.diagram-tabs { display: none; }
+html.js .diagram-tabs { display: flex; }
+.diagram-tabs button { min-height: 44px; }
+html.js .native-view:not(.is-selected) { display: none; }
+.native-view { min-width: 0; max-width: 100%; }
+.native-drawing, .diagram-source pre { overflow: auto; max-width: 100%; max-height: 560px; }
+.native-drawing { background: var(--panel); scrollbar-color: var(--line-strong) var(--panel); }
+.native-drawing svg { display: block; max-width: none; }
+.native-drawing text { fill: var(--ink); font: 14px system-ui, sans-serif; }
+.native-drawing .drawing-id { font: 600 14px ui-monospace, monospace; }
+.native-drawing .drawing-status { fill: var(--muted); font-size: 12px; }
+.native-drawing .drawing-node rect { fill: var(--panel-raised); stroke: var(--mark); stroke-width: 2; }
+.native-drawing .drawing-edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.native-drawing .arrow-head { fill: var(--muted); }
+.native-drawing .drawing-grid { fill: none; stroke: var(--line); }
+.native-drawing .calendar-bar { fill: var(--mark); }
+.tone-good { --mark: var(--good); } .tone-wip { --mark: var(--wip); }
+.tone-bad { --mark: var(--bad); } .tone-warn { --mark: var(--warn); }
+.tone-todo { --mark: var(--todo); }
+.diagram-source { margin-top: 16px; }
+.diagram-source summary { cursor: pointer; padding: 10px 0; }
+.diagram-source pre { padding: 16px; background: var(--panel-raised); font-size: 13px; }
+.ordering-bands { display: flex; width: max-content; list-style: none; margin: 0; padding: 20px; gap: 32px; }
+.ordering-bands > li { width: 240px; }
+.ordering-bands h3 { margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
+.ordering-bands ul { list-style: none; padding: 0; }
+.ordering-bands ul li { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.ordering-bands span { display: block; margin-top: 4px; }
+.ordering-bands .drawing-status { color: var(--muted); font-size: 12px; }
 .offline-graph { overflow: auto; max-height: 560px; background: var(--panel); }
 .offline-graph svg { display: block; }
 .offline-graph rect { fill: var(--panel-raised); stroke: var(--line-strong); }
@@ -2058,19 +1775,20 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     )
 
     # --- Graph -------------------------------------------------------------
+    native = {"task-graph.mmd": dependency_svg(tasks), **drawings.render_all(project, report)}
+    labels = [("task-graph.mmd", "Task graph"), ("critical-path.mmd", "Critical path"),
+              ("phases.mmd", "Phases"), ("gates.mmd", "Gates"),
+              ("timeline.mmd", "Dependency ordering"), ("gantt.mmd", "Calendar Gantt")]
     diagram_tabs = "".join(
-        f'<button data-diagram="{name}" aria-selected="{str(index == 0).lower()}">{label}</button>'
-        for index, (name, label) in enumerate(
-            [
-                ("task-graph.mmd", "Task graph"),
-                ("critical-path.mmd", "Critical path"),
-                ("phases.mmd", "Phases"),
-                ("gates.mmd", "Gates"),
-                ("timeline.mmd", "Dependency timeline"),
-                ("gantt.mmd", "Calendar Gantt"),
-            ]
-        )
-    )
+        f'<button id="view-tab-{i}" role="tab" aria-controls="view-{i}" tabindex="{0 if i == 0 else -1}" '
+        f'data-diagram="{name}" aria-selected="{str(i == 0).lower()}">{label}</button>'
+        for i, (name, label) in enumerate(labels))
+    native_views = "".join(
+        f'<section id="view-{i}" class="native-view{" is-selected" if i == 0 else ""}" '
+        f'role="tabpanel" aria-labelledby="view-tab-{i}"><h3>{label}</h3>{native[name]}'
+        f'<details class="diagram-source"><summary>Mermaid source · {label}</summary>'
+        f'<pre><code>{esc(diagrams[name])}</code></pre></details></section>'
+        for i, (name, label) in enumerate(labels))
     scheduled = len(compiled["schedule"]["scheduled"])
     unscheduled = len(compiled["schedule"]["unscheduled"])
 
@@ -2293,24 +2011,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     )
     graph = panel("graph", f"""
   <h2>Views</h2>
-  <div class="tabs">{diagram_tabs}</div>
-  <div class="diagram">
-    <div class="canvas" id="canvas">
-      <div class="stage" id="stage"><div class="mermaid" id="diagram">{esc(diagrams["task-graph.mmd"])}</div></div>
-      <div class="zoom">
-        <button type="button" data-zoom="out" aria-label="Zoom out">&minus;</button>
-        <span class="level" id="zoom-level">100%</span>
-        <button type="button" data-zoom="in" aria-label="Zoom in">+</button>
-        <button type="button" class="wide" data-zoom="fit">Fit</button>
-      </div>
-      <div class="trace" id="trace-note"></div>
-    </div>
-  </div>
-  <p class="note" id="offline-note" hidden>
-    Diagram sources are available offline. The complete dependency graph above
-    is drawn directly from the recorded dependencies, with no network resources.
-  </p>
-  <p class="note">Dashed nodes in the task graph are project operations; everything else is execution.</p>
+  <div class="tabs diagram-tabs" role="tablist" aria-label="Diagram views">{diagram_tabs}</div>
+  {native_views}
   <h2>Schedule</h2>
   <p class="note">
     {scheduled} {"task carries" if scheduled == 1 else "tasks carry"} real schedule
@@ -2439,7 +2141,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     work_states = ''.join(
         f'<details class="work-state"{" open" if state != "Completed" else ""}><summary>{state} · <span data-state-count>{len(ids)}</span></summary>'
         + ('<ul class="plain">' + ''.join(f'<li data-work-task="{esc(t)}">{ref(t)}'
-            + ('<span class="note"> · Upcoming: not in current phase</span>' if t not in mission["relevant"] and tasks[t]["status"] != "DONE" else '')
+            + ('<span class="note"> · Upcoming: not in current phase</span>' if state == "Upcoming" or (t not in mission["relevant"] and tasks[t]["status"] != "DONE") else '')
             + (f'<span class="note"> · Responsible: {esc(tasks[t]["owner"] or "unassigned")} · Runtime: unknown</span>' if tasks[t]["status"] == "WIP" else '')
             + '</li>' for t in ids) + '</ul>' if ids else '')
         + f'<p class="note scope-empty"{" hidden" if ids else ""}>No tasks in this state for the selected scope.</p></details>'

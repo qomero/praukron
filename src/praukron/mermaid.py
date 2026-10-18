@@ -89,45 +89,68 @@ def task_graph(project: Project, report: Report) -> str:
     return "\n".join(lines) + "\n"
 
 
+def critical_nodes(project: Project, report: Report) -> list[dict]:
+    """Shared view data for the native drawing and Mermaid export."""
+    return [{"id": tid, "title": project.task(tid).title if project.task(tid) else tid,
+             "status": project.task(tid).status if project.task(tid) else "UNKNOWN"}
+            for tid in report.critical_path]
+
+
+def phase_nodes(project: Project, report: Report) -> list[dict]:
+    return [{"id": p.id, "title": p.name, "status": p.status,
+             "progress": str(report.phase_progress[p.id])} for p in project.phases]
+
+
+def gate_data(project: Project) -> tuple[list[dict], list[tuple[str, str]]]:
+    nodes = [{"id": g.id, "title": g.name, "status": g.status, "kind": "gate"}
+             for g in project.gates]
+    nodes.extend({"id": p.id, "title": "exit", "status": p.status, "kind": "phase"}
+                 for p in project.phases)
+    edges = [(g.id, p.id) for p in project.phases for g in project.gates
+             if any(entry.split()[:1] == [p.id] for entry in g.blocks if entry.split())]
+    return nodes, edges
+
+
 def critical_path(project: Project, report: Report) -> str:
     if not report.critical_path:
         return "flowchart LR\n    none[\"No open work\"]\n"
     lines = ["flowchart LR"]
-    for task_id in report.critical_path:
-        task = project.task(task_id)
-        title = _label(task.title) if task else task_id
+    nodes = critical_nodes(project, report)
+    for item in nodes:
+        task_id, title = item["id"], _label(item["title"])
         lines.append(f'    {node_id(task_id)}["{task_id}<br/>{title}"]')
-    for left, right in zip(report.critical_path, report.critical_path[1:]):
-        lines.append(f"    {node_id(left)} --> {node_id(right)}")
+    for left, right in zip(nodes, nodes[1:]):
+        lines.append(f"    {node_id(left['id'])} --> {node_id(right['id'])}")
     return "\n".join(lines) + "\n"
 
 
 def phase_flow(project: Project, report: Report) -> str:
     lines = ["flowchart TD"]
-    for phase in project.phases:
-        progress = report.phase_progress[phase.id]
+    nodes = phase_nodes(project, report)
+    for phase in nodes:
         lines.append(
-            f'    {node_id(phase.id)}["{phase.id} {_label(phase.name)}<br/>'
-            f'{progress} · {phase.status}"]'
+            f'    {node_id(phase["id"])}["{phase["id"]} {_label(phase["title"])}<br/>'
+            f'{phase["progress"]} · {phase["status"]}"]'
         )
-    for left, right in zip(project.phases, project.phases[1:]):
-        lines.append(f"    {node_id(left.id)} --> {node_id(right.id)}")
+    for left, right in zip(nodes, nodes[1:]):
+        lines.append(f"    {node_id(left['id'])} --> {node_id(right['id'])}")
     return "\n".join(lines) + "\n"
 
 
 def gate_graph(project: Project) -> str:
     lines = ["flowchart LR"]
-    for gate in project.gates:
-        mark = "✓" if gate.status == "GREEN" else "✗"
+    nodes, edges = gate_data(project)
+    for gate in (n for n in nodes if n["kind"] == "gate"):
+        mark = "✓" if gate["status"] == "GREEN" else "✗"
         lines.append(
-            f'    {node_id(gate.id)}{{"{_label(gate.id)}<br/>'
-            f'{_label(gate.name)} {mark}"}}'
+            f'    {node_id(gate["id"])}{{"{_label(gate["id"])}<br/>'
+            f'{_label(gate["title"])} {mark}"}}'
         )
-    for phase in project.phases:
-        lines.append(f'    {node_id(phase.id)}["{phase.id} exit"]')
-        for gate in project.gates:
-            if any(entry.split()[:1] == [phase.id] for entry in gate.blocks if entry.split()):
-                lines.append(f"    {node_id(gate.id)} --> {node_id(phase.id)}")
+    for phase in (n for n in nodes if n["kind"] == "phase"):
+        lines.append(f'    {node_id(phase["id"])}["{phase["id"]} exit"]')
+        for left, right in edges:
+            if right == phase["id"]:
+                lines.append(f"    {node_id(left)} --> {node_id(right)}")
     lines.append("    classDef green fill:#e8f5e9,stroke:#2e7d32,color:#1b5e20;")
     lines.append("    classDef red fill:#ffebee,stroke:#c62828,color:#8e0000;")
     for status, style in (("GREEN", "green"), ("RED", "red")):
@@ -137,8 +160,8 @@ def gate_graph(project: Project) -> str:
     return "\n".join(lines) + "\n"
 
 
-def dependency_timeline(project: Project, report: Report) -> str:
-    """Ordering only. Every task sits in a depth band; no date is implied."""
+def dependency_bands(project: Project) -> dict[int, list[str]]:
+    """Ordering only; completed dependencies do not add a step."""
     depth: dict[str, int] = {}
 
     def level(task_id: str, seen: frozenset[str]) -> int:
@@ -159,6 +182,16 @@ def dependency_timeline(project: Project, report: Report) -> str:
     for task in project.tasks:
         level(task.id, frozenset())
 
+    bands: dict[int, list[str]] = {}
+    for task in project.tasks:
+        if not task.done:
+            bands.setdefault(depth.get(task.id, 0), []).append(task.id)
+    return dict(sorted(bands.items()))
+
+
+def dependency_timeline(project: Project, report: Report) -> str:
+    """Ordering only. Every task sits in a depth band; no date is implied."""
+    bands = dependency_bands(project)
     lines = [
         "---",
         "displayMode: compact",
@@ -168,11 +201,6 @@ def dependency_timeline(project: Project, report: Report) -> str:
         "    dateFormat X",
         "    axisFormat step %s",
     ]
-    bands: dict[int, list[str]] = {}
-    for task in project.tasks:
-        if task.done:
-            continue
-        bands.setdefault(depth.get(task.id, 0), []).append(task.id)
     for band in sorted(bands):
         lines.append(f"    section Step {band + 1}")
         for task_id in bands[band]:
@@ -183,6 +211,14 @@ def dependency_timeline(project: Project, report: Report) -> str:
         lines.append("    section Complete")
         lines.append("    No open work : 0, 1")
     return "\n".join(lines) + "\n"
+
+
+def scheduled_groups(project: Project, report: Report) -> dict[str, list[dict]]:
+    by_phase: dict[str, list[dict]] = {}
+    for entry in report.scheduled:
+        task = project.task(entry["id"])
+        by_phase.setdefault(task.phase if task else "P-NONE", []).append(entry)
+    return by_phase
 
 
 def calendar_gantt(project: Project, report: Report) -> str:
@@ -211,11 +247,7 @@ def calendar_gantt(project: Project, report: Report) -> str:
             'unscheduled."]\n'
         )
     lines = ["gantt", f"    title Scheduled work{tail}", "    dateFormat YYYY-MM-DD"]
-    by_phase: dict[str, list[dict[str, str]]] = {}
-    for entry in report.scheduled:
-        task = project.task(entry["id"])
-        by_phase.setdefault(task.phase if task else "P-NONE", []).append(entry)
-    for phase_id, entries in by_phase.items():
+    for phase_id, entries in scheduled_groups(project, report).items():
         lines.append(f"    section {phase_id}")
         for entry in entries:
             end_or_estimate = entry.get("end") or entry.get("estimate")

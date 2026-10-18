@@ -46,7 +46,8 @@ class TestRootProjection(unittest.TestCase):
         self.assertEqual(p["future"], ["FUTURE", "NEXT"])
         self.assertIn("AGENT", p["states"]["Waiting for dependencies"])
         self.assertNotIn("AGENT", p["states"]["Waiting for human"])
-        self.assertIn("FUTURE", p["states"]["Ready"])
+        self.assertIn("FUTURE", p["states"]["Upcoming"])
+        self.assertNotIn("FUTURE", p["states"]["Ready"])
         self.assertIn("NEXT", p["states"]["Waiting for dependencies"])
 
     def test_future_prerequisite_of_current_phase_is_relevant(self):
@@ -62,8 +63,9 @@ class TestRootProjection(unittest.TestCase):
 
     def test_all_states_and_runtime_unknown(self):
         p = mission.project(data(task("READY"), task("RUN", status="WIP"), task("H", owner=True),
-                                 task("WAIT", ["H"]), task("FAIL", status="BLOCKED"), task("DONE", status="DONE")))
-        self.assertEqual([len(p["states"][s]) for s in mission.STATES], [1] * 6)
+                                 task("WAIT", ["H"]), task("FAIL", status="BLOCKED"), task("DONE", status="DONE"),
+                                 task("LATER", owner=True, phase="P2")))
+        self.assertEqual([len(p["states"][s]) for s in mission.STATES], [1] * 7)
         self.assertEqual(p["runtime"], {"RUN": "unknown"})
 
     def test_missing_dependency_and_cycles_terminate(self):
@@ -86,6 +88,23 @@ class TestRootProjection(unittest.TestCase):
         self.assertEqual(p["review"]["answered"][0]["id"], "H")
         self.assertEqual(p["states"]["Ready"], ["H"])
         self.assertEqual(p["states"]["Waiting for dependencies"], [])
+
+    def test_later_owner_is_upcoming_even_when_verified_active_or_a_prerequisite(self):
+        for status in ("TODO", "WIP"):
+            for verified in (False, True):
+                with self.subTest(status=status, verified=verified):
+                    d = data(task("DONE", status="DONE"),
+                             task("LATER", ["DONE"], owner=True, status=status, phase="P2"),
+                             task("NOW", ["LATER"]))
+                    d["phases"] = [{"id": "P1"}, {"id": "P2"}]
+                    if verified:
+                        d["responses"] = [{"target": "LATER", "action": "VERIFY", "fromOwner": True}]
+                    p = mission.project(d)
+                    self.assertEqual(p["states"]["Upcoming"], ["LATER"])
+                    self.assertEqual(p["states"]["Ready"], [])
+                    self.assertEqual(p["review"]["now"], [])
+                    self.assertEqual([r["id"] for r in p["review"]["upcoming"]], ["LATER"])
+                    self.assertEqual(p["roots"], [])
 
     def test_no_blockers_empty_and_completed_only(self):
         for d in (data(), data(task("A")), data(task("A", status="DONE"))):
@@ -212,6 +231,12 @@ class TestMissionPage(FixtureCase):
         self.assertIn("Permission or HIGH-impact sensitivity is the recorded proxy for irreversible consequences", page)
         row = page.split('data-work-task="' + self.project.tasks[0].id + '"')[1].split('</li>')[0]
         self.assertIn("Upcoming: not in current phase", row)
+        upcoming = page.split('<summary>Upcoming ·', 1)[1].split('</details>', 1)[0]
+        self.assertIn('data-work-task="T-ONE"', upcoming)
+        ready = page.split('<summary>Ready ·', 1)[1].split('</details>', 1)[0]
+        self.assertNotIn('data-work-task="T-ONE"', ready)
+        review = page.split('<summary>Upcoming decisions', 1)[1].split('id="review-T-ONE"', 1)
+        self.assertEqual(len(review), 2)
 
     def test_work_scope_changes_rows_counts_empty_states_and_buttons(self):
         script = dashboard._MISSION_SCRIPT.split('const scopeButtons =', 1)[1].split('const initialTarget', 1)[0]

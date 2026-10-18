@@ -24,9 +24,12 @@ health score, ETA, schedule or event is invented.
 task status or the compiler's existing readiness and governance rules.
 
 - An owner task is actionable when its dependencies are complete and it belongs
-  to current work or is a prerequisite of current work. A recorded owner VERIFY
+  to current work or is an earlier-phase prerequisite of current work. An owner
+  task assigned to a later phase remains Upcoming, even if its dependencies are
+  met, it is WIP, or current work names it as a prerequisite. A recorded owner VERIFY
   moves it to the answered group while the agent records the resulting state;
-  with no unmet dependencies or failures, it is Ready for that agent action.
+  in the current phase, with no unmet dependencies or failures, it is Ready for
+  that agent action. A future-phase verification does not make work Ready early.
 - Explicit BLOCKED status, failed acceptance evidence and unresolved failure
   events are technical causes. Missing dependencies remain visible as missing
   records. Ordinary unfinished work is a dependency wait, not a failure.
@@ -40,7 +43,7 @@ task status or the compiler's existing readiness and governance rules.
   downstream cost and ID. Assumptions remain
   provisional; a response must be reconciled through the established pathway.
 
-Work separates Ready, In progress, Waiting for human, Waiting for dependencies,
+Work separates Ready, In progress, Upcoming, Waiting for human, Waiting for dependencies,
 Blocked by failure and Completed. The projection describes each task's present
 condition. The original status, acceptance contract and full diagnostics remain
 available in Audit. Phase gates remain distinct from task-dependency roots.
@@ -62,8 +65,18 @@ route to their corresponding inspection views.
 Existing light/dark tokens and system-theme behavior remain. At phone width the
 layout stacks and Review appears first in the workspace bar. Visible focus,
 labels and reduced-motion styles support keyboard use. Content remains readable
-without JavaScript; search is hidden. The dependency SVG and its linked textual
-equivalent require no external library. Other diagram sources remain inspectable.
+without JavaScript; search is hidden. All six views draw natively in Python,
+using inline SVG or HTML. Each retains its expandable Mermaid source alongside
+the drawing. Critical path, phases and gates share node/edge selections with
+their exports; dependency ordering shares depth bands, and calendar Gantt shares
+phase groups and recorded schedules. Dependency ordering never implies dates.
+Calendar bars use an authored end or duration (ms, s, m, h, d or w); invalid or
+unsupported metadata gets no invented bar. Unscheduled work is counted separately.
+Empty views explain what is missing. Undated work can still have a dependency
+order; its calendar shows an empty state. Status labels accompany themed marks.
+Drawings retain readable type and scroll inside a focusable region at phone width.
+With JavaScript, the diagram tabs support arrows, Home and End. Without it, all
+drawings and source disclosures remain available. No browser renderer is needed.
 There are no external assets or network requests in static mode.
 
 `dashboard --serve` retains the existing token-protected response pathway. It
@@ -77,7 +90,10 @@ files, so the same records and evidence also have dashboard destinations.
 Run `py -3 -m unittest discover -s tests` (or `python3` on Unix). The mission
 tests cover DAG diamonds, independent causes, future obligations, missing
 dependencies, recorded failure, empty/completed projects, deterministic output,
-search ordering, destinations and accessibility markup. Existing response,
+search ordering, destinations and accessibility markup. `test_drawings.py`
+compares the nodes, edges, order and dates in each native view against its
+Mermaid source on one synthetic fixture, and checks empty states, determinism,
+escaped labels and keyboard view switching. Existing response,
 verification, filter and contrast tests remain regression checks.
 
 For a synthetic project, use `tests/synth_chronicle.py` in a temporary directory,
