@@ -4,6 +4,10 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 2.2.4 — 2026-10-19
+
+- Add one-click Verify and Confirm ticks to eligible Review items and Home's next action, plus atomic "Approve selected" batches in the served dashboard. Static controls remain disabled; English and Vietnamese labels, keyboard controls and announced results are included.
+
 ## 2.2.3 — 2026-10-18
 
 - Localize the complete offline dashboard in English or Vietnamese using the optional thesis `Language:` field, a `dashboard --lang` override, and a persistent viewer language selector. Preserve authored records and response actions; cover static pages, live review, accessible labels, counts and dates with catalogue and regression checks.
