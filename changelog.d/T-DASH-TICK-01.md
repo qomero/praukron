@@ -1,1 +1,0 @@
-- Add one-click Verify and Confirm ticks to eligible Review items and Home's next action, plus atomic "Approve selected" batches in the served dashboard. Static controls remain disabled; English and Vietnamese labels, keyboard controls and announced results are included.
