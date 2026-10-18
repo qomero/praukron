@@ -855,6 +855,7 @@ function selectTab(name, { focus = false, record = true } = {}) {
   if (record) window.scrollTo(0, 0);
   const legacy = document.getElementById('panel-' + old);
   if (legacy && legacy.tagName === 'DETAILS') legacy.open = true;
+  if (name === 'home') positionHomeTimeline();
 }
 
 topTabs.forEach(tab => tab.addEventListener('click', () => selectTab(tab.dataset.tab)));
@@ -1344,6 +1345,7 @@ _MISSION_STYLE = """
 .timeline-step.completed .timeline-state { color: var(--good); }
 .timeline-step.current a { border-color: var(--accent); background: var(--panel); color: var(--accent); }
 .timeline-step.current strong { color: var(--accent); }
+.phase { scroll-margin-top: 80px; }
 .home-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); grid-template-areas: "phase action" "phase figures"; grid-template-rows: auto 1fr; gap: 20px 24px; align-items: start; }
 .home-layout > * { min-width: 0; overflow-wrap: anywhere; }
 .phase-overview { grid-area: phase; padding: 28px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
@@ -1485,6 +1487,9 @@ input, textarea { caret-color: var(--accent); }
   .home-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "action" "phase" "figures"; gap: 16px; }
   .phase-timeline { margin: 16px 0; }
   .timeline-step { flex-basis: 160px; }
+  html:not(.js) .phase-timeline ol { flex-wrap: wrap; min-width: 0; gap: 8px; }
+  html:not(.js) .timeline-step { flex: 1 1 160px; padding-right: 0; }
+  html:not(.js) .timeline-step::after { display: none; }
   .phase-overview, .next-action { padding: 20px; }
   .phase-heading { flex-wrap: wrap; gap: 8px; }
   .module-progress-list li { grid-template-columns: minmax(0, 1fr); gap: 8px; }
@@ -1529,6 +1534,14 @@ function searchRecords(index, query) {
 """
 
 _MISSION_SCRIPT = """
+function positionHomeTimeline() {
+  const strip = document.querySelector('.phase-timeline');
+  const current = strip && strip.querySelector('[aria-current="step"]');
+  if (!current) return;
+  const bounds = strip.getBoundingClientRect();
+  const step = current.getBoundingClientRect();
+  strip.scrollLeft += step.left - bounds.left - (strip.clientWidth - step.width) / 2;
+}
 function reveal(target) {
   clearFilters();
   target.hidden = false;
@@ -1538,6 +1551,8 @@ function reveal(target) {
     if (node.classList.contains('panel')) selectTab(node.id.replace('panel-', ''), {record: false});
   }
   target.setAttribute('tabindex', '-1');
+  const sticky = document.querySelector('.stickyhead');
+  target.style.scrollMarginTop = ((sticky ? sticky.getBoundingClientRect().height : 0) + 16) + 'px';
   target.focus();
   target.scrollIntoView({block: 'start'});
 }
@@ -2349,13 +2364,20 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                      + (f'<ul class="work-list">{wip_list}</ul>' if wip_list else '<p class="note">None. No active agent sessions are recorded.</p>')
                      + '</div>')
     phase_overview, progress_charts = _home_progress(compiled, phase_details)
-    action_count = len(mission["review"]["now"]) + len(mission["review"]["assumptions"])
-    other_actions = max(0, action_count - 1)
+    other_owners = max(0, len(mission["review"]["now"]) - 1)
+    assumption_count = len(mission["review"]["assumptions"])
+    action_counts = []
+    if other_owners:
+        action_counts.append(f'+{other_owners} owner action' + ('s' if other_owners != 1 else ''))
+    if assumption_count:
+        action_counts.append(f'{assumption_count} assumption' + ('s' if assumption_count != 1 else '') + ' to validate')
+    other_actions = ('<p class="other-actions"><a href="#panel-review">'
+                     + ' · '.join(action_counts) + '</a></p>') if action_counts else ''
     home = panel("home", f'''
       {_phase_timeline(compiled)}
       <div class="home-layout">
       <section class="next-action" aria-labelledby="next-action-title"><h2 id="next-action-title">Next human action</h2>
-      {next_action}<p class="other-actions"><a href="#panel-review">+{other_actions} other actions</a></p></section>
+      {next_action}{other_actions}</section>
       {phase_overview}
       <section class="home-figures" aria-label="Project figures"><dl>
       <dt>Execution completion</dt><dd>{metrics["taskCompletion"]["done"]} / {metrics["taskCompletion"]["total"]}<span>tasks done</span></dd>
@@ -2396,7 +2418,10 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                  '<div class="work-scope"><button data-work-scope="current" aria-pressed="true">Current work</button>'
                  '<button data-work-scope="all" aria-pressed="false">All work</button></div>'
                  + ('<p class="note">Nothing ready. Inspect dependency waits and upcoming decisions; this does not mean everything failed.</p>' if not mission["states"]["Ready"] else '')
-                 + work_states + '<h2>Root blockers</h2>' + roots_body
+                 + work_states + '<h2>Root blockers</h2>'
+                 + f'<p class="note">{len(active_roots)} active root blockers · '
+                 f'{len(mission["affected"])} distinct downstream tasks · '
+                 f'{len(mission["future"])} future owner obligations.</p>' + roots_body
                  + '<details class="group"><summary>Critical path</summary>' + critical + '</details>'
                  + '<details class="group"><summary>Phases and product hierarchy</summary><h2>Phases</h2><div class="phases">'
                  + phase_cards + '</div><h2>Product hierarchy</h2>' + hierarchy + '</details>'

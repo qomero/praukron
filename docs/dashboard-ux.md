@@ -21,7 +21,9 @@ health score, ETA, schedule or event is invented.
 Home starts with a horizontal timeline in recorded phase order. Each step names
 its state (Completed, Current or Upcoming) with text and a symbol, and shows exact
 execution completion counts. The current phase is distinct and links to its
-full record in Work. The timeline scrolls inside its own strip on phones.
+full record in Work. On phones the timeline scrolls inside its own strip and
+opens with the current step visible. Without JavaScript, steps wrap instead.
+Following a phase link leaves its heading below the sticky navigation.
 
 Below it, the main card groups the current phase's ID, name, outcome, completion,
 modules, next gate and unmet criteria count, root blocker and work in progress.
@@ -30,12 +32,15 @@ counts on the same line and name their values for assistive technology. Zero-tas
 modules say "No tasks"; operations get a separate labelled row and never enter
 execution totals. The side column presents the next human action, its Decide or
 Verify link into Review (Resolve for recorded validation errors), downstream
-impact and count of other current actions, followed by compact project figures.
+impact and count of other owner actions, separately from assumptions to validate,
+followed by compact project figures. Zero counts are omitted and labels pluralise.
 At phone width, the action follows the timeline, then the phase card and figures.
 
 Home contains no tables. Work retains execution completion by phase, unphased
 execution, the patterned status chart and its complete accessible table, along
-with milestones, full gate detail and root causes. Completion counts DONE tasks;
+with milestones, full gate detail and root causes. Its root summary preserves
+active roots, distinct downstream tasks (the union, not the sum of each root's
+impact), and future owner obligations. Completion counts DONE tasks;
 status uses the existing mission states. Validation remains its own measure.
 Existing light/dark tokens and focus states apply throughout. No charting library,
 external asset or JavaScript is required to read the content.

@@ -246,8 +246,8 @@ class TestOwnerReviewActions(OwnerCase):
         self.assertIn('<h2>Actionable now <span class="count">1</span>', review)
         self.assertEqual(Disclosures(review).maximum, 1)
         home = page.split('id="panel-home"', 1)[1].split('id="panel-work"', 1)[0]
-        others = len(data['mission']['review']['now']) + len(data['mission']['review']['assumptions']) - 1
-        self.assertIn(f'+{others} other actions', home)
+        self.assertNotIn('+0 owner actions', home)
+        self.assertIn('1 assumption to validate', home)
         self.assertIn('href="#review-' + actions[0]['id'] + '"', home)
         self.assertEqual(page, self.render(compiler.as_json(self.project)))
         # Recorded status and progress stay unchanged; Review exposes the error.
