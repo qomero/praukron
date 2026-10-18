@@ -183,6 +183,15 @@ class TestMissionPage(FixtureCase):
         self.assertEqual(result["source"], 'JOURNAL.md#2026-10-01 — A change')
         self.assertIn('Words &amp; evidence.', page)
 
+    def test_audit_preserves_contract_evidence_and_implementation_anchors(self):
+        self.project.tasks[0].files = ['src/foundation.py']
+        self.project.tasks[0].symbols = ['build_foundation']
+        contract = self.project.contracts[self.project.tasks[0].contract]
+        contract.evidence = 'Recorded contract evidence.'
+        _, page = self.page()
+        for text in ('src/foundation.py', 'build_foundation', 'Recorded contract evidence.'):
+            self.assertIn(text, page)
+
     def test_compiled_index_covers_every_record_kind(self):
         import synth_chronicle
         with tempfile.TemporaryDirectory(prefix='praukron-search-') as scratch:

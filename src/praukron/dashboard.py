@@ -2469,15 +2469,25 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         records += (f'<details class="group" id="task-record-{esc(tid)}"><summary><code>{esc(tid)}</code> {esc(task["title"])}</summary>'
                     f'<p>{_pill(task["status"])} {_pill(task["validation"])} · {esc(task["domain"])} · Authority: {esc(task["authority"] or "agent")}</p>'
                     f'<p>Evidence: {esc(task["evidence"] or "none recorded")}</p>'
+                    f'<p>Responsible: {esc(task["owner"] or "unassigned")} · Claimed: {esc(task["claimed"] or "not recorded")}</p>'
+                    f'<p>Implementation files: {esc(", ".join(task["implementation"]["files"]) or "none recorded")}</p>'
+                    f'<p>Implementation symbols: {esc(", ".join(task["implementation"]["symbols"]) or "none recorded")}</p>'
+                    f'<p>Schedule: {esc(json.dumps(task["schedule"])) if task["schedule"] else "No schedule recorded"}</p>'
                     + '<p>Dependencies: ' + (', '.join(ref(d) for d in task["deps"]) or 'none') + '</p>'
                     + '<p>Acceptance: ' + (', '.join(f'<a href="#criterion-{esc(c["id"])}">{esc(c["id"])}</a>' for c in contract.get("criteria", [])) or 'none') + '</p>'
+                    + '<p>Assumptions: ' + (', '.join(f'<a href="#assumption-{esc(a)}">{esc(a)}</a>' for a in task["assumptions"]) or 'none') + '</p>'
                     + '<p>Decisions: ' + (', '.join(f'<a href="#decision-{esc(d)}">{esc(d)}</a>' for d in task["decisions"]) or 'none') + '</p>'
                     + source_link(task["source"]) + '</details>')
+    contract_records = [*compiled["acceptance"].items(), *((c["id"], c) for c in compiled["invariants"])]
     acceptance_records = ''.join(
+        f'<section><h3>{esc(cid)} — {esc(contract["title"])}</h3>'
+        f'<p>Contract evidence: {esc(contract.get("evidence") or "none recorded")}</p>'
+        f'<p>Inherited invariants: {esc(", ".join(contract.get("inherits", [])) or "none")}</p>'
+        + source_link(contract["source"]) + ''.join(
         f'<article id="criterion-{esc(c["id"])}"><h3>{esc(c["id"])}</h3><p>{esc(c["text"])}</p>'
         f'<p>{_pill(c["state"])} · {esc(c["evidenceClass"])} · {esc(c.get("evidence") or "No evidence recorded")}</p>'
         + source_link(c.get("source", contract["source"])) + '</article>'
-        for contract in [*compiled["acceptance"].values(), *compiled["invariants"]] for c in contract["criteria"])
+        for c in contract["criteria"]) + '</section>' for cid, contract in contract_records)
     response_records = ''.join(f'<article id="response-{esc(r["id"])}"><h3>{esc(r["id"])} · {esc(r["action"])}</h3>'
                                f'<p class="record-body">{esc(r["text"])}</p><p>{esc(r["by"])} · {esc(r["date"])} · {esc(r["target"])}</p>'
                                + source_link(r["source"]) + '</article>' for r in compiled["responses"])
