@@ -44,10 +44,10 @@ details.acard > summary:hover { background: var(--panel-raised); }
 .review-result:empty { display: none; }
 /* Served: a card already answered in this sitting says so before it is submitted. */
 details.acard.is-answered > summary::after, details.review-item.is-answered > summary::after, ul.owner-list > li.is-answered::after {
-  content: "Answered, not yet submitted"; flex: 1 0 100%; font-size: 12px; font-weight: 600;
+  content: var(--ui-answered); flex: 1 0 100%; font-size: 12px; font-weight: 600;
   color: var(--good); }
 ul.owner-list > li.is-answered::after { display: block; margin-top: 6px; }
-ul.owner-list > li.is-offpage::after { content: "Needs work outside this page"; display: block;
+ul.owner-list > li.is-offpage::after { content: var(--ui-offpage); display: block;
   margin-top: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
 """
 

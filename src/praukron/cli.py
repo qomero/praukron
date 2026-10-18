@@ -133,13 +133,13 @@ def cmd_dashboard(root: Path, args: argparse.Namespace) -> int:
     if args.serve:
         from . import serve
 
-        return serve.run(root, args.port, args.open)
+        return serve.run(root, args.port, args.open, lang=args.lang)
     project = _load(root)
     report = analytics.report(project)
     compiled = compiler.as_json(project)
     compiler.write(root, project)
     target = root / compiler.COMPILED_DIR / "dashboard.html"
-    target.write_text(dashboard.render(project, report, compiled), encoding="utf-8")
+    target.write_text(dashboard.render(project, report, compiled, lang=args.lang), encoding="utf-8")
     print(f"Wrote {target.relative_to(root)}")
     if args.open:
         import webbrowser
@@ -668,6 +668,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     board = subparsers.add_parser("dashboard", help="write the static dashboard")
     board.add_argument("--open", action="store_true", help="open it in a browser")
+    board.add_argument("--lang", help="dashboard language (overrides THESIS.md Language)")
     board.add_argument("--serve", action="store_true",
                        help="serve it on 127.0.0.1 so the owner can answer assumptions and blockers")
     board.add_argument("--port", type=int, default=0, help="port for --serve; 0 picks a free one")

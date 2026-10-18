@@ -25,7 +25,7 @@ def source() -> str:
 
 class Installer(unittest.TestCase):
     def test_install_sh_lists_every_runtime_module(self):
-        listed = set(re.findall(r"[a-z_]+", re.search(r"for module in (.*?); do", doc("install.sh"), re.S).group(1)))
+        listed = set(re.findall(r"[a-z_][a-z_0-9]*", re.search(r"for module in (.*?); do", doc("install.sh"), re.S).group(1)))
         modules = {p.stem for p in (ROOT / "src" / "praukron").glob("*.py")}
         self.assertEqual(modules - listed, set())
 

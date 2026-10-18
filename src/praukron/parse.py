@@ -87,12 +87,13 @@ def _sections(text: str, level: str) -> list[tuple[str, str]]:
 
 
 def parse_thesis(path: Path) -> Thesis:
-    """THESIS.md: one `Statement:` and an optional `Source:` (ADR-035)."""
+    """THESIS.md: `Statement:`, optional `Source:` and dashboard `Language:`."""
     fields = _fields(path.read_text(encoding="utf-8")) if path.is_file() else {}
     return Thesis(
         statement=fields.get("Statement", "").strip(),
         reference=fields.get("Source") or None,
         source=Source(path.name, "Product thesis"),
+        language=fields.get("Language", "").strip() or None,
     )
 
 

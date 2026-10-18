@@ -200,10 +200,11 @@ class Thesis:
     statement: str
     reference: str | None
     source: Source
+    language: str | None = None
 
     def as_json(self) -> dict[str, object]:
         return {"statement": self.statement or None, "reference": self.reference,
-                "source": self.source.as_json()}
+                "source": self.source.as_json(), "language": self.language}
 
 
 @dataclass

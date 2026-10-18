@@ -7,7 +7,7 @@ import re
 import textwrap
 from datetime import datetime, timedelta
 
-from . import mermaid
+from . import mermaid, i18n
 
 
 def esc(value) -> str:
@@ -51,7 +51,7 @@ def graph(name: str, key: str, nodes: list[dict], edges: list[tuple[str, str]],
            f'width="{svg_width}" height="{svg_height}">',
            f'<title id="{key}-title">{esc(name)}</title>',
            f'<desc id="{key}-desc">' + esc('; '.join(
-               f'{n["id"]}: {n["title"]}, {n["status"]}' for n in nodes)
+               f'{i18n.verbatim(n["id"])}: {i18n.verbatim(n["title"])}, {n["status"]}' for n in nodes)
                + '. ' + '; '.join(f'{a} → {b}' for a, b in edges)) + '</desc>',
            f'<defs><marker id="{key}-arrow" viewBox="0 0 10 10" refX="9" refY="5" '
            'markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
@@ -72,9 +72,9 @@ def graph(name: str, key: str, nodes: list[dict], edges: list[tuple[str, str]],
         x, y, height = positions[nid]
         out.append(f'<g data-node="{esc(nid)}" class="drawing-node tone-{tone(status)}">'
                    f'<rect x="{x}" y="{y}" width="{width}" height="{height}" rx="8"/>'
-                   f'<text class="drawing-id" x="{x + 16}" y="{y + 25}">{esc(nid)}</text>')
+                   f'<text class="drawing-id" x="{x + 16}" y="{y + 25}">{esc(i18n.verbatim(nid))}</text>')
         for i, line in enumerate(labels[nid]):
-            out.append(f'<text x="{x + 16}" y="{y + 47 + i * 20}">{esc(line)}</text>')
+            out.append(f'<text x="{x + 16}" y="{y + 47 + i * 20}">{esc(i18n.verbatim(line))}</text>')
         label = status + (f' · {node["progress"]}' if "progress" in node else '')
         out.append(f'<text class="drawing-status" x="{x + 16}" y="{y + height - 14}">{esc(label)}</text></g>')
     return frame(name, ''.join(out) + '</svg>')
@@ -111,7 +111,7 @@ def dependency_timeline(project, report) -> str:
         for nid in ids:
             task = project.task(nid)
             out.append(f'<li data-node="{esc(nid)}"><a href="#task-record-{esc(nid)}">{esc(nid)}</a>'
-                       f'<span>{esc(task.title)}</span><span class="drawing-status tone-{tone(task.status)}">'
+                       f'<span>{esc(i18n.verbatim(task.title))}</span><span class="drawing-status tone-{tone(task.status)}">'
                        f'{esc(task.status)}</span></li>')
         out.append('</ul></li>')
     return frame("Dependency ordering · steps, not dates", ''.join(out) + '</ol>')

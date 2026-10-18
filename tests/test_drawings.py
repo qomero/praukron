@@ -129,7 +129,8 @@ class TestNativeViews(FixtureCase):
         self.assertEqual(first, drawings.render_all(self.project, analytics.report(self.project)))
         page = dashboard.render(self.project, self.report, compiler.as_json(self.project))
         for name, drawing in first.items():
-            self.assertIn(drawing, page)
+            from praukron import i18n
+            self.assertIn(i18n.localize(drawing, 'en'), page)
             self.assertIn(html.escape(mermaid.render_all(self.project, self.report)[name], quote=True), page)
             self.assertIn('aria-label', drawing)
         self.assertNotRegex(page, r'<(?:script|link)[^>]+(?:src|href)=["\']https?://')

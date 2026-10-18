@@ -374,6 +374,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
 | `praukron graph` | The six Mermaid views of the same state. |
 | `praukron dashboard` | Four workspaces: Home, Work, Review and Audit, with offline global search. |
+| `praukron dashboard --lang vi` | Render the dashboard in Vietnamese; overrides the optional `Language:` field in `THESIS.md`. Also works with `--serve`. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
 
 The six write commands take a JSON payload (`--schema` prints it, `--dry-run`

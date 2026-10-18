@@ -630,6 +630,9 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
     # owned by modules. A chronicle that has not adopted it yet stays readable
     # and compilable, with the conversion made visible (ADR-036).
     thesis_at = f"{project.thesis.source.file}#{project.thesis.source.anchor}"
+    from .i18n import CATALOGUES
+    if project.thesis.language and project.thesis.language not in CATALOGUES:
+        warn("unsupported-language", f"dashboard language '{project.thesis.language}' is unsupported; using English", thesis_at)
     if not project.thesis.statement:
         if project.uses_modules:
             error("missing-thesis", "modules exist but THESIS.md has no Statement", thesis_at)
