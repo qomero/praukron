@@ -192,8 +192,8 @@ external integration (ADR-049): where it is installed, `retrieve --code` adds
 code structure after the records, nothing the compiler computes reads it, and
 its absence changes no result. And `dashboard --serve` binds a local server on
 127.0.0.1, run only on request, to carry the owner's answers. (The page the
-dashboard writes may fetch a diagram library when a browser opens it; offline it
-falls back to the diagram source.)
+dashboard writes embeds its dependency drawing and diagram sources; it needs no
+external resources.)
 
 This is a deliberate division of labour. Language models are good at reading a
 messy repository and proposing structure; they are bad at being the same twice.

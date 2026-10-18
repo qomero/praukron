@@ -137,6 +137,7 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
     """Load disk authority, or a captured read-only view through the same parsers."""
     if authority is None:
         authority = root / AUTHORITY_DIR
+    from . import mission
     phases, gates, milestones = parse_phases(authority / "PHASES.md")
     modules = parse_modules(authority / "MODULES.md")
     tasks, contracts, record_bytes = _tasks_and_contracts(authority, phases, modules)
@@ -161,6 +162,10 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         decisions=parse_decisions(authority / "ADR"),
         intent=read_text(authority / "INTENT.md"),
         handoff=read_text(authority / "HANDOFF.md"),
+        journal=mission.journal(read_text(authority / "JOURNAL.md")) + [
+            entry for phase_id in archived(authority, phases)
+            for entry in mission.journal(read_text(authority / layout.ARCHIVE_DIR / phase_id / "JOURNAL.md"),
+                                         f"{layout.ARCHIVE_DIR}/{phase_id}/JOURNAL.md")],
         events=events,
         debts=debts,
         assumptions=assumptions,
@@ -169,6 +174,18 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         briefs=briefs,
         change_requests=_change_requests(authority, phases),
     )
+    # Only authored record files, including archives; never generated INDEX.md.
+    dated_sources = {item.source.file for items in (
+        project.tasks, project.phases, project.modules, project.decisions,
+        project.assumptions, project.responses, project.events, project.debts,
+        list(project.contracts.values()), project.change_requests,
+        project.conventions, project.briefs,
+    ) for item in items}
+    dated_sources.update(entry["source"]["file"] for entry in project.journal)
+    dated_sources.update(("INTENT.md", "HANDOFF.md", "THESIS.md"))
+    project.recorded_date = mission.recorded_date(
+        (name, record_bytes[name].decode("utf-8") if name in record_bytes else read_text(authority / name))
+        for name in sorted(dated_sources))
     domain.resolve(project)
     # Reuse these loaded diagnostics in validate/status and structured writes;
     # a captured authority must never be checked against later live disk.
@@ -188,7 +205,8 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
 def as_json(project: Project) -> dict[str, object]:
     """The normalized shape. Every object keeps provenance where practical."""
     report = analytics.report(project)
-    return {
+    from . import mission
+    data = {
         "project": {
             "name": project.name,
             "currentPhase": project.current_phase,
@@ -197,6 +215,7 @@ def as_json(project: Project) -> dict[str, object]:
             # to someone who never reinstalls (ADR-031).
             "generatorVersion": layout.version(),
             "authority": AUTHORITY_DIR,
+            "recordedDate": project.recorded_date,
         },
         "thesis": project.thesis.as_json(),
         "phases": [
@@ -379,6 +398,7 @@ def as_json(project: Project) -> dict[str, object]:
         "blocked": report.blocked,
         "wip": report.wip,
         "handoff": {"intent": project.intent, "handoff": project.handoff},
+        "journal": project.journal,
         "sources": {
             "authority": AUTHORITY_DIR,
             "documents": [
@@ -399,6 +419,9 @@ def as_json(project: Project) -> dict[str, object]:
             ],
         },
     }
+    data["mission"] = mission.project(data)
+    data["searchIndex"] = mission.search_index(data)
+    return data
 
 
 def assumption_json(project: Project, assumption) -> dict[str, object]:

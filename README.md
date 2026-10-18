@@ -48,10 +48,10 @@ those documents into project state, and that state is then projected two ways.
 A person opens a page:
 
 <p align="center">
-  <img src="docs/assets/dashboard-state.png" alt="The dashboard's Overview tab for an illustrative expense-tracking project: a focus strip naming current phase P2, the task in flight, the main blocker and the next gate with one gate green and one red; a line showing an operations task holding up a product task; execution progress metrics; and three phase cards with the current phase highlighted." width="900">
+  <img src="docs/assets/dashboard-state.png" alt="Home shows the synthetic project's phase and outcome, its most consequential root blocker, the next human decision, work in progress and next gate." width="900">
 </p>
 
-<p align="center"><em><code>praukron dashboard</code> on Ledgerly, an illustrative project — the expense tool from the story below.<br>
+<p align="center"><em><code>praukron dashboard</code> on a synthetic test project. See the <a href="docs/dashboard-ux.md">workspace guide</a> for the interaction model.<br>
 Every figure is computed from the Markdown files in <code>.praukron/chronicle/</code>. No model, no service, no network.</em></p>
 
 An agent asks for a packet, and gets the same state as structured text:
@@ -130,14 +130,14 @@ Nothing here is a status report someone wrote by hand. It is computed from the
 authored documents, so it cannot drift away from them.
 
 <p align="center">
-  <img src="docs/assets/dashboard-next.png" alt="The Execution tab: one task in flight, nothing ready, obstacles grouped into acceptance, gate, phase and dependency blockers with the transitively blocked ones collapsed, execution failures linked to their operational events, and the critical path as a vertical chain with an operations task marked as an external blocker." width="900">
+  <img src="docs/assets/dashboard-next.png" alt="Work separates ready work, work in progress, human decisions, dependency waits, failures and completed tasks, with expandable root causes and full inspection views." width="900">
 </p>
 
 <p align="center"><em>What is in flight, what is ready, what blocks the project, and what lies on the critical path.<br>
 Obstacles are grouped by kind, and an operations task that holds up the path is named as an external blocker rather than joining it.</em></p>
 
 <p align="center">
-  <img src="docs/assets/dashboard-operations.png" alt="The Operations tab: summary counts of active and blocked operations, events, failures, retries and mutations; an open operations task that blocks execution, expanded to show its tool call and its failed, unresolved command; and a list of failures and warnings, each linked to the task it came from and the work it affects." width="900">
+  <img src="docs/assets/dashboard-operations.png" alt="Audit preserves governance, validation, technical debt, acceptance evidence, operational trace and history." width="900">
 </p>
 
 <p align="center"><em>Operations has its own tab: the support work around the project, the tool calls and commands behind it, what failed, and what was retried.<br>
@@ -159,7 +159,7 @@ Completion and confidence stay separate. A task can be `DONE` and still be
 manual evidence.
 
 <p align="center">
-  <img src="docs/assets/dashboard-contract.png" alt="A task drill-down for T-203, Detect duplicate transactions, in progress: its dependency, the tasks it blocks, three acceptance criteria marked PASS, FAIL and NOT_RUN with their evidence classes, its acceptance obstacle, its domain, and the three operational events recorded against it." width="640">
+  <img src="docs/assets/dashboard-contract.png" alt="A task detail dialog preserves dependencies, acceptance criteria, evidence, source references and a path to the full record in Audit." width="640">
 </p>
 
 <p align="center"><em>Click any task for its contract, its criteria, and the evidence behind each one.<br>
@@ -189,11 +189,11 @@ strongly each finished task is actually backed, which is a different question
 from whether it is done.
 
 <p align="center">
-  <img src="docs/assets/dashboard-views.png" alt="The Graph tab's task graph: tasks grouped by phase P1, P2 and P3 and coloured by status, with a separate dashed group of project operations tasks, one of which feeds a product task, and the six view selectors above." width="900">
+  <img src="docs/assets/dashboard-views.png" alt="Work contains a self-contained dependency graph, linked task relationships and offline diagram sources." width="900">
 </p>
 
-<p align="center"><em>Six views of the same state: task graph, critical path, phases, gates, dependency ordering, and calendar Gantt.<br>
-Product work is grouped by phase; operations sits apart in dashed nodes, joined only where execution waits on it.</em></p>
+<p align="center"><em>The dependency graph is drawn offline with linked task relationships.<br>
+Six Mermaid sources remain available; the other five diagram views are source only, with no external renderer.</em></p>
 
 ## Get started
 
@@ -365,7 +365,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
 | `praukron graph` | The six Mermaid views of the same state. |
-| `praukron dashboard` | The local page above, in six tabs: overview, execution, graph, governance, decisions, all tasks. |
+| `praukron dashboard` | Four workspaces: Home, Work, Review and Audit, with offline global search. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
 
 The six write commands take a JSON payload (`--schema` prints it, `--dry-run`
@@ -436,8 +436,8 @@ Delete that directory and `praukron compile` rebuilds it byte for byte. Nothing
 in it is authority, and nothing in it decides a question the authored files
 answer.
 
-Praukron is built with Praukron; the dashboard images above use an illustrative Ledgerly
-chronicle. That chronicle is kept by the maintainers and not published, so a
+Praukron is built with Praukron; the dashboard images above use a synthetic test
+fixture. The project's own chronicle is private, so a
 clone carries the tool and the [chronicle template](templates/chronicle/) but
 not the project's working records.
 

@@ -97,7 +97,7 @@ class TestCrossFilter(FixtureCase):
         super().setUp()
         self.compiled = compiler.as_json(self.project)
         self.html = dashboard.render(self.project, analytics.report(self.project), self.compiled)
-        self.overview = self.html.split('id="panel-overview"', 1)[1].split('<section class="panel"', 1)[0]
+        self.overview = self.html.split('id="panel-work"', 1)[1].split('<section class="panel"', 1)[0]
         # Filter by the rarest status, so a filter leaves some tasks out and keeps some.
         counts = Counter(t["status"] for t in self.compiled["tasks"])
         self.status = min(counts, key=lambda s: (counts[s], s))
@@ -122,7 +122,8 @@ class TestCrossFilter(FixtureCase):
         """The read-only guarantee holds: a filter is a pressed button, not a field."""
         for key in re.findall(r"<[^>]*data-dim=[^>]*>", self.overview):
             self.assertTrue(key.startswith(("<button type=\"button\"", "<span class=\"seg")), key)
-        self.assertNotIn("<input", self.overview)
+        for dim in ('status', 'phase', 'domain', 'validation', 'module'):
+            self.assertNotIn("<input", self.chart(dim))
 
     def test_a_chart_counts_the_tasks_that_pass_every_other_filter(self) -> None:
         result = with_filters(self.compiled, f"filters.status.add({json.dumps(self.status)});" + """
@@ -156,7 +157,7 @@ class TestCrossFilter(FixtureCase):
             "const location = { hash: '#" + result["hash"] + "' };\n"
             "const window = { matchMedia: () => ({ matches: true }) }; const matchMedia = window.matchMedia;\n"
             + dashboard._BOOT + "\nconsole.log(JSON.stringify(attrs));")
-        self.assertEqual(boot, {"data-theme": "dark", "data-tab": "execution"})
+        self.assertEqual(boot, {"data-theme": "dark", "data-tab": "work"})
 
     def test_every_task_figure_follows_the_filters(self) -> None:
         """Every figure that counts tasks carries the compiled entries behind
@@ -169,8 +170,8 @@ class TestCrossFilter(FixtureCase):
         self.assertEqual(len(validation), len(self.compiled["metrics"]["validationBreakdown"]))
         self.assertEqual(kinds["phase"], len(self.compiled["phases"]))
         self.assertEqual(kinds["module"], len(self.compiled["modules"]))
-        self.assertGreaterEqual(kinds["sig"], 5)
-        self.assertGreaterEqual(kinds["card"], 4 + 7)
+        self.assertEqual(kinds["sig"], 0)
+        self.assertGreaterEqual(kinds["card"], 4)
         sums = with_filters(self.compiled, f"""
             const figures = {json.dumps([f["entries"] for f in figures])};
             const total = () => figures.map(f => Object.fromEntries(
@@ -244,30 +245,21 @@ class TestCrossFilter(FixtureCase):
         self.assertEqual(result, [8, 1])
 
     def test_attention_comes_before_progress(self) -> None:
-        signals = [f for f in re.findall(r'<a class="sig[^"]*"[^>]*>.*?</a>', self.overview)]
-        labels = [re.search(r'class="sig-l">([^<]+)<', s).group(1) for s in signals]
-        self.assertEqual(labels, ["Blocked tasks", "Failing work", "Needs you", "Review gaps",
-                                  "Debt at its trigger", "Unresolved failures"])
-        blocked = signals[0]
-        self.assertIn(f'data-agg-n="{len(self.compiled["blocked"])}"', blocked)
-        for signal in signals:
-            count = int(re.search(r'data-agg-n="(\d+)"', signal).group(1))
-            self.assertEqual("sig clear" in signal, count == 0)
-        order = [self.overview.index(marker) for marker in
-                 ('class="attention"', 'class="focus"', 'id="breakdown"', "<h2>Execution progress</h2>")]
-        self.assertEqual(order, sorted(order))
+        self.assertLess(self.html.index('Next human action'), self.html.index('id="breakdown"'))
+        self.assertLess(self.overview.index('Root blockers'), self.overview.index('id="breakdown"'))
+        self.assertNotIn('class="attention"', self.overview)
 
     def test_lists_a_filter_narrows_are_marked(self) -> None:
         execution = self.html.split('id="panel-execution"', 1)[1].split('<section class="panel"', 1)[0]
         self.assertIn('<ul class="plain xf-list">', execution)
-        self.assertIn('<ol class="chain">', execution)
+        self.assertIn('<ol class="chain">', self.overview)
         self.assertIn('id="needs-filtered" hidden', self.html)
         bar = self.html.split('id="xf-bar"', 1)[1].split("</div>", 1)[0]
         self.assertIn("data-xf-clear>Clear all</button>", bar)
 
     def test_the_page_stays_self_contained(self) -> None:
         external = re.findall(r'(?:src|href)="(https?:[^"]+)"', self.html)
-        self.assertEqual(external, [dashboard.MERMAID_CDN])
+        self.assertEqual(external, [])
         self.assertNotIn("@import", self.html)
         self.assertNotIn("url(", dashboard._STYLE)
 
@@ -372,12 +364,8 @@ class TestLiveNeedsPanel(test_review.TestBlockerGuidance):
         self.assertIn('<span class="remaining" aria-live="polite"></span>', self.needs)
         # The bar comes before the cards, so focus reaches name and submit first.
         self.assertLess(self.needs.index("review-bar"), self.needs.index('details class="acard"'))
-        owner = self.needs.split("<h3>Waiting on the owner</h3>", 1)[1]
-        items = re.findall(r"<li>.*?</li>", owner, re.S)
-        # The fixture holds an owner item nobody can guide from the page: the
-        # count must be able to reach zero without it.
-        self.assertTrue(any('class="aform"' not in item for item in items))
-        self.assertTrue(any('class="aform"' in item for item in items))
+        self.assertIn('data-target="T-TWO" data-guide="1"', self.needs)
+        self.assertNotIn('data-target="T-THREE"', self.needs)
         self.assertNotIn("This page is read-only.", self.needs)
 
     def test_the_static_panel_says_it_is_read_only(self) -> None:
@@ -393,7 +381,8 @@ class TestLiveNeedsPanel(test_review.TestBlockerGuidance):
             response["target"] == task_id and response["action"] == "VERIFY" and response["fromOwner"]
             for response in self.compiled["responses"]
         )]
-        self.assertIn(f'data-waiting="{len(held) + len(queued) + len(to_verify)}"', self.html)
+        count = len(self.compiled["mission"]["review"]["now"]) + len(self.compiled["mission"]["review"]["assumptions"])
+        self.assertIn(f'data-waiting="{count}"', self.html)
 
 
 # The fixture is borrowed; its own tests run in test_review, not twice.

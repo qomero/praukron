@@ -921,7 +921,7 @@ class TestDashboardHierarchy(FixtureCase):
     def test_tasks_still_open_and_the_page_stays_offline_and_read_only(self) -> None:
         html = self.render()
         part = self.section(html)
-        self.assertIn('<button type="button" class="tasklink" data-task="T-TWO">', part)
+        self.assertIn('href="#task-record-T-TWO" class="tasklink" data-task="T-TWO">', part)
         self.assertIn("task.module ? `<span class=\"pill\">${esc(task.module)}</span>`", html)
         for forbidden in ("fetch(", "<form", "<textarea", "contenteditable", "http://", "XMLHttpRequest"):
             self.assertNotIn(forbidden, part)
@@ -947,7 +947,7 @@ class TestDashboard(FixtureCase):
 
     def test_shows_every_required_section(self) -> None:
         for heading in (
-            "Phases", "Gates", "In flight", "Ready", "Obstacles",
+            "Phases", "Gates", "Work in progress", "Obstacles",
             "Critical path", "Views", "Schedule", "Validation", "Decisions", "All tasks",
             "Execution progress", "Active operations", "Timeline",
         ):
@@ -1013,7 +1013,8 @@ class TestDashboard(FixtureCase):
         """The diagram library is loaded from a CDN. Every number on the page
         is computed here, so losing the library may cost the drawing and
         nothing else."""
-        self.assertIn('onerror="window.mermaidFailed=true"', self.html)
+        self.assertNotRegex(self.html, r'<script[^>]+src=')
+        self.assertIn('class="offline-graph"', self.html)
         self.assertIn("canvas.classList.add('plain')", self.html)
         self.assertIn('id="offline-note"', self.html)
 
@@ -1031,31 +1032,28 @@ class TestDashboardTabs(FixtureCase):
         body = self.html.split(f'id="panel-{name}"', 1)[1]
         return re.split(r'<section class="panel"|<footer>', body, maxsplit=1)[0]
 
-    def test_eight_top_level_tabs_in_order_with_overview_first(self) -> None:
+    def test_four_top_level_workspaces_in_order_with_home_first(self) -> None:
         tabs = re.findall(r'role="tab" id="tab-(\w+)"[^>]*aria-selected="(\w+)"[^>]*>([^<]+)<', self.html)
         self.assertEqual(
             [(name, label) for name, _, label in tabs],
-            [("overview", "Overview"), ("assumptions", "Assumptions"), ("execution", "Execution"), ("graph", "Graph"),
-             ("operations", "Operations"), ("governance", "Governance"),
-             ("decisions", "Decisions"), ("tasks", "All Tasks")],
+            [("home", "Home"), ("work", "Work"), ("review", "Review"), ("audit", "Audit")],
         )
-        self.assertEqual([selected for _, selected, _ in tabs], ["true"] + ["false"] * 7)
+        self.assertEqual([selected for _, selected, _ in tabs], ["true"] + ["false"] * 3)
         for name, _, _ in tabs:
             self.assertIn(f'id="panel-{name}" role="tabpanel" aria-labelledby="tab-{name}"', self.html)
-        self.assertIn("root.setAttribute('data-tab', known.indexOf(tab) >= 0 ? tab : 'overview')", self.html)
+        self.assertIn("root.setAttribute('data-tab', known.indexOf(tab) >= 0 ? tab : 'home')", self.html)
 
     def test_only_the_selected_panel_is_displayed(self) -> None:
         self.assertIn("html.js .panel { display: none; }", self.html)
-        for name in ("overview", "assumptions", "execution", "graph", "operations", "governance",
-                     "decisions", "tasks"):
+        for name in ("home", "work", "review", "audit"):
             self.assertIn(f'html.js[data-tab="{name}"] #panel-{name}', self.html)
 
     def test_sections_live_under_their_tabs(self) -> None:
         placement = {
-            "overview": ("Execution progress", "Phases"),
+            "work": ("Execution progress", "Phases"),
             "operations": ("Summary", "Active operations", "Failures and warnings", "Tool calls",
                            "Mini-actions", "Changes and mutations", "Retries", "Timeline"),
-            "execution": ("In flight", "Ready", "Obstacles", "Critical path"),
+            "execution": ("Obstacles",),
             "graph": ("Views", "Schedule"),
             "governance": ("Gates", "Validation"),
             "decisions": ("Decisions",),
@@ -1067,21 +1065,20 @@ class TestDashboardTabs(FixtureCase):
                     self.assertIn(f"<h2>{heading}</h2>", self.panel(name))
 
     def test_the_focus_strip_reports_compiled_state(self) -> None:
-        overview = self.panel("overview")
-        strip = overview.split('<div class="focus">', 1)[1].split("<h2>", 1)[0]
+        strip = self.panel("home")
         # P1 is ACTIVE, nothing is WIP, T-TWO is ready and is the exit authority.
-        self.assertIn("<code>P1</code> · Foundation", strip)
-        self.assertIn("No execution work in flight", strip)
-        self.assertIn('Ready to start: <button type="button" class="tasklink" data-task="T-TWO">', strip)
+        self.assertIn("Foundation", strip)
+        self.assertIn("No work in progress", strip)
+        self.assertIn('data-task="T-TWO"', self.panel("work"))
         self.assertIn("Exit authority for P1", strip)
         self.assertIn("Gate A", strip)
         # The selection comes from analytics; the page only shows it.
         blocker = self.compiled["execution"]["mainBlocker"]
         self.assertEqual((blocker["kind"], blocker["id"]), ("GATE", "Gate A"))
-        self.assertIn("blocking P1 exit", strip)
+        self.assertIn("Most consequential blocker", strip)
 
     def test_progress_and_phases_show_compiled_figures(self) -> None:
-        overview = self.panel("overview")
+        overview = self.panel("work")
         # The figures carry cross-filter hooks, so they are read as shown text.
         shown = re.sub(r"<[^>]+>", "", overview)
         done = self.compiled["metrics"]["taskCompletion"]
@@ -1091,7 +1088,7 @@ class TestDashboardTabs(FixtureCase):
         self.assertIn('class="phase current"', overview)
 
     def test_the_critical_path_is_a_chain_in_compiled_order(self) -> None:
-        chain = self.panel("execution").split('<ol class="chain">', 1)[1].split("</ol>", 1)[0]
+        chain = self.panel("work").split('<ol class="chain">', 1)[1].split("</ol>", 1)[0]
         self.assertEqual(re.findall(r'data-task="([^"]+)"', chain), self.compiled["criticalPath"])
 
     def test_dependency_blockers_waiting_on_blocked_work_are_collapsed(self) -> None:
@@ -1161,7 +1158,7 @@ class TestDashboardTabs(FixtureCase):
         self.assertLess(draw.index("applyView()"), draw.index("window.mermaid.run") if "window.mermaid.run" in draw else len(draw))
 
     def test_the_diagram_is_drawn_only_when_its_tab_is_shown(self) -> None:
-        self.assertIn("if (name === 'graph') graphShown();", self.html)
+        self.assertIn("if (name === 'work') graphShown();", self.html)
         self.assertNotIn("traceNote.textContent = HINT;\n  draw();", self.html)
 
     def test_the_footer_still_says_it_is_derived(self) -> None:
@@ -1307,7 +1304,7 @@ class TestExecutionOperationsCases(DomainCase):
         self.assertEqual((blocker["id"], blocker["domain"], blocker["blocking"]), ("T-O1", "operations", "T-1"))
         self.assertEqual(self.project.task("T-O1").domain, "operations")
         page = self.html()
-        overview = page.split('id="panel-overview"', 1)[1].split('<section class="panel"', 1)[0]
+        overview = page.split('id="panel-audit"', 1)[1].split('<section class="panel"', 1)[0]
         self.assertIn("Project operations", overview)
         self.assertIn('data-focus="op-T-O1"', overview)
         self.assertIn('id="op-T-O1"', page)
