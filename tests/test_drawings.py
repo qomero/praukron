@@ -19,6 +19,8 @@ class Markup(HTMLParser):
     def __init__(self, source):
         super().__init__()
         self.nodes, self.edges, self.steps, self.rows = [], [], {}, []
+        self.bars = {}
+        self.node = None
         self.step = None
         self.feed(source)
 
@@ -28,6 +30,7 @@ class Markup(HTMLParser):
             self.step = int(a["data-step"])
             self.steps[self.step] = []
         if "data-node" in a:
+            self.node = a["data-node"]
             self.nodes.append(a["data-node"])
             if self.step is not None:
                 self.steps[self.step].append(a["data-node"])
@@ -35,6 +38,8 @@ class Markup(HTMLParser):
                 self.rows.append((a["data-phase"], a["data-node"], a["data-start"], a["data-finish"]))
         if "data-from" in a:
             self.edges.append((a["data-from"], a["data-to"]))
+        if tag == "rect" and a.get("class") == "calendar-bar":
+            self.bars[self.node] = (float(a["x"]), float(a["width"]))
 
 
 class TestNativeViews(FixtureCase):
@@ -111,6 +116,13 @@ class TestNativeViews(FixtureCase):
                          (datetime(2026, 10, 1), datetime(2026, 10, 4)))
         self.assertIn("2026-10-04", drawing)
         self.assertNotIn('data-node="T-FOUR"', drawing)
+        # Six-day axis: T-TWO starts at zero and lasts four days; T-THREE
+        # starts halfway through and lasts three. Check the visible geometry.
+        self.assertEqual(set(parsed.bars), {"T-TWO", "T-THREE"})
+        for nid, expected in {"T-TWO": (180, 700 * 4 / 6),
+                              "T-THREE": (180 + 700 * 3 / 6, 700 * 3 / 6)}.items():
+            for actual, value in zip(parsed.bars[nid], expected):
+                self.assertAlmostEqual(actual, value, places=3)
 
     def test_deterministic_named_drawings_and_adjacent_sources(self):
         first = drawings.render_all(self.project, self.report)

@@ -37,7 +37,10 @@ task status or the compiler's existing readiness and governance rules.
   unfinished descendants; a set union counts shared downstream tasks once.
   Clearing one root may leave another dependency unresolved.
 - Future owner work is labelled upcoming, outside the current phase. Owner responsibility does
-  not propagate to downstream agent tasks.
+  not propagate to downstream agent tasks. If current-phase work depends on a
+  later-phase owner task, Home and Work name it as an upcoming owner decision
+  blocking current work, with its downstream count. Review keeps it under
+  Upcoming decisions with the same note; it is not made actionable early.
 - Review orders current impact before recorded permission or HIGH-impact
   sensitivity (the recorded proxy for irreversible consequences), then
   downstream cost and ID. Assumptions remain

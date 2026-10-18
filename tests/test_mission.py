@@ -8,6 +8,7 @@ import re
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "src"), str(Path(__file__).resolve().parent)]
@@ -104,7 +105,26 @@ class TestRootProjection(unittest.TestCase):
                     self.assertEqual(p["states"]["Ready"], [])
                     self.assertEqual(p["review"]["now"], [])
                     self.assertEqual([r["id"] for r in p["review"]["upcoming"]], ["LATER"])
-                    self.assertEqual(p["roots"], [])
+                    self.assertEqual(len(p["roots"]), 1)
+                    root = p["roots"][0]
+                    self.assertEqual((root["id"], root["kind"], root["count"], root["current"]),
+                                     ("LATER", "upcoming", 1, True))
+                    self.assertEqual(root["affected"], ["NOW"])
+                    self.assertEqual(root["reason"], mission.UPCOMING_BLOCKER_NOTE + ".")
+                    self.assertEqual(p["review"]["upcoming"][0]["note"], mission.UPCOMING_BLOCKER_NOTE)
+
+    def test_upcoming_root_requires_an_unfinished_current_phase_descendant(self):
+        d = data(task("LATER", owner=True, phase="P2"), task("MIDDLE", ["LATER"], phase="P2"),
+                 task("NOW", ["MIDDLE"]), task("UNRELATED", owner=True, phase="P2"))
+        d["phases"] = [{"id": "P1"}, {"id": "P2"}]
+        p = mission.project(d)
+        self.assertEqual([(r["id"], r["count"]) for r in p["roots"]], [("LATER", 2)])
+        self.assertEqual(p["transitiveHuman"], ["MIDDLE", "NOW"])
+        self.assertEqual(p["review"]["now"], [])
+        d["tasks"][2]["status"] = "DONE"
+        p = mission.project(d)
+        self.assertEqual(p["roots"], [])
+        self.assertTrue(all(item["note"] is None for item in p["review"]["upcoming"]))
 
     def test_no_blockers_empty_and_completed_only(self):
         for d in (data(), data(task("A")), data(task("A", status="DONE"))):
@@ -237,6 +257,33 @@ class TestMissionPage(FixtureCase):
         self.assertNotIn('data-work-task="T-ONE"', ready)
         review = page.split('<summary>Upcoming decisions', 1)[1].split('id="review-T-ONE"', 1)
         self.assertEqual(len(review), 2)
+
+    def test_home_work_and_review_name_upcoming_owner_blocking_current_work(self):
+        self.project.phases.append(replace(self.project.phases[0], id="P2", status="PLANNED",
+                                           exit_authority=None))
+        owner = self.project.tasks[0]
+        owner.phase, owner.status, owner.authority = "P2", "TODO", "owner"
+        d = compiler.as_json(self.project)
+        self.assertIn(owner.id, d["mission"]["states"]["Upcoming"])
+        self.assertNotIn(owner.id, d["mission"]["states"]["Ready"])
+        self.assertEqual(d["mission"]["review"]["now"], [])
+        for interactive in (False, True):
+            with self.subTest(interactive=interactive):
+                page = dashboard.render(self.project, analytics.report(self.project), d, interactive=interactive)
+                home = page.split('id="panel-home"', 1)[1].split('id="panel-work"', 1)[0]
+                self.assertIn('href="#root-T-ONE"', home)
+                self.assertIn(mission.UPCOMING_BLOCKER_NOTE, home)
+                self.assertIn('2 downstream tasks', home)
+                root = page.split('id="root-T-ONE"', 1)[1].split('</li>', 1)[0]
+                self.assertIn(mission.UPCOMING_BLOCKER_NOTE, root)
+                self.assertIn('2 downstream', root)
+                self.assertNotIn('Direct human action', root)
+                self.assertNotIn('Direct technical blocker', root)
+                upcoming = page.split('<summary>Upcoming decisions', 1)[1].split('id="review-T-ONE"', 1)[1]
+                card = upcoming.split('</details>', 1)[0]
+                self.assertIn(mission.UPCOMING_BLOCKER_NOTE, card)
+                self.assertIn('2 downstream', card)
+                self.assertNotIn('value="VERIFY"', card)
 
     def test_work_scope_changes_rows_counts_empty_states_and_buttons(self):
         script = dashboard._MISSION_SCRIPT.split('const scopeButtons =', 1)[1].split('const initialTarget', 1)[0]

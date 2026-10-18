@@ -918,7 +918,6 @@ function applyTheme(theme) {
   const choice = stored === 'light' || stored === 'dark' ? stored : 'system';
   themeButtons.forEach(button =>
     button.setAttribute('aria-pressed', String(button.dataset.themeChoice === choice)));
-
 }
 
 themeButtons.forEach(button => button.addEventListener('click', () => {
@@ -2083,6 +2082,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     main_blocker = (
         f'<a href="#root-{esc(first_root["id"])}">{esc(first_root["id"])} — {esc(first_root["title"])}</a>'
         f'<span class="note"> · {first_root["count"]} downstream tasks</span>'
+        + (f'<span class="note"> · {esc(first_root["reason"])}</span>' if first_root["kind"] == "upcoming" else '')
         if first_root else 'No active root blocker recorded'
     )
     if not first_root and gate:
@@ -2127,9 +2127,11 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 
     def root_item(root: dict) -> str:
         links = ', '.join(ref(t) for t in root["affected"]) or 'No unfinished downstream tasks.'
+        label = {"human": "Direct human action", "upcoming": "Upcoming owner decision",
+                 "technical": "Direct technical blocker"}[root["kind"]]
         return (f'<li id="root-{esc(root["id"])}"><strong>{esc(root["title"])}</strong> '
                 f'<code>{esc(root["id"])}</code> · {root["count"]} downstream<br>'
-                f'<span class="note">{"Direct human action" if root["kind"] == "human" else "Direct technical blocker"}'
+                f'<span class="note">{label}'
                 f' · {esc(root["actor"])} · {"current" if root["current"] else "future obligation"}</span>'
                 f'<p>{esc(root["reason"])}</p><details><summary>Cause, evidence and affected tasks</summary>'
                 f'<p>Cause: {ref(root["id"])}</p><p>{source_link(root["source"]) if root["source"] else "Source record missing"}</p>'
