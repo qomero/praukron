@@ -2005,8 +2005,12 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     def obstacle_item(item: dict, offer_guide: bool = False) -> str:
         # What is blocked (the subject), why (the detail), what clears it,
         # and who must act: all four from compiled fields, none invented here.
+        review_label = {"REVIEW_MISSING": "Evidence recorded, review missing",
+                        "EVIDENCE_MISSING": "No exercised evidence, no review"}.get(item.get("variant"), "")
         return (
             f'<li>{_pill(item["type"])} {ref(item["subject"])}<br>'
+            + (f'<strong>{review_label}</strong><br>' if review_label else '')
+            +
             f'<span class="note">{esc(item["detail"])}</span><br>'
             f'<span class="note"><strong>To unblock:</strong> {esc(item.get("unblock", ""))} · '
             f'<strong>Who acts:</strong> {esc(item.get("actor", "agent"))}</span>'
