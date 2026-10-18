@@ -19,8 +19,8 @@ doi: 10.5281/zenodo.22897871
 repository-code: https://github.com/qomero/praukron
 url: https://github.com/qomero/praukron
 license: Apache-2.0
-version: 2.2.0
-date-released: "2026-10-16"
+version: 2.2.1
+date-released: "2026-10-18"
 keywords:
   - project memory
   - project governance
