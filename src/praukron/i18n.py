@@ -31,12 +31,16 @@ status state class evidenceClass validation domain domainSource phase module ac
 exitAuthority exitAuthorityStatus task tasks phases modules deps blocks inherits
 decisions assumptions references responses reconciledBy appliesTo verifiedBy affects
 origin type kind subject blockers actor variant impact action notify decision
-response target retryOf code severity destination source documents
-date start finish claimed estimate criticalPath unscheduled inFlight ready blocked wip
+response target retryOf parent code severity destination source documents
+date time start finish claimed estimate criticalPath unscheduled inFlight ready blocked wip
 unfinishedExecution unmetCriteria blocking affected relevant active ownerAction
 open openHigh openPermission openOnCurrentWork openOnExits ownerHeld
 awaitingReconciliation validationCounts reserved
+events externalBlockers unresolvedFailures linkedTasks introducedBy triggerState
+affectingExecution affectingCriticalPath affectingGate
 '''.split())
+TECHNICAL_PATHS = frozenset({('tasks', 'debt'), ('operations', 'events', 'outcome')})
+IDENTIFIER_MAPS = frozenset({('mission', 'states'), ('execution', 'externalBlockers')})
 
 
 def protect(data):
@@ -49,7 +53,7 @@ def protect(data):
         if not isinstance(value, str) or not value:
             return value
         key = path[-1] if path else ''
-        if key in TECHNICAL_FIELDS or path[:2] == ('mission', 'states'):
+        if key in TECHNICAL_FIELDS or path in TECHNICAL_PATHS or path[:2] in IDENTIFIER_MAPS:
             return value
         # These projections contain compiler-authored interface explanations.
         if (key in {'detail', 'unblock'} and path[0] in {'obstacles', 'execution'}

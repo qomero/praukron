@@ -202,7 +202,8 @@ class DashboardLanguageCase(AssumptionCase):
             if isinstance(value, str):
                 keys = tuple(key for key in path if isinstance(key, str))
                 key = keys[-1]
-                if (key in i18n.TECHNICAL_FIELDS or keys[:2] == ('mission', 'states')
+                if (key in i18n.TECHNICAL_FIELDS or keys in i18n.TECHNICAL_PATHS
+                        or keys[:2] in i18n.IDENTIFIER_MAPS
                         or key == 'recorded'
                         or keys[0] == 'validationFindings' and key == 'message'
                         or keys[0] == 'assumptionReport' and key == 'assumption'
@@ -223,6 +224,22 @@ class DashboardLanguageCase(AssumptionCase):
             with self.subTest(path=path):
                 self.assertEqual(i18n.localize('<p>' + html.escape(value) + '</p>', 'vi'), '<p>' + words + '</p>')
         self.assertEqual(filled['thesis']['futureProseField'], words)
+
+    def test_compiled_machine_references_and_event_enums_remain_usable(self):
+        compiled = compiler.as_json(compiler.load(self.dir))
+        compiled['tasks'][0].update(events=['EV-1'], debt=['TD-1'], externalBlockers=['T-TWO'])
+        compiled['operations']['events'] = [{'id': 'EV-1', 'title': 'Home', 'outcome': 'failure',
+                                            'time': '2026-10-18T10:00:00Z', 'parent': 'EV-0'}]
+        compiled['operations']['unresolvedFailures'] = ['EV-1']
+        compiled['execution']['externalBlockers'] = {'T-ONE': ['T-TWO']}
+        protected = i18n.protect(compiled)
+        for field in ('events', 'debt', 'externalBlockers'):
+            self.assertEqual(protected['tasks'][0][field], compiled['tasks'][0][field])
+        self.assertEqual(protected['execution']['externalBlockers'], {'T-ONE': ['T-TWO']})
+        self.assertEqual(protected['operations']['unresolvedFailures'], ['EV-1'])
+        for field in ('id', 'outcome', 'time', 'parent'):
+            self.assertEqual(protected['operations']['events'][0][field], compiled['operations']['events'][0][field])
+        self.assertEqual(protected['operations']['events'][0]['title'], i18n.verbatim('Home'))
 
     def test_static_interface_literals_and_empty_states_are_catalogued(self):
         source_dir = Path(dashboard.__file__).parent
