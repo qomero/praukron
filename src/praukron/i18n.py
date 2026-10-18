@@ -87,6 +87,15 @@ def protect(data):
 
 # One entry per language: native name, date order, and the complete messages.
 _VI = {
+    'Approve selected': 'Duyệt các mục đã chọn',
+    'Select': 'Chọn',
+    'Confirm': 'Xác nhận',
+    '{count} selected': 'Đã chọn {count} mục',
+    'selected': 'mục đã chọn',
+    'To approve, run': 'Để duyệt, chạy',
+    'Recording approval…': 'Đang ghi phản hồi duyệt…',
+    'no longer available for approval; reload Review. Nothing was recorded.': 'không còn sẵn sàng để duyệt; tải lại trang Duyệt. Chưa ghi phản hồi nào.',
+    'verification requires a GitHub login named in Owners. Nothing was recorded.': 'để xác minh, cần đăng nhập GitHub bằng tài khoản có tên trong Owners. Chưa ghi phản hồi nào.',
     'Missing dependency record': 'Thiếu hồ sơ công việc phụ thuộc',
     'Dependency record is missing.': 'Chưa có hồ sơ công việc phụ thuộc.',
     'Explicit BLOCKED status or recorded failure; inspect evidence.': 'Công việc được ghi là bị chặn hoặc có lỗi; hãy kiểm tra bằng chứng.',

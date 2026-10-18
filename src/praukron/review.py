@@ -11,6 +11,8 @@ import html
 import re
 from urllib.parse import quote
 
+from .mission import approval_actions
+
 STYLE = """
 /* Assumptions review: an inbox, not a table. */
 details.acard { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
@@ -42,6 +44,19 @@ details.acard > summary:hover { background: var(--panel-raised); }
 .review-bar button:hover { filter: brightness(1.08); }
 .review-result { font-size: 13px; flex: 1 0 100%; }
 .review-result:empty { display: none; }
+.approval-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-block: 8px; }
+summary .approval-controls { flex: 1 0 100%; grid-column: 1 / -1; }
+.approval-select { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; cursor: pointer; }
+.approval-select input { accent-color: var(--accent); width: 18px; height: 18px; margin: 0; }
+.approve-one, .approve-selected { display: inline-flex; align-items: center; gap: 8px; min-height: 44px;
+  padding: 8px 12px; font: inherit; font-weight: 600; border: 1px solid var(--accent);
+  border-radius: var(--radius-s); color: var(--on-accent); background: var(--accent); cursor: pointer; }
+.approve-one svg { width: 18px; height: 18px; flex-shrink: 0; }
+.approve-one:hover, .approve-selected:hover { filter: brightness(1.08); }
+.approval-controls button:disabled, .approval-controls input:disabled { opacity: .55; cursor: default; }
+.approval-controls button:active:not(:disabled) { transform: translateY(1px); }
+.approval-result, .approval-controls .respond-hint { flex: 1 0 100%; margin: 0; }
+.approval-result:empty { display: none; }
 /* Served: a card already answered in this sitting says so before it is submitted. */
 details.acard.is-answered > summary::after, details.review-item.is-answered > summary::after, ul.owner-list > li.is-answered::after {
   content: var(--ui-answered); flex: 1 0 100%; font-size: 12px; font-weight: 600;
@@ -116,6 +131,64 @@ SERVE_SCRIPT = DECIDE_JS + """
 const reviewBars = [...document.querySelectorAll('.review-bar')];
 if (reviewBars.length) {
   const token = new URLSearchParams(location.search).get('token') || '';
+  const selections = [...document.querySelectorAll('.approval-select input')];
+  const batchButton = document.querySelector('.approve-selected');
+  let approving = false;
+  function updateSelection() {
+    const count = selections.filter(input => input.checked).length;
+    if (batchButton) batchButton.disabled = approving || count === 0;
+    const countLabel = document.getElementById('approval-count');
+    if (countLabel) countLabel.textContent = count + ' selected';
+  }
+  selections.forEach(input => input.addEventListener('change', updateSelection));
+  document.querySelectorAll('.approval-controls').forEach(control => {
+    control.addEventListener('click', event => event.stopPropagation());
+    control.addEventListener('keydown', event => event.stopPropagation());
+  });
+  function approvalItem(control) {
+    return {target: control.dataset.target, action: control.dataset.action,
+      text: control.dataset.action === 'VERIFY' ? 'Verified.' : 'OK'};
+  }
+  async function approve(controls, out) {
+    if (approving || !controls.length) return;
+    approving = true;
+    const writers = [...document.querySelectorAll('.approve-one, .approve-selected, .review-bar button, .approval-select input')];
+    const disabled = writers.map(control => control.disabled);
+    writers.forEach(control => { control.disabled = true; });
+    out.textContent = 'Recording approval…';
+    try {
+      const response = await fetch('/respond', {method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-Praukron-Token': token},
+        body: JSON.stringify({items: controls.map(approvalItem), approveOnly: true})});
+      const result = await response.json();
+      if (!result.ok) throw new Error(result.error);
+      const message = 'Recorded ' + result.ids.join(', ') + '. Reloading…';
+      out.textContent = message;
+      try { sessionStorage.setItem('praukron-approval-' + token, message.replace(' Reloading…', '')); } catch (_) {}
+      location.reload();
+    } catch (error) {
+      out.textContent = error.message;
+      approving = false;
+      writers.forEach((control, index) => { control.disabled = disabled[index]; });
+      updateSelection();
+    }
+  }
+  document.querySelectorAll('.approve-one').forEach(button => button.addEventListener('click', () => {
+    approve([button], button.closest('.approval-controls').querySelector('.approval-result'));
+  }));
+  if (batchButton) batchButton.addEventListener('click', () => {
+    approve(selections.filter(input => input.checked), document.getElementById('approval-result'));
+  });
+  let recorded = '';
+  try {
+    recorded = sessionStorage.getItem('praukron-approval-' + token);
+    sessionStorage.removeItem('praukron-approval-' + token);
+  } catch (_) {}
+  if (recorded) {
+    // Announce after the refreshed document's live regions have mounted.
+    setTimeout(() => document.querySelectorAll('.approval-result').forEach(out => { out.textContent = recorded; }), 100);
+  }
+  updateSelection();
   document.querySelectorAll('details.acard').forEach(card => card.addEventListener('toggle', () => { if (card.open) card.dataset.seen = '1'; }));
   document.querySelectorAll('.aform textarea').forEach(area => area.addEventListener('input', () => {
     const form = area.closest('.aform');
@@ -204,6 +277,30 @@ def review_bar(interactive: bool, reviewer: str = "") -> str:
             + f'<button type="button"{"" if reviewer else " disabled"}>Submit review</button>'
             '<span class="remaining" aria-live="polite"></span>'
             '<span class="review-result" aria-live="polite"></span></div>')
+
+
+def approval_control(target: str, action: str, interactive: bool, selectable: bool = True) -> str:
+    """A direct approval and an independent, explicit batch selection."""
+    disabled = '' if interactive else ' disabled'
+    label = 'Verify' if action == 'VERIFY' else 'Confirm'
+    attributes = f' data-target="{esc(target)}" data-action="{action}"'
+    return ('<span class="approval-controls">'
+            + (f'<label class="approval-select"><input type="checkbox"{attributes}{disabled}>'
+               f'Select {esc(target)}</label>' if selectable else '')
+            + f'<button type="button" class="approve-one"{attributes}{disabled}>'
+            '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2">'
+            '<path d="m5 12 4 4L19 6"/></svg>'
+            f'{label} {esc(target)}</button>'
+            + ('' if interactive else '<span class="respond-hint">To approve, run <code>praukron dashboard --serve</code>.</span>')
+            + '<span class="approval-result" role="status" aria-live="polite"></span></span>')
+
+
+def approval_bar(interactive: bool) -> str:
+    return ('<div class="approval-controls approval-bar">'
+            '<button type="button" class="approve-selected" disabled>Approve selected</button>'
+            '<span id="approval-count" aria-live="polite">0 selected</span>'
+            + ('' if interactive else '<span class="respond-hint">To approve, run <code>praukron dashboard --serve</code>.</span>')
+            + '<span class="approval-result" id="approval-result" role="status" aria-live="polite"></span></div>')
 
 
 def verification(compiled: dict, ref, interactive: bool = False) -> tuple[str, int]:
@@ -342,6 +439,8 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
                        f'<span class="review-why">{why}</span>'
                        f'<span class="review-target">Affects: {esc(affected)} · {downstream} downstream</span>'
                        f'<span class="review-action">{primary}</span>')
+        if a["id"] in approval_actions(compiled):
+            summary += approval_control(a["id"], "CONFIRM", interactive)
         return (
             '<details class="acard"' + (f' id="assumption-{esc(a["id"])}"' if anchor else "")
             + f' data-id="{esc(a["id"])}" data-impact="{esc(a["impact"])}" data-status="{esc(a["status"])}"'
@@ -417,6 +516,7 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
                     f'<span class="review-why">{esc(why)}</span>'
                     f'<span class="review-target">Affects: {esc(tid)} · {len(item["affected"])} downstream</span>'
                     f'<span class="review-action">{primary}</span>'
+                    + (approval_control(tid, "VERIFY", interactive) if group == "now" and verifying else '') +
                     f'</summary><div class="review-body">{body}</div></details>')
 
         def validation_card(item: dict) -> str:
@@ -458,7 +558,7 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
                  + '<p class="note">Ordered by immediate impact, recorded permission or HIGH-impact sensitivity, then downstream cost. '
                  'Permission or HIGH-impact sensitivity is the recorded proxy for irreversible consequences.</p></details>')
         return ('<p class="note">Owner decisions are separate from agent work. Assumptions are provisional, never approval.</p>'
-                + tools + ''.join(sections), "", len(compiled["mission"]["review"]["now"])
+                + approval_bar(interactive) + tools + ''.join(sections), "", len(compiled["mission"]["review"]["now"])
                 + len(compiled["mission"]["review"]["assumptions"]), len(waiting))
 
     opened = [a for a in assumptions if a["status"] == "OPEN" and a["id"] not in waiting]

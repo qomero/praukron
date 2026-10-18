@@ -192,6 +192,14 @@ def project(data: dict) -> dict:
             "relevant": sorted(relevant), "runtime": {t: "unknown" for t in data["wip"]}}
 
 
+def approval_actions(data: dict) -> dict[str, str]:
+    """Only current verifications and unanswered open assumptions take a tick."""
+    review = data["mission"]["review"]
+    return {**{item["id"]: "VERIFY" for item in review["now"]
+               if item["kind"] == "task" and item.get("action") == "Verify"},
+            **{item["id"]: "CONFIRM" for item in review["assumptions"]}}
+
+
 def search_index(data: dict) -> list[dict]:
     """One embedded index with explicit destinations and source provenance."""
     entries = []

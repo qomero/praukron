@@ -237,7 +237,7 @@ def refresh(root: Path) -> None:
 
 
 def append(root: Path, items: list[Item], via: str = "cli", date: str | None = None,
-           recompile: bool = True, verify: bool = False) -> list[str]:
+           recompile: bool = True, verify: bool = False, approve_only: bool = False) -> list[str]:
     """Append every item as one batch, or none of them. Returns the new ids."""
     if not items:
         raise RespondError("nothing to record")
@@ -250,8 +250,21 @@ def append(root: Path, items: list[Item], via: str = "cli", date: str | None = N
         if recover_archive(root):
             raise RespondError("an interrupted archive was rolled back; try again")
         project = compiler.load(root)
+        if approve_only:
+            from .mission import approval_actions
+
+            eligible = approval_actions(compiler.as_json(project))
+            seen = set()
+            for item in items:
+                if eligible.get(item.target) != item.action or item.target in seen:
+                    raise RespondError(f"{item.target}: no longer available for approval; reload Review. Nothing was recorded.")
+                seen.add(item.target)
         _check(project, items, verify)
         by = identity()
+        if approve_only and not project.is_owner(by):
+            for item in items:
+                if item.action == VERIFY:
+                    raise RespondError(f"{item.target}: verification requires a GitHub login named in Owners. Nothing was recorded.")
         before = _errors(project)
         path = root / AUTHORITY_DIR / FILE
         existed = path.is_file()

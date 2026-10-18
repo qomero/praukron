@@ -194,6 +194,24 @@ Opening an assumption is not itself a submission. Source-file links are relative
 to the generated file's location; a local server may not serve those Markdown
 files, so the same records and evidence also have dashboard destinations.
 
+Eligible Review items have a tick button: **Verify** records `VERIFY` for an owner
+task with every criterion passing; **Confirm** records `CONFIRM` for an unanswered
+open assumption. Home's next-action card offers the same button when eligible.
+Each button records just that item immediately. The separate **Select** checkbox
+only selects an item; **Approve selected** (Vietnamese: **Duyệt các mục đã chọn**)
+records all selected items in one atomic response batch. Unselected items and
+draft feedback are not included. Decisions and validation actions retain their
+existing forms or commands. Static ticks are visible but disabled, with a
+`dashboard --serve` hint.
+
+Approval uses the existing `/respond` endpoint and session token, with `By` from
+the active GitHub login. Eligibility is rechecked under the response write lock;
+a stale or refused item names its target and records none of the batch. Success
+refreshes the page, announces the result, and moves responses to **Previously
+answered** for agent reconciliation. Responses are append-only; there is no undo.
+`test_dashboard_ticks.py` covers these controls, single and batch HTTP writes,
+identity, stale-state refusals, unchanged files, static mode and localization.
+
 ## Reproducible evaluation
 
 Run `py -3 -m unittest discover -s tests` (or `python3` on Unix). The mission
