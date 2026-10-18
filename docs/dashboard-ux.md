@@ -12,9 +12,13 @@ support a short path from project state to a decision and its evidence.
 
 Work starts with a state board: Ready, In progress, Upcoming, Waiting for human,
 Waiting for dependencies and Blocked by failure. Populated columns use the
-available width; empty columns keep a compact label and count. Each task card
+available width; empty columns keep a compact height and single-line label and
+count. Busy states preview three cards, with a native "+M more" disclosure for
+the rest so blockers and inspection remain nearby. Each task card
 names its ID, title, module and responsible person or owner authority. Completed
-has a separate count and disclosure. Current work / All work updates the cards,
+has a separate count and disclosure. Current work names the completed count in
+the current phase alongside the project total; All work shows the overall count.
+Current work / All work updates the cards,
 counts, column widths and ready/waiting summary together. On narrow screens the
 board scrolls horizontally inside a focusable strip.
 

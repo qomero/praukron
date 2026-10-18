@@ -295,7 +295,7 @@ class TestMissionPage(FixtureCase):
           const groups = rows.map((row, i) => ({count: {}, empty: {}, dataset: {state: i ? 'Waiting for human' : 'Ready'},
             classList: {toggle() {}},
             querySelectorAll() {return [row];},
-            querySelector(s) {return s === '[data-state-count]' ? this.count : this.empty;}
+            querySelector(s) {return s === '[data-state-count]' ? this.count : s === '.scope-empty' ? this.empty : null;}
           }));
           const buttons = ['current', 'all'].map(scope => ({dataset: {workScope: scope},
             setAttribute(k, v) {this[k] = v;}, addEventListener() {}

@@ -12,6 +12,44 @@ from test_dashboard_redesign import run_js
 from test_praukron import FixtureCase
 
 
+def layout_style(css, selectors, viewport):
+    """Resolve matching layout rules in cascade order, including phone overrides."""
+    declarations = []
+
+    def rules(text):
+        offset = 0
+        while '{' in text[offset:]:
+            start = text.index('{', offset)
+            selector = text[offset:start].strip()
+            end, depth = start + 1, 1
+            while depth:
+                depth += (text[end] == '{') - (text[end] == '}')
+                end += 1
+            body = text[start + 1:end - 1]
+            if selector.startswith('@media'):
+                limit = re.search(r'max-width:\s*(\d+)px', selector)
+                if limit and viewport <= int(limit.group(1)):
+                    rules(body)
+            elif not selector.startswith('@'):
+                for part in selector.split(','):
+                    part = part.strip()
+                    if part in selectors:
+                        declarations.append((part.count('#'), part.count('.'), len(declarations), body))
+            offset = end
+
+    rules(re.sub(r'/\*.*?\*/', '', css, flags=re.S))
+    style = {}
+    for _, _, _, body in sorted(declarations):
+        for item in body.split(';'):
+            if ':' not in item:
+                continue
+            key, value = (s.strip() for s in item.split(':', 1))
+            style[key] = value
+            if key == 'flex' and len(value.split()) == 3:
+                style.update(zip(['flex-grow', 'flex-shrink', 'flex-basis'], value.split()))
+    return style
+
+
 class TestWorkBoard(FixtureCase):
     def populated(self):
         base = self.project.tasks[1]
@@ -54,7 +92,49 @@ class TestWorkBoard(FixtureCase):
         _, _, work = self.render()
         self.assertIn('work-column is-empty', work)
         self.assertIn('No tasks in in progress for the selected scope.', work)
-        self.assertIn('.work-column.is-empty { flex: 0 0 100px; }', dashboard._MISSION_STYLE)
+        for width in (390, 1440):
+            self.assert_compact_layout(dashboard._MISSION_STYLE, width)
+            # These are the old stretching bug and a widening regression.
+            for mutation in ('.work-board { align-items: stretch; }',
+                             '.work-column.is-empty { flex: 1 0 100px; }'):
+                with self.assertRaises(AssertionError):
+                    self.assert_compact_layout(dashboard._MISSION_STYLE + mutation, width)
+
+    def assert_compact_layout(self, css, width):
+        board = layout_style(css, {'.work-board'}, width)
+        empty = layout_style(css, {'.work-state', '.work-column', '.work-column.is-empty'}, width)
+        align = empty.get('align-self', 'auto')
+        self.assertIn(board.get('align-items', 'stretch') if align == 'auto' else align, ('start', 'flex-start'))
+        self.assertEqual(empty['flex-grow'], '0')
+        self.assertEqual(empty['flex-basis'], 'auto')
+        self.assertEqual(empty['width'], 'max-content')
+        self.assertEqual(empty.get('height', 'auto'), 'auto')
+        self.assertEqual(empty.get('min-width', '0'), '0')
+
+    def test_01_busy_state_has_three_card_preview_and_native_more_disclosure(self):
+        base = self.project.tasks[2]
+        self.project.tasks.extend(replace(base, id=f'T-WAIT-{i:02}') for i in range(30))
+        data, _, work = self.render()
+        lane = work.split('data-state="Waiting for dependencies"', 1)[1].split('</section>', 1)[0]
+        preview, remainder = lane.split('<details class="work-more">', 1)
+        self.assertEqual(len(re.findall(r'data-work-task=', preview)), 3)
+        count = len(data['mission']['states']['Waiting for dependencies'])
+        self.assertIn(f'<span data-work-more-count>+{count - 3} more</span>', remainder)
+        self.assertEqual(len(re.findall(r'data-work-task=', remainder)), count - 3)
+        self.assertIn('<ul class="work-cards" data-work-overflow>', remainder)
+        self.assertNotIn('<details class="work-more" open', lane)
+
+    def test_01_completed_and_tabpanel_static_labels(self):
+        self.populated()
+        _, page, work = self.render()
+        completed = work.split('data-state="Completed"', 1)[1].split('</details>', 1)[0]
+        self.assertIn('<span data-completed-scope>overall</span>', completed)
+        self.assertIn('data-work-completed="true" data-work-phase="P1"', completed)
+        for tag in re.findall(r'<section class="work-view[^>]+>', page):
+            self.assertEqual(len(re.findall(r'aria-label(?:ledby)?=', tag)), 1)
+            self.assertIn('aria-labelledby="work-tab-', tag)
+        for state in ['Waiting for dependencies', 'Blocked by failure']:
+            self.assertIn(f'title="{state}"', work)
 
     def test_02_context_pair_and_five_anchored_views_without_javascript(self):
         _, _, work = self.render()
@@ -148,6 +228,55 @@ class TestWorkBoard(FixtureCase):
           reveal(target); console.log(JSON.stringify({clears, hidden: target.hidden}));
         """)
         self.assertEqual(result, {'clears': 0, 'hidden': False})
+
+    def test_03_scope_refills_preview_counts_overflow_and_counts_completed_phase(self):
+        script = dashboard._MISSION_SCRIPT.split('const scopeButtons =', 1)[1].split('function selectWorkView', 1)[0]
+        result = run_js("""
+          const DATA = {project: {currentPhase: 'P1'}, mission: {relevant: ['NOW3', 'NOW4', 'NOW5', 'NOW6', 'NOW7']}};
+          function row(id, order, phase, done=false) {return {dataset: {workTask:id, workOrder:order,
+            workPhase:phase, workCompleted:String(done)}, classList: {hidden:false,
+              toggle(k,v) {this.hidden=v;}, contains() {return this.hidden;}}};}
+          const waiting = Array.from({length:8}, (_,i) => row(i<3 ? 'LATER'+i : 'NOW'+i, i, 'P1'));
+          const completed = [row('DONE-NOW',0,'P1',true), row('DONE-PAST',1,'P0',true)];
+          function list(rows) {return {rows, append(row) {
+            for(const list of lists) list.rows=list.rows.filter(x=>x!==row);
+            this.rows.push(row);
+          }};}
+          const preview=list(waiting.slice(0,3)), overflow=list(waiting.slice(3));
+          const lists=[preview,overflow];
+          const moreCount={}; const more={hidden:false,open:true,querySelector() {return moreCount;}};
+          const doneScope={};
+          const groups=[waiting,completed].map((rows,i)=>({dataset:{state:i?'Completed':'Waiting for dependencies',workLimit:'3',completedTotal:'2'},
+            count:{},empty:{},classList:{toggle(){}},querySelectorAll(){return i?rows:[...preview.rows,...overflow.rows];},
+            querySelector(s){return {'[data-state-count]':this.count,'.scope-empty':this.empty,
+              '.work-more':i?null:more,'[data-work-preview]':preview,'[data-work-overflow]':overflow,
+              '[data-completed-scope]':i?doneScope:null}[s];}}));
+          const buttons=['current','all'].map(workScope=>({dataset:{workScope},setAttribute(){}}));
+          const document={getElementById(){return {};},querySelectorAll(s){return s==='[data-work-scope]'?buttons:
+            s==='[data-work-task]'?[...waiting,...completed]:s==='.work-column'?[groups[0]]:groups;}};
+          function snapshot(){return {preview:preview.rows.map(r=>r.dataset.workTask),
+            counts:groups.map(g=>g.count.textContent),more:moreCount.textContent,hidden:more.hidden,
+            done:doneScope.textContent,doneVisible:completed.filter(r=>!r.classList.hidden).map(r=>r.dataset.workTask)};}
+        """ + 'const scopeButtons =' + script + """
+          workScope(false); const current=snapshot();
+          workScope(true); const all=snapshot();
+          workScope(false); const again=snapshot();
+          DATA.mission.relevant=['NOW7'];workScope(false);const small=snapshot();
+          console.log(JSON.stringify({current,all,again,small,closed:!more.open}));
+        """)
+        self.assertEqual(result['current']['preview'], ['NOW3', 'NOW4', 'NOW5'])
+        self.assertEqual(result['current']['counts'], [5, 1])
+        self.assertEqual(result['current']['more'], '+2 more')
+        self.assertEqual(result['current']['done'], 'in P1 · 2 overall')
+        self.assertEqual(result['current']['doneVisible'], ['DONE-NOW'])
+        self.assertEqual(result['all']['preview'], ['LATER0', 'LATER1', 'LATER2'])
+        self.assertEqual(result['all']['counts'], [8, 2])
+        self.assertEqual(result['all']['more'], '+5 more')
+        self.assertEqual(result['all']['done'], 'overall')
+        self.assertEqual(result['again'], result['current'])
+        self.assertEqual(result['small']['preview'], ['NOW7'])
+        self.assertTrue(result['small']['hidden'])
+        self.assertTrue(result['closed'])
 
     def test_04_deterministic_self_contained_responsive_theme_focus_and_motion(self):
         self.populated()
