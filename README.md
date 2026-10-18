@@ -54,6 +54,13 @@ A person opens a page:
 <p align="center"><em><code>praukron dashboard</code> on a synthetic test project. See the <a href="docs/dashboard-ux.md">workspace guide</a> for the interaction model.<br>
 Every figure is computed from the Markdown files in <code>.praukron/chronicle/</code>. No model, no service, no network.</em></p>
 
+Home leads with the current phase's ID, name and outcome, followed by its modules
+and their completion. Inline progress charts show phase completion, current
+modules and execution states, with exact counts beside every bar. Execution,
+operations and validation stay separate. Review shows each decision's title,
+reason, affected work and action first; one disclosure opens its records and
+response options. Both views remain readable without JavaScript.
+
 An agent asks for a packet, and gets the same state as structured text:
 
 ```console

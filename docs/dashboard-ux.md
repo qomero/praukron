@@ -5,9 +5,9 @@ support a short path from project state to a decision and its evidence.
 
 | Workspace | First view | Further inspection |
 | --- | --- | --- |
-| Home | Current phase and outcome, consequential blocker, next human action | Work in progress, next milestones and gate |
+| Home | Current phase ID, name and outcome; its modules and completion | Next human action, progress charts, consequential blocker, work in progress, milestones and gate |
 | Work | Current work and its prerequisites, separated by operational condition | All tasks, phase/module hierarchy, dependency graph, critical path, filters and progress breakdown |
-| Review | Directly actionable owner decisions and assumptions to validate | Upcoming decisions, existing responses, reconciliation and verification |
+| Review | Counted groups; each item has a title, one-line why, affected task and primary action | One disclosure per item for records, reasoning, response controls, reconciliation and verification |
 | Audit | Evidence and governance | ADRs, criteria, task records, technical debt, operational events, failures and journal history |
 
 Home keeps execution completion, validation strength and operations activity
@@ -17,6 +17,38 @@ comes from journal headings or Date/Claimed/Time record metadata and links to it
 source. When none exists, the page says "Not recorded". Planned dates and prose
 are excluded, and ties use the source pointer deterministically. No clock value,
 health score, ETA, schedule or event is invented.
+
+The first Home block pairs the current phase with its modules. With no current
+phase, it says so plainly. Chart tables show current-module completion and
+execution completion by phase. A single stacked horizontal bar shows execution
+states, with a patterned legend for non-zero states and their counts. Zero states
+are named once below it. A complete status table remains available to screen
+readers and appears visually without JavaScript. All figures
+come from compiled tasks; completion counts DONE tasks, while the status chart
+uses the existing mission states. Each inline SVG bar has an accessible name
+and exact counts in the same table, so colour is never the only signal. Zero-task
+rows say "No tasks" instead of suggesting a percentage. Operations tasks in a
+current module get their own labelled row; they never enter execution totals.
+Unphased execution is named separately. Validation remains its own measure.
+The tables stack their bars below labels at phone width and use the existing
+light/dark tokens. No charting library, external asset or JavaScript is required.
+
+Review keeps all four groups visible, including a one-line empty state when a
+group has no items. Its groups do not collapse: opening an item's primary action
+reveals its full details in one step. Assumptions show their status, impact,
+reasoning, references and existing responses inside that disclosure. Response
+controls appear first when served. A separate disclosure holds assumption filters
+and the ordering explanation. Opening an item still does not submit a response;
+the existing live Submit action and authentication rules apply.
+
+An owner task says **Decide** until its recorded contract criteria all pass;
+then it says **Verify** and offers verification controls. The summary names its
+task and downstream count. Compilation also carries validation findings and
+explicit owner commands into Review: errors such as a HUMAN_VERIFIED task
+missing its named owner's VERIFY appear in Actionable now even when the task is
+already DONE. Their disclosures contain the validator's exact terminal commands,
+and Home's action count includes them. Review does not infer new errors, change
+recorded completion, or run those commands on the owner's behalf.
 
 ## Attention and dependencies
 
@@ -98,6 +130,9 @@ compares the nodes, edges, order and dates in each native view against its
 Mermaid source on one synthetic fixture, and checks empty states, determinism,
 escaped labels and keyboard view switching. Existing response,
 verification, filter and contrast tests remain regression checks.
+`test_home_progress.py` covers phase/module prominence, cross-domain counts,
+empty and unphased work, named SVG/text equivalents, escaping, determinism,
+single-level Review summaries and retained records/response controls.
 
 For a synthetic project, use `tests/synth_chronicle.py` in a temporary directory,
 or the fixtures in `tests/test_review.py` for owner decisions and assumptions.

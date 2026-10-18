@@ -173,6 +173,9 @@ class TestOwnersAndVerify(OwnerCase):
 class TestServedIdentity(ServeCase):
     def test_page_uses_login_ignores_posted_name_and_offers_verify(self) -> None:
         owner_task(self)
+        acceptance = self.authority / "ACCEPTANCE.md"
+        acceptance.write_text(acceptance.read_text(encoding="utf-8").replace(
+            "Then they stand.\n  `TEST` · `NOT_RUN`", "Then they stand.\n  `TEST` · `PASS`"), encoding="utf-8")
         (self.authority / "ADR" / "ADR-003.md").write_text(OWNERS_ADR, encoding="utf-8")
         status, page = self.request(f"/?token={self.token}")
         self.assertEqual(status, 200)

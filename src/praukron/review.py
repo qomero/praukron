@@ -43,7 +43,7 @@ details.acard > summary:hover { background: var(--panel-raised); }
 .review-result { font-size: 13px; flex: 1 0 100%; }
 .review-result:empty { display: none; }
 /* Served: a card already answered in this sitting says so before it is submitted. */
-details.acard.is-answered > summary::after, ul.owner-list > li.is-answered::after {
+details.acard.is-answered > summary::after, details.review-item.is-answered > summary::after, ul.owner-list > li.is-answered::after {
   content: "Answered, not yet submitted"; flex: 1 0 100%; font-size: 12px; font-weight: 600;
   color: var(--good); }
 ul.owner-list > li.is-answered::after { display: block; margin-top: 6px; }
@@ -146,7 +146,8 @@ if (reviewBars.length) {
   if (remaining) {
     needsPanel.classList.add('is-live');
     const badge = needsPanel.querySelector('.needcount');
-    const all = [...needsPanel.querySelectorAll('details.acard, ul.owner-list > li')];
+    const all = [...needsPanel.querySelectorAll('details.acard, details.review-item[data-actionable], ul.owner-list > li')]
+      .filter(item => !item.parentElement.closest('details.review-item'));
     const items = all.filter(item => item.querySelector('.aform'));
     const elsewhere = all.length - items.length;
     all.forEach(item => item.classList.toggle('is-offpage', !item.querySelector('.aform')));
@@ -158,8 +159,9 @@ if (reviewBars.length) {
         item.classList.toggle('is-answered', done);
         if (!done) left += 1;
       });
-      badge.textContent = left;
-      badge.classList.toggle('zero', !left);
+      const ownerCommands = all.filter(item => item.classList.contains('validation-action')).length;
+      badge.textContent = left + ownerCommands;
+      badge.classList.toggle('zero', !(left + ownerCommands));
       const outside = elsewhere ? ` · ${elsewhere} need${elsewhere === 1 ? 's' : ''} work outside this page` : '';
       remaining.textContent = (!items.length ? 'Nothing here takes an answer'
         : left ? `${left} of ${items.length} still need${left === 1 ? 's' : ''} a response`
@@ -315,15 +317,37 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             '<p class="respond-hint">To respond, run <code>praukron dashboard --serve</code> '
             "and open the link it prints. This page is read-only.</p>"
         )
+        badges = (f'{_pill(a["impact"])} {_pill(a["status"])}'
+                  + (' <span class="pill permission">Permission</span>' if a["permissions"] else "")
+                  + (' <span class="pill">awaiting the agent</span>' if a["id"] in waiting else ""))
+        summary = f'<code>{esc(a["id"])}</code> {esc(a["title"])} {badges}'
+        impact = ''
+        if mission:
+            item = next((item for items in compiled["mission"]["review"].values() for item in items
+                         if item["kind"] == "assumption" and item["id"] == a["id"]), None)
+            if item:
+                impact = (f'<p>{len(item["affected"])} affected unfinished tasks: '
+                          + (', '.join(ref(t) for t in item["affected"]) or 'none') + '</p>')
+            why = ('Owner response awaits agent reconciliation.' if a["id"] in waiting else
+                   'Access rule needs owner validation.' if a["permissions"] and a["status"] == "OPEN" else
+                   'Provisional choice needs owner validation.' if a["status"] == "OPEN" else
+                   'Previously answered assumption; retained for reference.')
+            primary = ('Inspect reconciliation' if a["id"] in waiting else
+                       'Review response options' if a["status"] in ("OPEN", "CONFIRMED") else 'Inspect record')
+            affected = ', '.join(a["tasks"][:2]) or 'No task linked'
+            if len(a["tasks"]) > 2:
+                affected += f' + {len(a["tasks"]) - 2} more'
+            downstream = len(set(item["affected"]) - set(a["tasks"])) if item else 0
+            summary = (f'<strong class="review-title">{esc(a["title"])}</strong>'
+                       f'<span class="review-why">{why}</span>'
+                       f'<span class="review-target">Affects: {esc(affected)} · {downstream} downstream</span>'
+                       f'<span class="review-action">{primary}</span>')
         return (
             '<details class="acard"' + (f' id="assumption-{esc(a["id"])}"' if anchor else "")
             + f' data-id="{esc(a["id"])}" data-impact="{esc(a["impact"])}" data-status="{esc(a["status"])}"'
             f' data-phase="{esc(" ".join(a["phases"]))}" data-kind="{kind}" data-text="{esc(text)}">'
-            f'<summary><code>{esc(a["id"])}</code> {esc(a["title"])} {_pill(a["impact"])} {_pill(a["status"])}'
-            + (' <span class="pill permission">Permission</span>' if a["permissions"] else "")
-            + (' <span class="pill">awaiting the agent</span>' if a["id"] in waiting else "")
-            + (f' <span class="note">{len(next((r["affected"] for r in compiled["mission"]["review"]["assumptions"] if r["id"] == a["id"]), []))} affected tasks</span>' if mission else "")
-            + '</summary><div class="abody">'
+            f'<summary>{summary}</summary><div class="abody">'
+            + (f'<p><code>{esc(a["id"])}</code> {badges}</p>{action}{impact}' if mission else '')
             + f'<p><strong>Assumed:</strong> {esc(a["assumption"])}</p>'
             + (f'<p class="perm"><strong>The agent assumed an access rule:</strong> {esc(a["permissions"])}</p>'
                if a["permissions"] else "")
@@ -340,7 +364,7 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             + " and names what changed in <code>Reconciled by</code>.</p>"
             + f'<p><a href="../chronicle/{quote(a["source"]["file"])}#{quote(a["source"]["anchor"])}">'
               f'{esc(a["source"]["file"])}#{esc(a["source"]["anchor"])}</a></p>'
-            + f"<div><strong>Responses</strong>{said}</div>{action}</div></details>"
+            + f"<div><strong>Responses</strong>{said}</div>" + ('' if mission else action) + '</div></details>'
         )
 
     def form(a: dict) -> str:
@@ -368,32 +392,58 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             tid = item["id"]
             task = tasks[tid]
             subset = {**compiled, "assumptionReport": {**report, "ownerHeld": [tid]}}
-            verification_body, _ = verification(subset, ref, interactive and group == "now")
-            body = (verification_body + guide(tid, interactive) if group == "now" else
+            verifying = item["action"] == "Verify"
+            verification_body, _ = verification(subset, ref, interactive and group == "now" and verifying)
+            body = ((verification_body if verifying else '') + guide(tid, interactive) if group == "now" else
                     verification_body if group == "answered" else
                     '<p class="note">Future obligation. Finish dependencies and reach the relevant phase first.</p>')
             body += '<p>Dependencies: ' + (", ".join(ref(t) for t in task["deps"]) or "none") + '</p>'
             body += '<p>Affected work: ' + (", ".join(ref(t) for t in item["affected"]) or "none") + '</p>'
+            body += f'<p class="note">Owner authority · {len(item["affected"])} downstream tasks</p>'
             body += f'<p>Evidence: {esc(task["evidence"] or "none recorded")}</p>'
             body += '<p>Review acceptance and decisions: ' + ref(tid) + '</p>'
             body += ''.join(f'<p class="resp">{esc(r["text"])} · {esc(r["id"])}</p>'
                             for r in compiled["responses"] if r["target"] == tid)
-            return (f'<details class="review-item" id="review-{esc(tid)}"><summary>'
-                    f'<strong>{esc(task["title"])}</strong> <code>{esc(tid)}</code>'
-                    f'<span class="note">Owner authority · {len(item["affected"])} downstream</span>'
-                    + (f'<span class="note">{esc(item["note"])}</span>' if item.get("note") else '')
-                    + f'</summary><div class="review-body">{body}</div></details>')
+            why = item.get("note") or {
+                "now": ("The contract is met; owner verification is required." if verifying else
+                        "The contract is not yet met; the owner's decision is needed."),
+                "upcoming": "Owner decision awaits dependencies or its phase.",
+                "answered": "Owner verification awaits agent reconciliation.",
+            }[group]
+            primary = item["action"] if group == "now" else (
+                "Inspect prerequisites" if group == "upcoming" else "Inspect reconciliation")
+            return (f'<details class="review-item" id="review-{esc(tid)}"' + (' data-actionable' if group == "now" else '') + '><summary>'
+                    f'<strong class="review-title">{esc(task["title"])}</strong>'
+                    f'<span class="review-why">{esc(why)}</span>'
+                    f'<span class="review-target">Affects: {esc(tid)} · {len(item["affected"])} downstream</span>'
+                    f'<span class="review-action">{primary}</span>'
+                    f'</summary><div class="review-body">{body}</div></details>')
+
+        def validation_card(item: dict) -> str:
+            finding = item["finding"]
+            why = finding["message"].split(';', 1)[0]
+            commands = ''.join(f'<pre class="owner-command"><code>{esc(command)}</code></pre>'
+                               for command in finding["ownerAction"])
+            return (f'<details class="review-item validation-action" data-actionable id="review-{esc(item["id"])}"><summary>'
+                    f'<strong class="review-title">{esc(item["title"])}</strong>'
+                    f'<span class="review-why">{esc(why)}</span>'
+                    f'<span class="review-target">Affects: {esc(item["target"])} · {len(item["affected"])} downstream</span>'
+                    '<span class="review-action">Run owner command</span></summary>'
+                    f'<div class="review-body"><p>{esc(finding["message"])}</p>{commands}'
+                    f'<p>Validation: {esc(finding["code"])} · {esc(finding["where"])}</p>'
+                    f'<p>Affected record: {ref(item["target"])}</p>'
+                    '<p>Affected work: ' + (', '.join(ref(t) for t in item["affected"]) or 'none') + '</p></div></details>')
 
         sections = []
         for key, label in (("now", "Actionable now"), ("upcoming", "Upcoming decisions"),
                            ("assumptions", "Assumptions requiring validation"), ("answered", "Previously answered")):
             items = compiled["mission"]["review"][key]
-            body = ''.join(card(by_id[i["id"]]) if i["kind"] == "assumption" else task_card(i, key) for i in items)
-            body = body or '<p class="note">No items in this group.</p>'
-            if key in ("upcoming", "answered"):
-                sections.append(f'<details class="group"><summary>{label} <span class="count">{len(items)}</span></summary>{body}</details>')
+            body = ''.join(card(by_id[i["id"]]) if i["kind"] == "assumption" else
+                           validation_card(i) if i["kind"] == "validation" else task_card(i, key) for i in items)
+            if items:
+                sections.append(f'<section class="review-group" aria-label="{label}"><h2>{label} <span class="count">{len(items)}</span></h2>{body}</section>')
             else:
-                sections.append(f'<section aria-label="{label}"><h2>{label} <span class="count">{len(items)}</span></h2>{body}</section>')
+                sections.append(f'<p class="review-empty">{label} <span class="count">0</span> · No items.</p>')
         filters = ('<div class="controls"><input type="search" id="assume-search" aria-label="Search assumptions" placeholder="Filter assumptions…">'
                    + ''.join(f'<select id="assume-{key}" aria-label="{label}"><option value="">{label}: all</option>'
                              + ''.join(f'<option value="{esc(v)}">{esc(v)}</option>' for v in values) + '</select>'
@@ -403,10 +453,12 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
                                  ("status", "Status", ["OPEN", "CONFIRMED", "REVISED", "REJECTED", "WITHDRAWN"]),
                                  ("kind", "Kind", ["permission"])))
                    + f'<span id="assume-shown" aria-live="polite">{len(assumptions)} assumptions</span></div>')
-        return ('<p class="note">Owner decisions are separate from agent work. Assumptions are provisional, never approval. '
-                'Ordered by immediate impact, recorded permission or HIGH-impact sensitivity, then downstream cost. '
-                'Permission or HIGH-impact sensitivity is the recorded proxy for irreversible consequences.</p>'
-                + filters + ''.join(sections), "", len(compiled["mission"]["review"]["now"])
+        tools = ('<details class="review-tools"><summary>Filter assumptions and review order</summary>'
+                 + (filters if assumptions else '<p class="note">No assumptions to filter.</p>')
+                 + '<p class="note">Ordered by immediate impact, recorded permission or HIGH-impact sensitivity, then downstream cost. '
+                 'Permission or HIGH-impact sensitivity is the recorded proxy for irreversible consequences.</p></details>')
+        return ('<p class="note">Owner decisions are separate from agent work. Assumptions are provisional, never approval.</p>'
+                + tools + ''.join(sections), "", len(compiled["mission"]["review"]["now"])
                 + len(compiled["mission"]["review"]["assumptions"]), len(waiting))
 
     opened = [a for a in assumptions if a["status"] == "OPEN" and a["id"] not in waiting]

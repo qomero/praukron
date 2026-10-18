@@ -153,9 +153,26 @@ def project(data: dict) -> dict:
 
     awaiting = {a["assumption"] for a in data["assumptionReport"]["awaitingReconciliation"]}
     reviews = {"now": [], "upcoming": [], "assumptions": [], "answered": []}
+    owner_errors = [f for f in data.get("validationFindings", [])
+                    if f["severity"] == "error" and f.get("ownerAction")]
+    error_targets = set()
+    for finding in sorted(owner_errors, key=lambda f: (f["where"], f["code"])):
+        target = finding["where"].partition("#")[2]
+        error_targets.add(target)
+        reviews["now"].append({
+            "id": "validation-" + finding["code"] + "-" + target,
+            "kind": "validation", "target": target, "finding": finding,
+            "title": "Owner action: " + tasks.get(target, {}).get("title", finding["where"]),
+            "affected": affected(target), "immediate": True, "permission": False,
+        })
     for tid in sorted(owner):
+        if tid in error_targets:
+            continue
         group = "upcoming" if tid in later else "answered" if tid in verified else "now" if tid in actionable else "upcoming"
+        criteria = data.get("acceptance", {}).get(tasks[tid].get("ac"), {}).get("criteria", [])
+        action = "Verify" if criteria and all(c["state"] == "PASS" for c in criteria) else "Decide"
         reviews[group].append({"id": tid, "kind": "task", "affected": affected(tid),
+                               "action": action,
                                "immediate": tid in relevant and (tid not in later or tid in upcoming_blockers),
                                "note": UPCOMING_BLOCKER_NOTE if tid in upcoming_blockers else None,
                                "permission": False})

@@ -205,7 +205,7 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
 def as_json(project: Project) -> dict[str, object]:
     """The normalized shape. Every object keeps provenance where practical."""
     report = analytics.report(project)
-    from . import mission
+    from . import mission, validate
     data = {
         "project": {
             "name": project.name,
@@ -419,6 +419,11 @@ def as_json(project: Project) -> dict[str, object]:
             ],
         },
     }
+    data["validationFindings"] = [
+        {"severity": finding.severity, "code": finding.code, "message": finding.message,
+         "where": finding.where, "ownerAction": list(finding.owner_action)}
+        for finding in validate.check(project)
+    ]
     data["mission"] = mission.project(data)
     data["searchIndex"] = mission.search_index(data)
     return data
