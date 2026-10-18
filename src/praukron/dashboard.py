@@ -791,7 +791,9 @@ function clearFilters() {
 }
 
 function writeHash() {
-  const name = document.documentElement.dataset.tab || 'home';
+  let name = document.documentElement.dataset.tab || 'home';
+  const inspection = document.querySelector('.work-view.is-selected');
+  if (name === 'work' && inspection) name = inspection.id;
   if (location.hash !== '#' + hashFor(name)) history.replaceState(null, '', '#' + hashFor(name));
 }
 
@@ -855,6 +857,7 @@ function selectTab(name, { focus = false, record = true } = {}) {
   if (record) window.scrollTo(0, 0);
   const legacy = document.getElementById('panel-' + old);
   if (legacy && legacy.tagName === 'DETAILS') legacy.open = true;
+  if (old === 'tasks' || old === 'graph') selectWorkView('work-view-' + (old === 'tasks' ? 'registry' : 'graph'));
   if (name === 'home') positionHomeTimeline();
 }
 
@@ -882,6 +885,10 @@ addEventListener('hashchange', () => {
   }
   const target = document.getElementById(decodeURIComponent(name));
   if (!target) return;
+  if (target.classList.contains('work-view')) {
+    readFilters(query);
+    applyFilters({ record: false });
+  }
   reveal(target);
   // The anchor has done its work; the address goes back to tab and filters,
   // so a reload or a shared link keeps what the reader is looking at.
@@ -1423,10 +1430,42 @@ details[open] > summary .review-action::after { content: " −"; }
 .needs-head { display: flex; align-items: center; gap: 12px; }
 .needs-head .live { display: none; }
 .is-live .needs-head .live { display: inline; color: var(--accent); }
-.work-state { margin: 12px 0; }
-.work-state > summary { cursor: pointer; padding: 12px 0; font-weight: 650; }
-.work-state li { padding: 8px 0; }
-.work-scope { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.work-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin: 20px 0; }
+.work-scope { display: none; flex-wrap: wrap; gap: 8px; }
+html.js .work-scope { display: flex; }
+.work-toolbar p { margin: 0; }
+.work-board { display: flex; align-items: flex-start; gap: 12px; overflow-x: auto; padding: 4px 4px 16px; scrollbar-color: var(--line-strong) var(--bg); }
+.work-board:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.work-state { min-width: 0; }
+.work-column { flex: 1 0 220px; padding: 12px; background: var(--panel-raised); border-top: 2px solid var(--line-strong); }
+.work-column.is-empty { flex: 0 0 auto; width: max-content; }
+.work-column h3 { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin: 0 0 16px; font-size: 14px; }
+.work-column h3 > span:first-child { position: relative; white-space: nowrap; }
+.work-column [data-state-count], .work-completed [data-state-count] { color: var(--muted); font-variant-numeric: tabular-nums; }
+.scope-empty { position: relative; }
+.work-column .scope-empty { text-align: center; }
+.work-cards { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.work-card { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-s); background: var(--panel); overflow-wrap: anywhere; }
+.work-card .tasklink { display: block; min-height: 44px; line-height: 1.5; }
+.work-card .tasklink code { display: block; font-size: 12px; color: var(--muted); }
+.work-card .note { display: block; margin-top: 8px; }
+.work-more > summary { position: relative; min-height: 44px; padding: 12px 0; cursor: pointer; color: var(--accent); }
+.work-more[hidden] { display: none; }
+.work-completed { margin: 0 0 24px; border-bottom: 1px solid var(--line); }
+.work-completed > summary { cursor: pointer; min-height: 44px; padding: 12px 4px; font-weight: 650; }
+.work-completed .work-cards { grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); padding-bottom: 16px; }
+.work-context { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 32px; margin: 24px 0 32px; }
+.work-context > section { min-width: 0; overflow-wrap: anywhere; }
+.work-context h2 { margin: 0 0 12px; font-size: 18px; }
+.work-context .root-list, .work-context .work-list { margin: 12px 0; }
+.work-views { min-width: 0; }
+.work-tabs { display: flex; overflow-x: auto; gap: 8px; border-bottom: 1px solid var(--line-strong); padding: 4px 4px 0; scrollbar-color: var(--line-strong) var(--bg); }
+.work-tabs a { flex: none; display: inline-flex; align-items: center; min-height: 44px; padding: 8px 12px; border-bottom: 3px solid transparent; color: var(--muted); text-decoration: none; font-weight: 600; }
+.work-tabs a:hover { color: var(--ink); background: var(--panel-raised); }
+.work-tabs [aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.work-view { min-width: 0; padding: 20px 4px; }
+.work-view > h2:first-child { margin-top: 0; }
+html.js .work-view:not(.is-selected) { display: none; }
 .work-scope button, #search-open, #search-close { min-height: 44px; padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); background: var(--panel); cursor: pointer; }
 .work-scope button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .scope-hidden { display: none; }
@@ -1481,6 +1520,8 @@ html.js .search-control { display: inline-flex; }
 ::selection { background: var(--accent); color: var(--on-accent); }
 input, textarea { caret-color: var(--accent); }
 @media (max-width: 640px) {
+  .work-context { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .work-column { flex-basis: 256px; }
   main { padding: 12px 12px 80px; }
   .stickyhead { margin-inline: -12px; padding-inline: 12px; }
   .pulse, .pulse-bottom { grid-template-columns: 1fr; gap: 20px; }
@@ -1543,11 +1584,15 @@ function positionHomeTimeline() {
   strip.scrollLeft += step.left - bounds.left - (strip.clientWidth - step.width) / 2;
 }
 function reveal(target) {
-  clearFilters();
+  const inspection = target.classList.contains('work-view') || ['panel-tasks', 'panel-graph'].includes(target.id);
+  if (!inspection) clearFilters();
+  if (target.closest('[data-work-task]')) workScope(true);
   target.hidden = false;
   target.classList.remove('scope-hidden');
   for (let node = target; node; node = node.parentElement) {
     if (node.tagName === 'DETAILS') node.open = true;
+    if (node.classList.contains('work-view')) selectWorkView(node.id);
+    if (node.classList.contains('native-view')) document.querySelector('[aria-controls="' + node.id + '"]').click();
     if (node.classList.contains('panel')) selectTab(node.id.replace('panel-', ''), {record: false});
   }
   target.setAttribute('tabindex', '-1');
@@ -1621,15 +1666,75 @@ globalSearch.addEventListener('keydown', event => {
 const scopeButtons = [...document.querySelectorAll('[data-work-scope]')];
 function workScope(all) {
   document.querySelectorAll('[data-work-task]').forEach(row => {
-    row.classList.toggle('scope-hidden', !all && !DATA.mission.relevant.includes(row.dataset.workTask));
+    const current = row.dataset.workCompleted === 'true'
+      ? row.dataset.workPhase === DATA.project.currentPhase : DATA.mission.relevant.includes(row.dataset.workTask);
+    row.classList.toggle('scope-hidden', !all && !current);
   });
   document.querySelectorAll('.work-state').forEach(group => {
-    const visible = [...group.querySelectorAll('[data-work-task]')].filter(row => !row.classList.contains('scope-hidden')).length;
+    const rows = [...group.querySelectorAll('[data-work-task]')].sort((a, b) => Number(a.dataset.workOrder) - Number(b.dataset.workOrder));
+    const visible = rows.filter(row => !row.classList.contains('scope-hidden')).length;
     group.querySelector('[data-state-count]').textContent = visible;
     group.querySelector('.scope-empty').hidden = visible > 0;
+    group.classList.toggle('is-empty', visible === 0);
+    const more = group.querySelector('.work-more');
+    if (more) {
+      const limit = Number(group.dataset.workLimit);
+      const preview = group.querySelector('[data-work-preview]');
+      const overflow = group.querySelector('[data-work-overflow]');
+      let shown = 0;
+      rows.forEach(row => {
+        const inPreview = !row.classList.contains('scope-hidden') && shown++ < limit;
+        (inPreview ? preview : overflow).append(row);
+      });
+      more.hidden = visible <= limit;
+      if (more.hidden) more.open = false;
+      more.querySelector('[data-work-more-count]').textContent = '+' + Math.max(0, visible - limit) + ' more';
+    }
+    const completedScope = group.querySelector('[data-completed-scope]');
+    if (completedScope) completedScope.textContent = all ? 'overall'
+      : 'in ' + (DATA.project.currentPhase || 'current phase (none)') + ' · ' + group.dataset.completedTotal + ' overall';
   });
+  const counts = {};
+  document.querySelectorAll('.work-column').forEach(group => {
+    counts[group.dataset.state] = Number(group.querySelector('[data-state-count]').textContent);
+  });
+  const status = document.getElementById('work-status');
+  status.textContent = (counts.Ready ? counts.Ready + ' ready' : 'Nothing ready')
+    + ' · ' + (counts['Waiting for human'] || 0) + ' waiting for you';
   scopeButtons.forEach(button => button.setAttribute('aria-pressed', String((button.dataset.workScope === 'all') === all)));
 }
+function selectWorkView(id, focus = false) {
+  document.querySelectorAll('[data-work-view]').forEach(tab => {
+    const on = tab.dataset.workView === id;
+    tab.setAttribute('aria-selected', String(on));
+    tab.tabIndex = on ? 0 : -1;
+    if (on && focus) tab.focus();
+  });
+  document.querySelectorAll('.work-view').forEach(view => view.classList.toggle('is-selected', view.id === id));
+}
+const workTabs = [...document.querySelectorAll('[data-work-view]')];
+document.querySelector('.work-tabs').setAttribute('role', 'tablist');
+workTabs.forEach(tab => {
+  tab.setAttribute('role', 'tab');
+  const view = document.getElementById(tab.dataset.workView);
+  view.setAttribute('role', 'tabpanel');
+  tab.addEventListener('click', event => {
+    event.preventDefault();
+    selectWorkView(tab.dataset.workView);
+    history.replaceState(null, '', '#' + hashFor(tab.dataset.workView));
+  });
+  tab.addEventListener('keydown', event => {
+    const at = workTabs.indexOf(tab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? workTabs.length - 1
+      : event.key === 'ArrowRight' ? (at + 1) % workTabs.length
+      : event.key === 'ArrowLeft' ? (at + workTabs.length - 1) % workTabs.length : null;
+    if (next === null) return;
+    event.preventDefault();
+    selectWorkView(workTabs[next].dataset.workView, true);
+    history.replaceState(null, '', '#' + hashFor(workTabs[next].dataset.workView));
+  });
+});
+selectWorkView(document.querySelector('.work-view.is-selected').id);
 scopeButtons.forEach(button => button.addEventListener('click', () => workScope(button.dataset.workScope === 'all')));
 workScope(false);
 const initialTarget = document.getElementById(decodeURIComponent(location.hash.slice(1).split('?')[0]));
@@ -2233,6 +2338,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     )
 
     def panel(name: str, body: str) -> str:
+        if name in {"tasks", "graph"}:
+            return f'<div id="panel-{name}">{body}</div>'
         if name not in {key for key, _ in TOP_TABS}:
             labels = {"graph": "Dependency graph and diagram sources", "tasks": "Full task registry",
                       "operations": "Operational trace", "governance": "Evidence and governance",
@@ -2402,36 +2509,78 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     roots_body = '<ul class="root-list">' + ''.join(root_item(r) for r in mission["roots"]) + '</ul>'
     if not mission["roots"]:
         roots_body = '<p class="note">No root blockers recorded. Waiting for ordinary dependencies is not a failure.</p>'
-    work_states = ''.join(
-        f'<details class="work-state"{" open" if state != "Completed" else ""}><summary>{state} · <span data-state-count>{len(ids)}</span></summary>'
-        + ('<ul class="plain">' + ''.join(f'<li data-work-task="{esc(t)}">{ref(t)}'
-            + ('<span class="note"> · Upcoming: not in current phase</span>' if state == "Upcoming" or (t not in mission["relevant"] and tasks[t]["status"] != "DONE") else '')
-            + (f'<span class="note"> · Responsible: {esc(tasks[t]["owner"] or "unassigned")} · Runtime: unknown</span>' if tasks[t]["status"] == "WIP" else '')
-            + '</li>' for t in ids) + '</ul>' if ids else '')
-        + f'<p class="note scope-empty"{" hidden" if ids else ""}>No tasks in this state for the selected scope.</p></details>'
-        for state, ids in mission["states"].items())
+    def work_state(state: str, ids: list[str], index: int) -> str:
+        completed = state == "Completed"
+        tag, heading = ("details", "summary") if completed else ("section", "h3")
+        label_id = f"work-state-{index}"
+        label = {"Waiting for dependencies": "Waiting for deps", "Blocked by failure": "Blocked"}.get(state, state)
+        preview_limit = 3
+        cards = [
+            f'<li class="work-card" id="work-task-{esc(t)}" data-work-task="{esc(t)}"'
+            f' data-work-order="{order}" data-work-completed="{str(completed).lower()}" data-work-phase="{esc(tasks[t]["phase"])}">{ref(t)}'
+            f'<span class="note">{esc(tasks[t]["module"] or "No module")} · '
+            + (f'Authority: {esc(tasks[t]["authority"])}' if tasks[t]["authority"] == "owner"
+               else f'Responsible: {esc(tasks[t]["owner"] or "unassigned")}') + '</span>'
+            + ('<span class="note">Upcoming: not in current phase</span>' if state == "Upcoming" or (t not in mission["relevant"] and tasks[t]["status"] != "DONE") else '')
+            + ('<span class="note">Runtime: unknown</span>' if tasks[t]["status"] == "WIP" else '')
+            + '</li>' for order, t in enumerate(ids)]
+        body = '<ul class="work-cards" data-work-preview>' + ''.join(cards if completed else cards[:preview_limit]) + '</ul>'
+        if not completed and len(cards) > preview_limit:
+            body += (f'<details class="work-more"><summary><span data-work-more-count>+{len(cards) - preview_limit} more</span>'
+                     f'<span class="sr"> in {state.lower()}</span></summary>'
+                     '<ul class="work-cards" data-work-overflow>' + ''.join(cards[preview_limit:]) + '</ul></details>')
+        return (f'<{tag} class="work-state {"work-completed" if completed else "work-column"}{" is-empty" if not ids else ""}"'
+                f' data-state="{state}" data-work-limit="{preview_limit}"'
+                + (f' data-completed-total="{len(ids)}"' if completed else '')
+                + f' aria-labelledby="{label_id}"><{heading} id="{label_id}">'
+                + (f'<span title="{state}"><span aria-hidden="true">{label}</span><span class="sr">{state}</span></span>'
+                   if label != state else f'<span>{state}</span>')
+                + f' <span data-state-count>{len(ids)}</span>'
+                + (' <span data-completed-scope>overall</span>' if completed else '')
+                + f'</{heading}>' + body
+                + f'<p class="note scope-empty"{" hidden" if ids else ""}><span aria-hidden="true">—</span>'
+                f'<span class="sr">No tasks in {state.lower()} for the selected scope.</span></p></{tag}>')
+
+    work_states = ''.join(work_state(state, ids, i) for i, (state, ids) in enumerate(mission["states"].items())
+                          if state != "Completed")
+    completed_work = work_state("Completed", mission["states"]["Completed"], 6)
     dependency_list = '<ul class="plain">' + ''.join(
         f'<li>{ref(t)} ← ' + (', '.join(ref(d) for d in task["deps"]) or 'No dependencies') + '</li>'
         for t, task in tasks.items()) + '</ul>'
+    inspection_views = [
+        ("critical", "Critical path", critical),
+        ("phases", "Phases", '<h2>Phases</h2><div class="phases">'
+         + phase_cards + '</div><h2>Product hierarchy</h2>' + hierarchy),
+        ("registry", "Task registry", '<h2>Full task registry</h2>' + registry),
+        ("graph", "Dependency graph", '<h2>Complete dependency graph</h2>'
+         + dependency_svg(tasks) + '<details><summary>Task dependencies</summary>'
+         + dependency_list + '</details>' + graph),
+        ("breakdown", "Breakdown", '<h2>Execution breakdown and progress</h2>' + progress_charts
+         + _breakdown(compiled) + f'<h2>Execution progress</h2><div class="grid">{cards}</div>' + work_ahead),
+    ]
+    inspection_tabs = '<nav class="work-tabs" aria-label="Work inspection">' + ''.join(
+        f'<a id="work-tab-{name}" href="#work-view-{name}" data-work-view="work-view-{name}"'
+        f' aria-controls="work-view-{name}">{label}</a>' for name, label, _ in inspection_views) + '</nav>'
+    inspections = ''.join(f'<section class="work-view{" is-selected" if i == 0 else ""}"'
+                         f' id="work-view-{name}" tabindex="0" aria-labelledby="work-tab-{name}">{body}</section>'
+                         for i, (name, label, body) in enumerate(inspection_views))
     work = panel("work", '<h2>Execution</h2><p class="note">Current phase, work in progress and their prerequisites. '
                  'The full registry and graph below always include every task.</p>'
-                 '<div class="work-scope"><button data-work-scope="current" aria-pressed="true">Current work</button>'
+                 '<div class="work-toolbar"><div class="work-scope" role="group" aria-label="Work scope"><button data-work-scope="current" aria-pressed="true">Current work</button>'
                  '<button data-work-scope="all" aria-pressed="false">All work</button></div>'
-                 + ('<p class="note">Nothing ready. Inspect dependency waits and upcoming decisions; this does not mean everything failed.</p>' if not mission["states"]["Ready"] else '')
-                 + work_states + '<h2>Root blockers</h2>'
+                 + '<p class="note" id="work-status" aria-live="polite">'
+                 + (f'{len(mission["states"]["Ready"])} ready' if mission["states"]["Ready"] else 'Nothing ready')
+                 + f' · {len(mission["states"]["Waiting for human"])} waiting for you</p></div>'
+                 + '<div class="work-board" role="region" aria-label="Execution states, scroll horizontally for more" tabindex="0">'
+                 + work_states + '</div>' + completed_work
+                 + '<div class="work-context"><section aria-labelledby="work-blockers-title"><h2 id="work-blockers-title">Root blockers</h2>'
                  + f'<p class="note">{len(active_roots)} active root blockers · '
                  f'{len(mission["affected"])} distinct downstream tasks · '
-                 f'{len(mission["future"])} future owner obligations.</p>' + roots_body
-                 + '<details class="group"><summary>Critical path</summary>' + critical + '</details>'
-                 + '<details class="group"><summary>Phases and product hierarchy</summary><h2>Phases</h2><div class="phases">'
-                 + phase_cards + '</div><h2>Product hierarchy</h2>' + hierarchy + '</details>'
-                 + registry + '<details class="group"><summary>Complete dependency graph</summary>'
-                 + dependency_svg(tasks) + dependency_list + '</details>' + graph
-                 + '<details class="group"><summary>Execution breakdown and progress</summary>'
-                 + progress_charts + _breakdown(compiled) + f'<h2>Execution progress</h2><div class="grid">{cards}</div>' + work_ahead + '</details>'
-                 + '<details class="group"><summary>Milestones and next gate</summary><h2>Next milestones</h2>'
+                 f'{len(mission["future"])} future owner obligations.</p>' + roots_body + '</section>'
+                 + '<section aria-labelledby="work-gate-title"><h2 id="work-gate-title">Next gate &amp; milestones</h2>'
+                 + gate_card + '<h3>Next milestones</h3>'
                  + (f'<ul class="work-list">{milestone_body}</ul>' if milestone_body else '<p>No upcoming milestone recorded.</p>')
-                 + f'<h3>Next phase gate</h3>{gate_card}</details>')
+                 + '</section></div><div class="work-views">' + inspection_tabs + inspections + '</div>')
     review_body, _, review_count, _ = review.panel_body(compiled, ref, interactive, mission=True)
     review_workspace = panel("review", f'<div id="needs-you" data-waiting="{review_count}">'
         f'<div class="needs-head"><h2>Human decision inbox</h2><span class="needcount{"" if review_count else " zero"}">{review_count}</span>'

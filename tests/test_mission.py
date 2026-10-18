@@ -251,9 +251,9 @@ class TestMissionPage(FixtureCase):
         self.assertIn("Permission or HIGH-impact sensitivity is the recorded proxy for irreversible consequences", page)
         row = page.split('data-work-task="' + self.project.tasks[0].id + '"')[1].split('</li>')[0]
         self.assertIn("Upcoming: not in current phase", row)
-        upcoming = page.split('<summary>Upcoming ·', 1)[1].split('</details>', 1)[0]
+        upcoming = page.split('data-state="Upcoming"', 1)[1].split('</section>', 1)[0]
         self.assertIn('data-work-task="T-ONE"', upcoming)
-        ready = page.split('<summary>Ready ·', 1)[1].split('</details>', 1)[0]
+        ready = page.split('data-state="Ready"', 1)[1].split('</section>', 1)[0]
         self.assertNotIn('data-work-task="T-ONE"', ready)
         review = page.split('aria-label="Upcoming decisions"', 1)[1].split('id="review-T-ONE"', 1)
         self.assertEqual(len(review), 2)
@@ -286,27 +286,28 @@ class TestMissionPage(FixtureCase):
                 self.assertNotIn('value="VERIFY"', card)
 
     def test_work_scope_changes_rows_counts_empty_states_and_buttons(self):
-        script = dashboard._MISSION_SCRIPT.split('const scopeButtons =', 1)[1].split('const initialTarget', 1)[0]
+        script = dashboard._MISSION_SCRIPT.split('const scopeButtons =', 1)[1].split('function selectWorkView', 1)[0]
         result = run_js("""
           const DATA = {mission: {relevant: ['NOW']}};
           const rows = ['NOW', 'LATER'].map(id => ({dataset: {workTask: id}, classList: {
             hidden: false, toggle(name, value) {this.hidden = value;}, contains() {return this.hidden;}
           }}));
-          const groups = rows.map(row => ({count: {}, empty: {},
+          const groups = rows.map((row, i) => ({count: {}, empty: {}, dataset: {state: i ? 'Waiting for human' : 'Ready'},
+            classList: {toggle() {}},
             querySelectorAll() {return [row];},
-            querySelector(s) {return s === '[data-state-count]' ? this.count : this.empty;}
+            querySelector(s) {return s === '[data-state-count]' ? this.count : s === '.scope-empty' ? this.empty : null;}
           }));
           const buttons = ['current', 'all'].map(scope => ({dataset: {workScope: scope},
             setAttribute(k, v) {this[k] = v;}, addEventListener() {}
           }));
-          const document = {querySelectorAll(s) {
+          const document = {getElementById() {return {};}, querySelectorAll(s) {
             return s === '[data-work-scope]' ? buttons : s === '[data-work-task]' ? rows : groups;
           }};
           const snapshot = () => ({hidden: rows.map(r => r.classList.hidden),
             counts: groups.map(g => g.count.textContent), empty: groups.map(g => g.empty.hidden),
             pressed: buttons.map(b => b['aria-pressed'])});
         """ + 'const scopeButtons =' + script + """
-          const current = snapshot(); workScope(true); const all = snapshot();
+          workScope(false); const current = snapshot(); workScope(true); const all = snapshot();
           workScope(false); console.log(JSON.stringify({current, all, again: snapshot()}));
         """)
         self.assertEqual(result["current"], {"hidden": [False, True], "counts": [1, 0],
