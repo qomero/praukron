@@ -167,6 +167,7 @@ class DashboardLanguageCase(AssumptionCase):
         for script, original, mutation in [
             (dashboard._SCRIPT, 'No criteria recorded.', 'Nothing has been written for this contract yet.'),
             (dashboard._MISSION_SCRIPT, 'Search by ID, title or recorded words.', 'Type something to look it up.'),
+            (review.SERVE_SCRIPT, 'Recording approval…', 'Saving the selected approvals now.'),
         ]:
             self.assertIn(original, script)
             with self.assertRaises(AssertionError):

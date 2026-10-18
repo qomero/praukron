@@ -2463,6 +2463,10 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         next_action = (f'<h3>Validate: {esc(a["title"])}</h3><p>Provisional assumption affecting '
                        f'{len(next_assumption["affected"])} unfinished tasks. A response requires agent reconciliation; it does not itself unblock work.</p>'
                        f'<a class="primary-link" href="#assumption-{esc(a["id"])}">Inspect assumption and respond →</a>')
+    next_item = next_decision or next_assumption
+    if next_item and next_item["id"] in review.approval_actions(compiled):
+        next_action += review.approval_control(next_item["id"], review.approval_actions(compiled)[next_item["id"]],
+                                               interactive, selectable=False)
     wip_list = ''.join(f'<li>{ref(t)}<br><span class="note">Responsible: {esc(tasks[t]["owner"] or "unassigned")} · Runtime: unknown</span></li>'
                        for t in compiled["wip"])
     milestones = [m for m in compiled["milestones"] if not m["reached"]][:2]

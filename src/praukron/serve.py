@@ -90,7 +90,8 @@ def make_server(root: Path, port: int = 0, lang: str | None = None) -> tuple[HTT
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")
                 items = [respond.Item(i["target"], i["action"], i["text"]) for i in body["items"]]
-                ids = respond.append(root, items, via="dashboard", verify=True)
+                ids = respond.append(root, items, via="dashboard", verify=True,
+                                     approve_only=body.get("approveOnly") is True)
             except (ValueError, KeyError, TypeError) as error:
                 self._send(400, json.dumps({"ok": False, "error": f"malformed request: {error}"}))
                 return

@@ -112,6 +112,7 @@ class TestServe(ServeCase):
             page = re.sub(r'<div class="(?:controls review-bar|aform)".*?</div>', "", page, flags=re.S)
             page = re.sub(r'<(p|span) class="respond-hint">.*?</\1>', "", page, flags=re.S)
             page = re.sub(r'<p class="note">Each card starts at OK\..*?</p>', "", page, flags=re.S)
+            page = re.sub(r'(<(?:button|input)[^>]*data-action="(?:VERIFY|CONFIRM)") disabled', r'\1', page)
             return page
 
         self.assertEqual(strip(served), strip(static))
