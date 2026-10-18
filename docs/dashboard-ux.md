@@ -12,8 +12,10 @@ support a short path from project state to a decision and its evidence.
 
 Home keeps execution completion, validation strength and operations activity
 separate. WIP describes a task, not a running agent: runtime is **unknown** until
-authoritative session information exists. Compilation time is shown only when
-provided by metadata; otherwise the page says it is not recorded. No clock value,
+authoritative session information exists. The latest recorded chronicle date
+comes from journal headings or Date/Claimed/Time record metadata and links to its
+source. When none exists, the page says "Not recorded". Planned dates and prose
+are excluded, and ties use the source pointer deterministically. No clock value,
 health score, ETA, schedule or event is invented.
 
 ## Attention and dependencies
@@ -23,18 +25,19 @@ task status or the compiler's existing readiness and governance rules.
 
 - An owner task is actionable when its dependencies are complete and it belongs
   to current work or is a prerequisite of current work. A recorded owner VERIFY
-  moves it to the answered group while the agent records the resulting state.
+  moves it to the answered group while the agent records the resulting state;
+  with no unmet dependencies or failures, it is Ready for that agent action.
 - Explicit BLOCKED status, failed acceptance evidence and unresolved failure
   events are technical causes. Missing dependencies remain visible as missing
   records. Ordinary unfinished work is a dependency wait, not a failure.
 - Each root appears once. Graph traversal produces its complete, sorted set of
   unfinished descendants; a set union counts shared downstream tasks once.
   Clearing one root may leave another dependency unresolved.
-- Future owner work is not immediately actionable. Owner responsibility does
+- Future owner work is labelled upcoming, outside the current phase. Owner responsibility does
   not propagate to downstream agent tasks.
-- Review orders current impact before recorded permission sensitivity and
-  downstream cost, then impact label and ID. No irreversible consequence is
-  inferred when the Chronicle does not record one. Assumptions remain
+- Review orders current impact before recorded permission or HIGH-impact
+  sensitivity (the recorded proxy for irreversible consequences), then
+  downstream cost and ID. Assumptions remain
   provisional; a response must be reconciled through the established pathway.
 
 Work separates Ready, In progress, Waiting for human, Waiting for dependencies,

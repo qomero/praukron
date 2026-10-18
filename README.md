@@ -192,8 +192,8 @@ from whether it is done.
   <img src="docs/assets/dashboard-views.png" alt="Work contains a self-contained dependency graph, linked task relationships and offline diagram sources." width="900">
 </p>
 
-<p align="center"><em>Six views of the same state: task graph, critical path, phases, gates, dependency ordering, and calendar Gantt.<br>
-Product work is grouped by phase; operations sits apart in dashed nodes, joined only where execution waits on it.</em></p>
+<p align="center"><em>The dependency graph is drawn offline with linked task relationships.<br>
+Six Mermaid sources remain available; the other five diagram views are source only, with no external renderer.</em></p>
 
 ## Get started
 

@@ -1148,6 +1148,7 @@ const LEGACY = { overview: 'home', assumptions: 'review', execution: 'work', gra
 const topTabs = [...document.querySelectorAll('.toptabs [role="tab"]')];
 
 function selectTab(name, { focus = false, record = true } = {}) {
+  name = name.replace(/^panel-/, '');
   const old = name;
   name = LEGACY[name] || name;
   if (!TOP.includes(name)) name = 'home';
@@ -1181,7 +1182,7 @@ document.querySelector('.toptabs').addEventListener('keydown', event => {
 addEventListener('hashchange', () => {
   // A link to a card (#assumption-A-1, #needs-you) moves to it without
   // switching tabs; only a tab name selects a tab.
-  const [name, query] = location.hash.slice(1).split('?');
+  const [name, query] = location.hash.slice(1).replace(/^panel-/, '').split('?');
   if (TOP.includes(name) || LEGACY[name]) {
     readFilters(query);
     applyFilters({ record: false });
@@ -1200,7 +1201,7 @@ selectTab(location.hash.slice(1).split('?')[0] || 'home', { record: false });
 // bare href would replace the hash and drop them.
 document.addEventListener('click', event => {
   const link = event.target.closest('a[href^="#"]:not([data-focus])');
-  const name = link && link.getAttribute('href').slice(1);
+  const name = link && link.getAttribute('href').slice(1).replace(/^panel-/, '');
   if (!name || !(TOP.includes(name) || LEGACY[name])) return;
   event.preventDefault();
   selectTab(name);
@@ -1726,7 +1727,7 @@ _BOOT = """(function () {
     theme = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   root.setAttribute('data-theme', theme);
-  var tab = location.hash.slice(1).split('?')[0];
+  var tab = location.hash.slice(1).replace(/^panel-/, '').split('?')[0];
   tab = ({overview:'home', execution:'work', graph:'work', tasks:'work', assumptions:'review',
           operations:'audit', governance:'audit', decisions:'audit'})[tab] || tab;
   var known = ['home', 'work', 'review', 'audit'];
@@ -2385,9 +2386,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     if not first_root and gate:
         pending_gates = [g["id"] for g in gate["gates"] if g["status"] != "GREEN"]
         if pending_gates:
-            main_blocker = (f'<a href="#governance">{esc(", ".join(pending_gates))}</a>'
+            main_blocker = (f'<a href="#panel-governance">{esc(", ".join(pending_gates))}</a>'
                             ' · phase exit awaits gate evidence')
-    next_action = '<p>No direct human decision is actionable now. Continue ready work or inspect upcoming decisions.</p><a class="primary-link" href="#review">Open Review →</a>'
+    next_action = '<p>No direct human decision is actionable now. Continue ready work or inspect upcoming decisions.</p><a class="primary-link" href="#panel-review">Open Review →</a>'
     if next_decision:
         tid = next_decision["id"]
         next_action = (f'<h3>{esc(tasks[tid]["title"])}</h3><p>Owner authority is required for {ref(tid)}.</p>'
@@ -2402,7 +2403,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                        for t in compiled["wip"])
     milestones = [m for m in compiled["milestones"] if not m["reached"]][:2]
     milestone_body = ''.join(f'<li>{esc(m["text"])} {ref(m["task"]) if m["task"] else ""}</li>' for m in milestones)
-    freshness = compiled["project"].get("compiledAt")
+    freshness = compiled["project"].get("recordedDate")
+    freshness_text = (esc(freshness["date"]) + ' · ' + source_link(freshness["source"])) if freshness else "Not recorded"
     home = panel("home", f'''
       <div class="pulse"><div><h2>{esc(current["name"]) if current else "Project pulse"}</h2>
       <p>{esc(current["outcome"]) if current else "No phase is active."}</p>
@@ -2410,7 +2412,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
       <dl class="pulse-facts"><dt>Execution completion</dt><dd>{metrics["taskCompletion"]["done"]} / {metrics["taskCompletion"]["total"]} tasks</dd>
       <dt>Validation strength</dt><dd>{metrics["validationCoverage"]["done"]} / {metrics["validationCoverage"]["total"]} reviewed or verified</dd>
       <dt>Operations activity</dt><dd>{om["tasks"]["active"]} active · {om["events"]["total"]} recorded events</dd>
-      <dt>Compiled</dt><dd>{esc(freshness) if freshness else "Timestamp not recorded in metadata"}</dd></dl></div>
+      <dt>Latest recorded chronicle date</dt><dd>{freshness_text}</dd></dl></div>
       <section class="next-action"><h2>Next human action</h2>{next_action}</section>
       <div class="pulse-bottom"><section><h2>Work in progress</h2><ul class="work-list">{wip_list}</ul>
       {"" if wip_list else '<p class="note">No work in progress. No active agent sessions are recorded.</p>'}</section>
@@ -2418,7 +2420,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
       {"" if milestone_body else '<p class="note">No upcoming milestone recorded.</p>'}
       <h3>Next phase gate</h3>{gate_card}</section></div>
       <p class="note">{len(active_roots)} active root blockers · {len(mission["affected"])} distinct downstream tasks ·
-      {len(mission["future"])} future owner obligations. <a href="#work">Inspect work and dependencies →</a></p>
+      {len(mission["future"])} future owner obligations. <a href="#panel-work">Inspect work and dependencies →</a></p>
     ''')
 
     def root_item(root: dict) -> str:
@@ -2437,6 +2439,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     work_states = ''.join(
         f'<details class="work-state"{" open" if state != "Completed" else ""}><summary>{state} · <span data-state-count>{len(ids)}</span></summary>'
         + ('<ul class="plain">' + ''.join(f'<li data-work-task="{esc(t)}">{ref(t)}'
+            + ('<span class="note"> · Upcoming: not in current phase</span>' if t not in mission["relevant"] and tasks[t]["status"] != "DONE" else '')
             + (f'<span class="note"> · Responsible: {esc(tasks[t]["owner"] or "unassigned")} · Runtime: unknown</span>' if tasks[t]["status"] == "WIP" else '')
             + '</li>' for t in ids) + '</ul>' if ids else '')
         + f'<p class="note scope-empty"{" hidden" if ids else ""}>No tasks in this state for the selected scope.</p></details>'

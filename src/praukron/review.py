@@ -403,7 +403,8 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
                                  ("kind", "Kind", ["permission"])))
                    + f'<span id="assume-shown" aria-live="polite">{len(assumptions)} assumptions</span></div>')
         return ('<p class="note">Owner decisions are separate from agent work. Assumptions are provisional, never approval. '
-                'Ordered by immediate impact, recorded permission sensitivity and downstream cost; no irreversibility is inferred.</p>'
+                'Ordered by immediate impact, recorded permission or HIGH-impact sensitivity, then downstream cost. '
+                'Permission or HIGH-impact sensitivity is the recorded proxy for irreversible consequences.</p>'
                 + filters + ''.join(sections), "", len(compiled["mission"]["review"]["now"])
                 + len(compiled["mission"]["review"]["assumptions"]), len(waiting))
 

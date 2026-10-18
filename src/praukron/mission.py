@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 
 
 STATES = ("Ready", "In progress", "Waiting for human", "Waiting for dependencies",
@@ -15,6 +16,45 @@ def journal(text: str, file: str = "JOURNAL.md") -> list[dict]:
     return [{"id": title.strip(), "title": title.strip(), "text": body.strip(),
              "source": {"file": file, "anchor": title.strip()}}
             for title, body in zip(parts[1::2], parts[2::2])]
+
+
+def recorded_date(records) -> dict | None:
+    """Newest authored record date, never a schedule or a filesystem clock.
+
+    Journal headings and Date/Claimed/Time metadata are recorded history.
+    Planned dates, prose and fenced examples are deliberately not freshness.
+    Equal dates use the source pointer as a stable tie-breaker.
+    """
+    found = []
+    for file, text in records:
+        anchor, fenced = None, False
+        for line in text.splitlines():
+            if line.lstrip().startswith(("```", "~~~")):
+                fenced = not fenced
+            if fenced:
+                continue
+            heading = re.match(r"^(#{1,2}) (.+)$", line)
+            value = None
+            if heading:
+                title = heading[2].strip()
+                anchor = re.split(r": | — ", title, maxsplit=1)[0]
+                if file.endswith("JOURNAL.md") and heading[1] == "##":
+                    anchor, value = title, title
+            field = re.match(r"^- (?:Date|Claimed|Time):\s*(.+)$", line)
+            if field:
+                value = field[1]
+            match = re.match(r"(\d{4}-\d{2}-\d{2})(?=$|[T\s])", value or "")
+            if not match or not anchor:
+                continue
+            try:
+                date.fromisoformat(match[1])
+            except ValueError:
+                continue
+            found.append((match[1], file, anchor))
+    if not found:
+        return None
+    newest, file, anchor = sorted(found, key=lambda x: (-date.fromisoformat(x[0]).toordinal(), x[1], x[2]))[0]
+    return {"date": newest, "source": {"file": file, "anchor": anchor}}
 
 
 def project(data: dict) -> dict:
@@ -58,7 +98,7 @@ def project(data: dict) -> dict:
                 pending.append(dep)
     unmet = {t: [d for d in task["deps"] if d not in tasks or tasks[d]["status"] != "DONE"]
              for t, task in tasks.items()}
-    failed = {f["task"] for f in data["execution"]["failures"]}
+    failed = {f["task"] for f in data["execution"]["failures"] if f.get("failedCriteria")}
     failed.update(t for t, task in tasks.items() if task["status"] == "BLOCKED")
     for event in data["operations"]["events"]:
         if event["id"] in data["operations"]["unresolvedFailures"]:
@@ -94,7 +134,8 @@ def project(data: dict) -> dict:
         state = ("Completed" if task["status"] == "DONE" else
                  "Blocked by failure" if tid in failed or any(d not in tasks for d in unmet[tid]) else
                  "Waiting for human" if tid in actionable else
-                 "Waiting for dependencies" if unmet[tid] or tid in owner else
+                 "Waiting for dependencies" if unmet[tid] else
+                 "Ready" if tid in verified else
                  "In progress" if task["status"] == "WIP" else "Ready")
         states[state].append(tid)
     for ids in states.values():
@@ -114,8 +155,9 @@ def project(data: dict) -> dict:
                                "immediate": bool(set(a["tasks"]) & relevant),
                                "permission": bool(a["permissions"]), "impact": a["impact"]})
     for items in reviews.values():
-        items.sort(key=lambda x: (not x["immediate"], not x["permission"], -len(x["affected"]),
-                                 x.get("impact") != "HIGH", x["id"]))
+        items.sort(key=lambda x: (not x["immediate"],
+                                 not (x["permission"] or x.get("impact") == "HIGH"),
+                                 -len(x["affected"]), x["id"]))
     return {"roots": roots, "affected": impact, "transitiveHuman": sorted(human_impact),
             "future": sorted(owner - actionable - verified), "states": states, "review": reviews,
             "relevant": sorted(relevant), "runtime": {t: "unknown" for t in data["wip"]}}
