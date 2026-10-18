@@ -1,1 +1,0 @@
-- Localize the complete offline dashboard in English or Vietnamese using the optional thesis `Language:` field, a `dashboard --lang` override, and a persistent viewer language selector. Preserve authored records and response actions; cover static pages, live review, accessible labels, counts and dates with catalogue and regression checks.

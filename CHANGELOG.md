@@ -4,6 +4,19 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 2.2.3 — 2026-10-18
+
+- Localize the complete offline dashboard in English or Vietnamese using the optional thesis `Language:` field, a `dashboard --lang` override, and a persistent viewer language selector. Preserve authored records and response actions; cover static pages, live review, accessible labels, counts and dates with catalogue and regression checks.
+- Work now groups execution states into a compact board, with narrow empty
+  columns, task metadata and a separate Completed disclosure. Root blockers and
+  the next gate share a row; five keyboard-accessible inspection tabs replace the
+  stacked accordions. Scope counts, search destinations, legacy links and task
+  details are preserved, with horizontal board scrolling on phones and anchored
+  sections when JavaScript is unavailable.
+- Keep empty state columns short with single-line headings, preview three cards
+  in busy states with a native "+M more" disclosure, and show current-phase and
+  overall Completed counts together. Inspection panels have one accessible name.
+
 ## 2.2.2 — 2026-10-18
 
 - Home now leads with the current phase and module completion, with accessible,
