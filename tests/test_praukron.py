@@ -2025,7 +2025,7 @@ class TestHostileAuthoredText(FixtureCase):
     def test_the_client_escapes_what_it_renders(self) -> None:
         html = self.poison("Ship <b>bold</b> it")
         self.assertIn("const esc = value =>", html)
-        self.assertIn("${esc(task.title)}", html)
+        self.assertIn("${esc(protectedText(task.title))}", html)
 
 
 class TestContractIntegrity(FixtureCase):
