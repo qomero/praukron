@@ -228,7 +228,7 @@ class TestMissionPage(FixtureCase):
         d, page = self.page()
         home = page.split('id="panel-home"')[1].split('id="panel-work"')[0]
         for label in ["Foundation", "The thing works.", "Execution completion", "Validation strength",
-                      "Operations activity", "Most consequential blocker", "Next human action", "Next phase gate",
+                      "Operations activity", "Root blocker", "Next human action", "Next phase gate",
                       "Latest recorded chronicle date"]:
             self.assertIn(label, home)
         self.assertNotIn("compiledAt", d["project"])

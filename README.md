@@ -48,16 +48,17 @@ those documents into project state, and that state is then projected two ways.
 A person opens a page:
 
 <p align="center">
-  <img src="docs/assets/dashboard-state.png" alt="Home shows the synthetic project's phase and outcome, its most consequential root blocker, the next human decision, work in progress and next gate." width="900">
+  <img src="docs/assets/dashboard-state.png" alt="Home opens with a phase timeline, a current-phase card containing module progress, gate and active work, and a next-action column with separate project figures." width="900">
 </p>
 
 <p align="center"><em><code>praukron dashboard</code> on a synthetic test project. See the <a href="docs/dashboard-ux.md">workspace guide</a> for the interaction model.<br>
 Every figure is computed from the Markdown files in <code>.praukron/chronicle/</code>. No model, no service, no network.</em></p>
 
-Home leads with the current phase's ID, name and outcome, followed by its modules
-and their completion. Inline progress charts show phase completion, current
-modules and execution states, with exact counts beside every bar. Execution,
-operations and validation stay separate. Review shows each decision's title,
+Home opens with a phase timeline showing state and exact completion counts.
+The current-phase card groups its outcome, module progress, gate, root blocker
+and active work. The next human action and compact project figures sit alongside
+it; on phones, the action follows the timeline. Detailed progress charts remain
+in Work. Execution, operations and validation stay separate. Review shows each decision's title,
 reason, affected work and action first; one disclosure opens its records and
 response options. Both views remain readable without JavaScript.
 

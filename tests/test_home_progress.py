@@ -1,4 +1,4 @@
-"""Phase-first Home and one-level Review (AC-T-DASH-HOME-02-01 through -04)."""
+"""Home progress semantics and one-level Review regression coverage."""
 
 import html
 import json
@@ -39,6 +39,11 @@ def table_rows(source, caption):
         r'<th scope="row">(.*?)</th><td class="progress-value">(\d+) / (\d+)</td>', table)}
 
 
+def module_rows(source):
+    return {html.unescape(label): (int(done), int(total)) for label, done, total in re.findall(
+        r'<span class="module-label">(.*?)</span>.*?<span class="progress-value">(\d+) / (\d+)</span>', source)}
+
+
 class TestHomeProgress(FixtureCase):
     def page(self, compiled=None):
         data = compiled or compiler.as_json(self.project)
@@ -49,16 +54,16 @@ class TestHomeProgress(FixtureCase):
         home = self.page(data).split('id="panel-home"', 1)[1].split('id="panel-work"', 1)[0]
         phase = next(p for p in data['phases'] if p['id'] == data['project']['currentPhase'])
         overview = home.split('class="phase-overview"', 1)[1].split('</section>', 1)[0]
-        self.assertIn(html.escape(phase['id'] + ' — ' + phase['name'], quote=True), overview)
+        self.assertIn(html.escape(phase['id'] + ' · ' + phase['name'], quote=True), overview)
         self.assertIn(html.escape(phase['outcome'], quote=True), overview)
         for module in data['modules']:
             if module['phase'] == phase['id']:
                 selected = [t for t in data['tasks'] if t['module'] == module['id'] and t['domain'] == 'execution']
                 label = module['id'] + ' — ' + module['name'] + ' · execution'
-                self.assertEqual(table_rows(overview, 'Modules in this phase')[label],
+                self.assertEqual(module_rows(overview)[label],
                                  (sum(t['status'] == 'DONE' for t in selected), len(selected)))
-        self.assertLess(home.index('phase-overview'), home.index('Next human action'))
-        self.assertLess(home.index('phase-overview'), home.index('Most consequential blocker'))
+        self.assertLess(home.index('phase-timeline'), home.index('Next human action'))
+        self.assertLess(home.index('Next human action'), home.index('phase-overview'))
 
     def test_phase_module_and_state_counts_never_mix_domains(self):
         first = self.project.modules[0]
@@ -70,7 +75,7 @@ class TestHomeProgress(FixtureCase):
         ])
         data = compiler.as_json(self.project)
         overview, charts = dashboard._home_progress(data)
-        modules = table_rows(overview, 'Modules in this phase')
+        modules = module_rows(overview)
         label = first.id + ' — ' + first.name
         self.assertEqual(modules[label + ' · execution'], (1, 3))
         self.assertEqual(modules[label + ' · operations'], (1, 1))
@@ -113,8 +118,9 @@ class TestHomeProgress(FixtureCase):
         without_scripts = re.sub(r'<script\b.*?</script>', '', first, flags=re.S)
         home = without_scripts.split('id="panel-home"', 1)[1].split('id="panel-work"', 1)[0]
         self.assertIn('Modules in this phase', home)
-        self.assertIn('Execution completion by phase', home)
-        self.assertIn('Execution status breakdown', home)
+        work = without_scripts.split('id="panel-work"', 1)[1].split('id="panel-review"', 1)[0]
+        self.assertIn('Execution completion by phase', work)
+        self.assertIn('Execution status breakdown', work)
         self.assertIn('<svg ', home)
         self.assertNotRegex(home, r'(?:src|href)="https?://')
         self.assertIn('.progress-fill { fill: var(--accent); }', first)
@@ -240,7 +246,8 @@ class TestOwnerReviewActions(OwnerCase):
         self.assertIn('<h2>Actionable now <span class="count">1</span>', review)
         self.assertEqual(Disclosures(review).maximum, 1)
         home = page.split('id="panel-home"', 1)[1].split('id="panel-work"', 1)[0]
-        self.assertIn('1 actionable owner actions', home)
+        others = len(data['mission']['review']['now']) + len(data['mission']['review']['assumptions']) - 1
+        self.assertIn(f'+{others} other actions', home)
         self.assertIn('href="#review-' + actions[0]['id'] + '"', home)
         self.assertEqual(page, self.render(compiler.as_json(self.project)))
         # Recorded status and progress stay unchanged; Review exposes the error.
