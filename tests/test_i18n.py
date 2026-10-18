@@ -188,7 +188,6 @@ class DashboardLanguageCase(AssumptionCase):
         words = 'Home Work Review done of all tasks 2026-10-18'
         # Include optional fields that this fixture does not populate yet.
         compiled['debt'].append(dict.fromkeys(('reason', 'interest', 'resolution', 'evidence'), words))
-        compiled['decisions'][0]['supersedes'] = words
         compiled['execution']['mainBlocker']['title'] = words
         compiled['execution']['mainBlocker']['blockingTitle'] = words
         compiled['thesis']['futureProseField'] = words
@@ -205,9 +204,10 @@ class DashboardLanguageCase(AssumptionCase):
                 if (key in i18n.TECHNICAL_FIELDS or keys in i18n.TECHNICAL_PATHS
                         or keys[:2] in i18n.IDENTIFIER_MAPS
                         or key == 'recorded'
-                        or keys[0] == 'validationFindings' and key == 'message'
+                        or key in {'detail', 'unblock', 'message'}
                         or keys[0] == 'assumptionReport' and key == 'assumption'
-                        or key in {'detail', 'unblock'} or keys == ('execution', 'mainBlocker', 'reason')
+                        or keys[-2:] in {('mainBlocker', 'reason'), ('roots', 'reason')}
+                        or key == 'note' and 'review' in keys
                         or keys[:2] == ('mission', 'review') and value.startswith('Owner action: ')):
                     return value
                 prose.append(path)
@@ -232,6 +232,12 @@ class DashboardLanguageCase(AssumptionCase):
                                             'time': '2026-10-18T10:00:00Z', 'parent': 'EV-0'}]
         compiled['operations']['unresolvedFailures'] = ['EV-1']
         compiled['execution']['externalBlockers'] = {'T-ONE': ['T-TWO']}
+        compiled['execution']['failures'] = [{'task': 'T-TWO', 'relatedEvents': ['EV-1'],
+                                             'failedEvents': ['EV-1'], 'failedCriteria': ['AC-T-TWO-01']}]
+        compiled['mission'].update(transitiveHuman=['T-THREE'], future=['T-THREE'])
+        compiled['obstacles'][0]['holders'] = ['T-TWO']
+        compiled['assumptionReport']['passRestingOnOpen'] = [{'criterion': 'AC-T-TWO-01', 'assumption': 'A-1'}]
+        compiled['phases'][0]['waitsOn'] = 'P0'
         protected = i18n.protect(compiled)
         for field in ('events', 'debt', 'externalBlockers'):
             self.assertEqual(protected['tasks'][0][field], compiled['tasks'][0][field])
@@ -240,6 +246,73 @@ class DashboardLanguageCase(AssumptionCase):
         for field in ('id', 'outcome', 'time', 'parent'):
             self.assertEqual(protected['operations']['events'][0][field], compiled['operations']['events'][0][field])
         self.assertEqual(protected['operations']['events'][0]['title'], i18n.verbatim('Home'))
+        self.assertEqual(protected['execution']['failures'], compiled['execution']['failures'])
+        for field in ('transitiveHuman', 'future'):
+            self.assertEqual(protected['mission'][field], ['T-THREE'])
+        self.assertEqual(protected['obstacles'][0]['holders'], ['T-TWO'])
+        self.assertEqual(protected['assumptionReport']['passRestingOnOpen'],
+                         [{'criterion': 'AC-T-TWO-01', 'assumption': 'A-1'}])
+        self.assertEqual(protected['phases'][0]['waitsOn'], 'P0')
+
+        (self.authority / 'ADR' / 'ADR-003.md').write_text(
+            '# ADR-003: Replacement\n- Status: ACCEPTED\n- Supersedes: ADR-001\n', encoding='utf-8')
+        (self.authority / 'TRACE.md').write_text(
+            '# Trace\n\n## EV-1: Home\n- Type: failure\n- Task: T-TWO\n- Outcome: failure\n', encoding='utf-8')
+        project = compiler.load(self.dir)
+        compiled = compiler.as_json(project)
+        self.assertEqual(compiled['execution']['failures'][0]['relatedEvents'], ['EV-1'])
+        for lang, superseded, heading, event_type in (
+            ('en', 'Superseded by', 'Execution failures', 'failure'),
+            ('vi', 'Được thay thế bởi', 'Lỗi thực hiện', 'thất bại'),
+        ):
+            page = dashboard.render(project, analytics.report(project), compiled, lang=lang)
+            with self.subTest(lang=lang):
+                self.assertIn('<dt>' + superseded + '</dt><dd>ADR-003</dd>', page)
+                failure = page.split('<h2>' + heading + '</h2>', 1)[1].split('</li>', 1)[0]
+                self.assertIn('<code>EV-1</code></a> <span class="pill failure">' + event_type + '</span>', failure)
+
+    def test_generated_owner_explanations_translate_in_every_projection(self):
+        project = compiler.load(self.dir)
+        task = project.task('T-TWO')
+        task.authority, task.validation = 'owner', 'HUMAN_VERIFIED'
+        compiled = compiler.as_json(project)
+        self.assertTrue(any(root['kind'] == 'human' for root in compiled['mission']['roots']))
+        self.assertTrue(any(f['code'] == 'verification-without-owner' for f in compiled['validationFindings']))
+        page = dashboard.render(project, analytics.report(project), compiled, lang='vi')
+        visible = html.unescape(re.sub(r'<script\b.*?</script>', '', page, flags=re.S))
+        self.assertIn('Thẩm quyền của chủ dự án cần người trực tiếp quyết định hoặc xác minh.', visible)
+        self.assertNotIn('Owner authority requires a human decision or verification.', visible)
+        self.assertIn('Chủ dự án đã xác minh cần phản hồi VERIFY từ chủ dự án đã được khai báo', visible)
+        self.assertNotIn('HUMAN_VERIFIED needs a VERIFY from a named owner', visible)
+
+        # The same generated values may be projected through a new path.
+        compiled['projection'] = {'finding': {'message': 'No evidence recorded'},
+                                  'roots': [{'reason': 'Owner authority requires a human decision or verification.'}],
+                                  'mainBlocker': {'reason': 'phase exit'}, 'unblock': 'No evidence recorded'}
+        projected = i18n.protect(compiled)['projection']
+        self.assertEqual(projected, compiled['projection'])
+
+    def test_other_generated_root_labels_notes_and_runtime_are_translatable(self):
+        project = compiler.load(self.dir)
+        project.task('T-TWO').dependencies.append('T-MISSING')
+        compiled = compiler.as_json(project)
+        page = dashboard.render(project, analytics.report(project), compiled, lang='vi')
+        visible = re.sub(r'<script\b.*?</script>', '', page, flags=re.S)
+        self.assertIn('Thiếu hồ sơ công việc phụ thuộc', visible)
+        self.assertIn('Chưa có hồ sơ công việc phụ thuộc.', visible)
+        self.assertNotIn('Missing dependency record', visible)
+        self.assertNotIn('Dependency record is missing.', visible)
+
+        compiled['mission']['review']['upcoming'].append({
+            'kind': 'task', 'note': 'Upcoming owner decision blocking current work'})
+        compiled['mission']['runtime'] = {'T-TWO': 'unknown'}
+        compiled['assumptionReport']['waitingOnOwner'] = [{'unblock': 'Owner authority requires a human decision or verification.'}]
+        protected = i18n.protect(compiled)
+        self.assertEqual(protected['mission']['runtime'], {'T-TWO': 'unknown'})
+        self.assertEqual(i18n.translate(protected['mission']['review']['upcoming'][-1]['note'], 'vi'),
+                         'Quyết định sắp tới của chủ dự án đang chặn công việc hiện tại')
+        self.assertEqual(i18n.translate(protected['assumptionReport']['waitingOnOwner'][0]['unblock'], 'vi'),
+                         'Thẩm quyền của chủ dự án cần người trực tiếp quyết định hoặc xác minh.')
 
     def test_static_interface_literals_and_empty_states_are_catalogued(self):
         source_dir = Path(dashboard.__file__).parent

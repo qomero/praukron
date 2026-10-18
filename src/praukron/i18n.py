@@ -38,9 +38,14 @@ open openHigh openPermission openOnCurrentWork openOnExits ownerHeld
 awaitingReconciliation validationCounts reserved
 events externalBlockers unresolvedFailures linkedTasks introducedBy triggerState
 affectingExecution affectingCriticalPath affectingGate
+supersedes relatedEvents failedEvents holders transitiveHuman future criterion
+failedCriteria waitsOn where logins files symbols
 '''.split())
 TECHNICAL_PATHS = frozenset({('tasks', 'debt'), ('operations', 'events', 'outcome')})
-IDENTIFIER_MAPS = frozenset({('mission', 'states'), ('execution', 'externalBlockers')})
+IDENTIFIER_MAPS = frozenset({('mission', 'states'), ('mission', 'runtime'), ('execution', 'externalBlockers')})
+# These fields are compiler-written, including copies in nested projections.
+GENERATED_FIELDS = frozenset({'detail', 'unblock', 'message'})
+GENERATED_SUFFIXES = frozenset({('mainBlocker', 'reason'), ('roots', 'reason')})
 
 
 def protect(data):
@@ -56,9 +61,8 @@ def protect(data):
         if key in TECHNICAL_FIELDS or path in TECHNICAL_PATHS or path[:2] in IDENTIFIER_MAPS:
             return value
         # These projections contain compiler-authored interface explanations.
-        if (key in {'detail', 'unblock'} and path[0] in {'obstacles', 'execution'}
-                or path == ('execution', 'mainBlocker', 'reason')
-                or path[0] == 'validationFindings' and key == 'message'
+        if (key in GENERATED_FIELDS or path[-2:] in GENERATED_SUFFIXES
+                or key == 'note' and 'review' in path
                 or path[0] == 'assumptionReport' and key == 'assumption'):
             return value
         if key == 'recorded':
@@ -68,6 +72,10 @@ def protect(data):
         return verbatim(value)
 
     result = walk(data)
+    task_ids = {task['id'] for task in data['tasks']}
+    for root in result['mission']['roots']:
+        if root['id'] not in task_ids:
+            root['title'] = unmark(root['title'])  # Generated missing-record label.
     for group, originals in zip(result['mission']['review'].values(), data['mission']['review'].values()):
         for item, original in zip(group, originals):
             if original['kind'] == 'validation':
@@ -79,6 +87,10 @@ def protect(data):
 
 # One entry per language: native name, date order, and the complete messages.
 _VI = {
+    'Missing dependency record': 'Thiếu hồ sơ công việc phụ thuộc',
+    'Dependency record is missing.': 'Chưa có hồ sơ công việc phụ thuộc.',
+    'Explicit BLOCKED status or recorded failure; inspect evidence.': 'Công việc được ghi là bị chặn hoặc có lỗi; hãy kiểm tra bằng chứng.',
+    'Upcoming owner decision blocking current work': 'Quyết định sắp tới của chủ dự án đang chặn công việc hiện tại',
     'Verified.': 'Đã xác minh.',
     '{done} of {total} execution tasks done': '{done}/{total} công việc đã xong',
     '{matching} of {total} tasks match': '{matching}/{total} công việc khớp bộ lọc',
