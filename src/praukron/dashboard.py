@@ -2514,7 +2514,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         for t, task in tasks.items()) + '</ul>'
     inspection_views = [
         ("critical", "Critical path", critical),
-        ("phases", "Phases", '<h2>Phases and product hierarchy</h2><div class="phases">'
+        ("phases", "Phases", '<h2>Phases</h2><div class="phases">'
          + phase_cards + '</div><h2>Product hierarchy</h2>' + hierarchy),
         ("registry", "Task registry", '<h2>Full task registry</h2>' + registry),
         ("graph", "Dependency graph", '<h2>Complete dependency graph</h2>'
