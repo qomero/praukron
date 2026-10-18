@@ -4,6 +4,23 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 2.2.1 — 2026-10-18
+
+- Add offline global dashboard search across tasks, decisions, assumptions, responses,
+  criteria, phases, modules and journal entries, with keyboard navigation and source links.
+- Reorganize the dashboard into Home, Work, Review and Audit. Aggregate graph-derived
+  root blockers and distinct downstream impact, separate future owner obligations
+  from current decisions, and retain evidence, response controls and offline views.
+- Keep recovered retries out of active failures; show source-linked recorded dates,
+  rank recorded permission/HIGH sensitivity, and preserve no-JavaScript navigation.
+- The dashboard no longer fetches Mermaid from a CDN and loads no external resource. The
+  dependency graph is drawn natively; the critical path, phases, gates, ordering and Gantt
+  views are shown as their Mermaid source (ADR-084).
+- AGENTS.md payload examples now show closing a task with evidence (`task update` sets
+  `DONE` and `evidence`) and a whole lifecycle in one `batch apply`: claim, pass the criteria,
+  close, and append a journal entry. A revision read once serves every operation on that
+  record in the batch, even after an earlier operation changed it (T-WRITE-GUIDE-02).
+
 ## 2.2.0 — 2026-10-16
 
 - Fixed: upgrades now show validation failures even when no compiled views exist.
