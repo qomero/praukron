@@ -189,11 +189,11 @@ strongly each finished task is actually backed, which is a different question
 from whether it is done.
 
 <p align="center">
-  <img src="docs/assets/dashboard-views.png" alt="Work contains a self-contained dependency graph, linked task relationships and offline diagram sources." width="900">
+  <img src="docs/assets/dashboard-views.png" alt="Work draws the critical path natively with task status labels and an expandable Mermaid source." width="900">
 </p>
 
-<p align="center"><em>The dependency graph is drawn offline with linked task relationships.<br>
-Six Mermaid sources remain available; the other five diagram views are source only, with no external renderer.</em></p>
+<p align="center"><em>Six views draw offline: dependencies, critical path, phases, gates, dependency ordering and calendar Gantt.<br>
+Each drawing keeps its Mermaid source beside it. Calendar bars use recorded schedules only.</em></p>
 
 ## Get started
 

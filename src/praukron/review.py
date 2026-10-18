@@ -381,7 +381,8 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             return (f'<details class="review-item" id="review-{esc(tid)}"><summary>'
                     f'<strong>{esc(task["title"])}</strong> <code>{esc(tid)}</code>'
                     f'<span class="note">Owner authority · {len(item["affected"])} downstream</span>'
-                    f'</summary><div class="review-body">{body}</div></details>')
+                    + (f'<span class="note">{esc(item["note"])}</span>' if item.get("note") else '')
+                    + f'</summary><div class="review-body">{body}</div></details>')
 
         sections = []
         for key, label in (("now", "Actionable now"), ("upcoming", "Upcoming decisions"),

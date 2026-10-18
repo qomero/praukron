@@ -6,8 +6,9 @@ import re
 from datetime import date
 
 
-STATES = ("Ready", "In progress", "Waiting for human", "Waiting for dependencies",
+STATES = ("Ready", "In progress", "Upcoming", "Waiting for human", "Waiting for dependencies",
           "Blocked by failure", "Completed")
+UPCOMING_BLOCKER_NOTE = "Upcoming owner decision blocking current work"
 
 
 def journal(text: str, file: str = "JOURNAL.md") -> list[dict]:
@@ -105,7 +106,13 @@ def project(data: dict) -> dict:
             failed.update(t for t in [event.get("task"), *event.get("affects", [])] if t in tasks)
     verified = {r["target"] for r in data["responses"] if r["action"] == "VERIFY" and r.get("fromOwner")}
     owner = {t for t, task in tasks.items() if task.get("authority") == "owner" and task["status"] != "DONE"}
-    actionable = {t for t in owner if t in relevant and not unmet[t] and t not in verified}
+    phase_order = {p["id"]: i for i, p in enumerate(data.get("phases", []))}
+    later = {t for t in owner if current and tasks[t]["phase"] not in (current, "P-NONE")
+             and (phase_order[tasks[t]["phase"]] > phase_order[current]
+                  if current in phase_order and tasks[t]["phase"] in phase_order else t not in relevant)}
+    actionable = {t for t in owner if t in relevant and t not in later and not unmet[t] and t not in verified}
+    current_work = {t for t, task in tasks.items() if task["phase"] == current and task["status"] != "DONE"}
+    upcoming_blockers = {t for t in later if set(affected(t)) & current_work}
     roots = []
     for tid in sorted(set(tasks) | (set(children) - set(tasks))):
         task = tasks.get(tid)
@@ -113,28 +120,31 @@ def project(data: dict) -> dict:
         if not missing and task["status"] == "DONE":
             continue
         human = tid in actionable
+        upcoming = tid in upcoming_blockers
         technical = missing or tid in failed
-        if not (human or technical):
+        if not (human or technical or upcoming):
             continue
-        roots.append({"id": tid, "kind": "human" if human else "technical",
+        roots.append({"id": tid, "kind": "human" if human else "upcoming" if upcoming else "technical",
                       "actor": "owner" if tid in owner else "agent",
                       "title": task["title"] if task else "Missing dependency record",
                       "affected": affected(tid), "count": len(affected(tid)),
                       "current": tid in relevant or bool(set(affected(tid)) & relevant),
-                      "reason": "Owner authority requires a human decision or verification." if human else
+                      "reason": UPCOMING_BLOCKER_NOTE + "." if upcoming else
+                                "Owner authority requires a human decision or verification." if human else
                                 "Dependency record is missing." if missing else
                                 "Explicit BLOCKED status or recorded failure; inspect evidence.",
                       "source": task["source"] if task else None})
     roots.sort(key=lambda r: (not r["current"], -r["count"], r["kind"] != "human", r["id"]))
     active_roots = [r for r in roots if r["current"]]
     impact = sorted({t for r in active_roots for t in r["affected"]})
-    human_impact = {t for r in active_roots if r["kind"] == "human" for t in r["affected"]}
+    human_impact = {t for r in active_roots if r["kind"] in ("human", "upcoming") for t in r["affected"]}
     states = {state: [] for state in STATES}
     for tid, task in tasks.items():
         state = ("Completed" if task["status"] == "DONE" else
                  "Blocked by failure" if tid in failed or any(d not in tasks for d in unmet[tid]) else
                  "Waiting for human" if tid in actionable else
                  "Waiting for dependencies" if unmet[tid] else
+                 "Upcoming" if tid in later else
                  "Ready" if tid in verified else
                  "In progress" if task["status"] == "WIP" else "Ready")
         states[state].append(tid)
@@ -144,9 +154,11 @@ def project(data: dict) -> dict:
     awaiting = {a["assumption"] for a in data["assumptionReport"]["awaitingReconciliation"]}
     reviews = {"now": [], "upcoming": [], "assumptions": [], "answered": []}
     for tid in sorted(owner):
-        group = "answered" if tid in verified else "now" if tid in actionable else "upcoming"
+        group = "upcoming" if tid in later else "answered" if tid in verified else "now" if tid in actionable else "upcoming"
         reviews[group].append({"id": tid, "kind": "task", "affected": affected(tid),
-                               "immediate": tid in relevant, "permission": False})
+                               "immediate": tid in relevant and (tid not in later or tid in upcoming_blockers),
+                               "note": UPCOMING_BLOCKER_NOTE if tid in upcoming_blockers else None,
+                               "permission": False})
     for a in data["assumptions"]:
         impact_set = sorted({t for target in a["tasks"] for t in [target, *affected(target)]
                              if t in tasks and tasks[t]["status"] != "DONE"})
@@ -159,7 +171,7 @@ def project(data: dict) -> dict:
                                  not (x["permission"] or x.get("impact") == "HIGH"),
                                  -len(x["affected"]), x["id"]))
     return {"roots": roots, "affected": impact, "transitiveHuman": sorted(human_impact),
-            "future": sorted(owner - actionable - verified), "states": states, "review": reviews,
+            "future": sorted((owner - actionable - verified) | later), "states": states, "review": reviews,
             "relevant": sorted(relevant), "runtime": {t: "unknown" for t in data["wip"]}}
 
 

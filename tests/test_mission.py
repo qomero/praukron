@@ -8,6 +8,7 @@ import re
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "src"), str(Path(__file__).resolve().parent)]
@@ -46,7 +47,8 @@ class TestRootProjection(unittest.TestCase):
         self.assertEqual(p["future"], ["FUTURE", "NEXT"])
         self.assertIn("AGENT", p["states"]["Waiting for dependencies"])
         self.assertNotIn("AGENT", p["states"]["Waiting for human"])
-        self.assertIn("FUTURE", p["states"]["Ready"])
+        self.assertIn("FUTURE", p["states"]["Upcoming"])
+        self.assertNotIn("FUTURE", p["states"]["Ready"])
         self.assertIn("NEXT", p["states"]["Waiting for dependencies"])
 
     def test_future_prerequisite_of_current_phase_is_relevant(self):
@@ -62,8 +64,9 @@ class TestRootProjection(unittest.TestCase):
 
     def test_all_states_and_runtime_unknown(self):
         p = mission.project(data(task("READY"), task("RUN", status="WIP"), task("H", owner=True),
-                                 task("WAIT", ["H"]), task("FAIL", status="BLOCKED"), task("DONE", status="DONE")))
-        self.assertEqual([len(p["states"][s]) for s in mission.STATES], [1] * 6)
+                                 task("WAIT", ["H"]), task("FAIL", status="BLOCKED"), task("DONE", status="DONE"),
+                                 task("LATER", owner=True, phase="P2")))
+        self.assertEqual([len(p["states"][s]) for s in mission.STATES], [1] * 7)
         self.assertEqual(p["runtime"], {"RUN": "unknown"})
 
     def test_missing_dependency_and_cycles_terminate(self):
@@ -86,6 +89,42 @@ class TestRootProjection(unittest.TestCase):
         self.assertEqual(p["review"]["answered"][0]["id"], "H")
         self.assertEqual(p["states"]["Ready"], ["H"])
         self.assertEqual(p["states"]["Waiting for dependencies"], [])
+
+    def test_later_owner_is_upcoming_even_when_verified_active_or_a_prerequisite(self):
+        for status in ("TODO", "WIP"):
+            for verified in (False, True):
+                with self.subTest(status=status, verified=verified):
+                    d = data(task("DONE", status="DONE"),
+                             task("LATER", ["DONE"], owner=True, status=status, phase="P2"),
+                             task("NOW", ["LATER"]))
+                    d["phases"] = [{"id": "P1"}, {"id": "P2"}]
+                    if verified:
+                        d["responses"] = [{"target": "LATER", "action": "VERIFY", "fromOwner": True}]
+                    p = mission.project(d)
+                    self.assertEqual(p["states"]["Upcoming"], ["LATER"])
+                    self.assertEqual(p["states"]["Ready"], [])
+                    self.assertEqual(p["review"]["now"], [])
+                    self.assertEqual([r["id"] for r in p["review"]["upcoming"]], ["LATER"])
+                    self.assertEqual(len(p["roots"]), 1)
+                    root = p["roots"][0]
+                    self.assertEqual((root["id"], root["kind"], root["count"], root["current"]),
+                                     ("LATER", "upcoming", 1, True))
+                    self.assertEqual(root["affected"], ["NOW"])
+                    self.assertEqual(root["reason"], mission.UPCOMING_BLOCKER_NOTE + ".")
+                    self.assertEqual(p["review"]["upcoming"][0]["note"], mission.UPCOMING_BLOCKER_NOTE)
+
+    def test_upcoming_root_requires_an_unfinished_current_phase_descendant(self):
+        d = data(task("LATER", owner=True, phase="P2"), task("MIDDLE", ["LATER"], phase="P2"),
+                 task("NOW", ["MIDDLE"]), task("UNRELATED", owner=True, phase="P2"))
+        d["phases"] = [{"id": "P1"}, {"id": "P2"}]
+        p = mission.project(d)
+        self.assertEqual([(r["id"], r["count"]) for r in p["roots"]], [("LATER", 2)])
+        self.assertEqual(p["transitiveHuman"], ["MIDDLE", "NOW"])
+        self.assertEqual(p["review"]["now"], [])
+        d["tasks"][2]["status"] = "DONE"
+        p = mission.project(d)
+        self.assertEqual(p["roots"], [])
+        self.assertTrue(all(item["note"] is None for item in p["review"]["upcoming"]))
 
     def test_no_blockers_empty_and_completed_only(self):
         for d in (data(), data(task("A")), data(task("A", status="DONE"))):
@@ -212,6 +251,39 @@ class TestMissionPage(FixtureCase):
         self.assertIn("Permission or HIGH-impact sensitivity is the recorded proxy for irreversible consequences", page)
         row = page.split('data-work-task="' + self.project.tasks[0].id + '"')[1].split('</li>')[0]
         self.assertIn("Upcoming: not in current phase", row)
+        upcoming = page.split('<summary>Upcoming ·', 1)[1].split('</details>', 1)[0]
+        self.assertIn('data-work-task="T-ONE"', upcoming)
+        ready = page.split('<summary>Ready ·', 1)[1].split('</details>', 1)[0]
+        self.assertNotIn('data-work-task="T-ONE"', ready)
+        review = page.split('<summary>Upcoming decisions', 1)[1].split('id="review-T-ONE"', 1)
+        self.assertEqual(len(review), 2)
+
+    def test_home_work_and_review_name_upcoming_owner_blocking_current_work(self):
+        self.project.phases.append(replace(self.project.phases[0], id="P2", status="PLANNED",
+                                           exit_authority=None))
+        owner = self.project.tasks[0]
+        owner.phase, owner.status, owner.authority = "P2", "TODO", "owner"
+        d = compiler.as_json(self.project)
+        self.assertIn(owner.id, d["mission"]["states"]["Upcoming"])
+        self.assertNotIn(owner.id, d["mission"]["states"]["Ready"])
+        self.assertEqual(d["mission"]["review"]["now"], [])
+        for interactive in (False, True):
+            with self.subTest(interactive=interactive):
+                page = dashboard.render(self.project, analytics.report(self.project), d, interactive=interactive)
+                home = page.split('id="panel-home"', 1)[1].split('id="panel-work"', 1)[0]
+                self.assertIn('href="#root-T-ONE"', home)
+                self.assertIn(mission.UPCOMING_BLOCKER_NOTE, home)
+                self.assertIn('2 downstream tasks', home)
+                root = page.split('id="root-T-ONE"', 1)[1].split('</li>', 1)[0]
+                self.assertIn(mission.UPCOMING_BLOCKER_NOTE, root)
+                self.assertIn('2 downstream', root)
+                self.assertNotIn('Direct human action', root)
+                self.assertNotIn('Direct technical blocker', root)
+                upcoming = page.split('<summary>Upcoming decisions', 1)[1].split('id="review-T-ONE"', 1)[1]
+                card = upcoming.split('</details>', 1)[0]
+                self.assertIn(mission.UPCOMING_BLOCKER_NOTE, card)
+                self.assertIn('2 downstream', card)
+                self.assertNotIn('value="VERIFY"', card)
 
     def test_work_scope_changes_rows_counts_empty_states_and_buttons(self):
         script = dashboard._MISSION_SCRIPT.split('const scopeButtons =', 1)[1].split('const initialTarget', 1)[0]
