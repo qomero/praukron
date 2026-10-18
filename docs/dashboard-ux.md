@@ -5,7 +5,7 @@ support a short path from project state to a decision and its evidence.
 
 | Workspace | First view | Further inspection |
 | --- | --- | --- |
-| Home | Current phase ID, name and outcome; its modules and completion | Next human action, progress charts, consequential blocker, work in progress, milestones and gate |
+| Home | Phase timeline, current-phase card, next human action | Module progress, gate, root blocker, active work and separate execution/validation/operations figures |
 | Work | Current work and its prerequisites, separated by operational condition | All tasks, phase/module hierarchy, dependency graph, critical path, filters and progress breakdown |
 | Review | Counted groups; each item has a title, one-line why, affected task and primary action | One disclosure per item for records, reasoning, response controls, reconciliation and verification |
 | Audit | Evidence and governance | ADRs, criteria, task records, technical debt, operational events, failures and journal history |
@@ -18,20 +18,32 @@ source. When none exists, the page says "Not recorded". Planned dates and prose
 are excluded, and ties use the source pointer deterministically. No clock value,
 health score, ETA, schedule or event is invented.
 
-The first Home block pairs the current phase with its modules. With no current
-phase, it says so plainly. Chart tables show current-module completion and
-execution completion by phase. A single stacked horizontal bar shows execution
-states, with a patterned legend for non-zero states and their counts. Zero states
-are named once below it. A complete status table remains available to screen
-readers and appears visually without JavaScript. All figures
-come from compiled tasks; completion counts DONE tasks, while the status chart
-uses the existing mission states. Each inline SVG bar has an accessible name
-and exact counts in the same table, so colour is never the only signal. Zero-task
-rows say "No tasks" instead of suggesting a percentage. Operations tasks in a
-current module get their own labelled row; they never enter execution totals.
-Unphased execution is named separately. Validation remains its own measure.
-The tables stack their bars below labels at phone width and use the existing
-light/dark tokens. No charting library, external asset or JavaScript is required.
+Home starts with a horizontal timeline in recorded phase order. Each step names
+its state (Completed, Current or Upcoming) with text and a symbol, and shows exact
+execution completion counts. The current phase is distinct and links to its
+full record in Work. On phones the timeline scrolls inside its own strip and
+opens with the current step visible. Without JavaScript, steps wrap instead.
+Following a phase link leaves its heading below the sticky navigation.
+
+Below it, the main card groups the current phase's ID, name, outcome, completion,
+modules, next gate and unmet criteria count, root blocker and work in progress.
+With no current phase or active work, Home says so plainly. Module bars keep
+counts on the same line and name their values for assistive technology. Zero-task
+modules say "No tasks"; operations get a separate labelled row and never enter
+execution totals. The side column presents the next human action, its Decide or
+Verify link into Review (Resolve for recorded validation errors), downstream
+impact and count of other owner actions, separately from assumptions to validate,
+followed by compact project figures. Zero counts are omitted and labels pluralise.
+At phone width, the action follows the timeline, then the phase card and figures.
+
+Home contains no tables. Work retains execution completion by phase, unphased
+execution, the patterned status chart and its complete accessible table, along
+with milestones, full gate detail and root causes. Its root summary preserves
+active roots, distinct downstream tasks (the union, not the sum of each root's
+impact), and future owner obligations. Completion counts DONE tasks;
+status uses the existing mission states. Validation remains its own measure.
+Existing light/dark tokens and focus states apply throughout. No charting library,
+external asset or JavaScript is required to read the content.
 
 Review keeps all four groups visible, including a one-line empty state when a
 group has no items. Its groups do not collapse: opening an item's primary action
@@ -130,6 +142,9 @@ compares the nodes, edges, order and dates in each native view against its
 Mermaid source on one synthetic fixture, and checks empty states, determinism,
 escaped labels and keyboard view switching. Existing response,
 verification, filter and contrast tests remain regression checks.
+`test_home_timeline.py` maps the four timeline-first acceptance criteria to phase
+order/state/counts, grouped phase details and actions, retained destinations,
+mobile reading order, theme/focus markup, escaping, empty states and determinism.
 `test_home_progress.py` covers phase/module prominence, cross-domain counts,
 empty and unphased work, named SVG/text equivalents, escaping, determinism,
 single-level Review summaries and retained records/response controls.

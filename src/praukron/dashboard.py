@@ -855,6 +855,7 @@ function selectTab(name, { focus = false, record = true } = {}) {
   if (record) window.scrollTo(0, 0);
   const legacy = document.getElementById('panel-' + old);
   if (legacy && legacy.tagName === 'DETAILS') legacy.open = true;
+  if (name === 'home') positionHomeTimeline();
 }
 
 topTabs.forEach(tab => tab.addEventListener('click', () => selectTab(tab.dataset.tab)));
@@ -1240,7 +1241,40 @@ def _status_chart(rows: list[tuple[str, int, int]]) -> str:
             + (f'<p class="note status-zero">Zero tasks: {esc(zero)}.</p>' if zero else '') + table + '</section>')
 
 
-def _home_progress(compiled: dict) -> tuple[str, str]:
+def _phase_timeline(compiled: dict) -> str:
+    """Phase order and recorded state, with execution counts beside each step."""
+    steps = []
+    for phase in compiled["phases"]:
+        current = phase["id"] == compiled["project"]["currentPhase"]
+        state = 'Current' if current else 'Completed' if phase["status"] == 'COMPLETE' else 'Upcoming'
+        symbol = {'Current': '●', 'Completed': '✓', 'Upcoming': '○'}[state]
+        progress = phase["progress"]
+        steps.append(
+            f'<li class="timeline-step {state.lower()}"><a href="#phase-{esc(phase["id"])}"'
+            + (' aria-current="step"' if current else '')
+            + f'><span class="timeline-label"><strong>{esc(phase["id"])}</strong>'
+            f'<span class="timeline-state"><span aria-hidden="true">{symbol}</span> {state}</span></span>'
+            f'<span class="timeline-count">{progress["done"]} / {progress["total"]} done</span></a></li>')
+    return ('<nav class="phase-timeline" aria-label="Phase timeline">'
+            + ('<ol>' + ''.join(steps) + '</ol>' if steps else '<p>No phases recorded.</p>') + '</nav>')
+
+
+def _inline_progress(rows: list[tuple[str, int, int]]) -> str:
+    """Compact module progress with exact counts on the same line as its mark."""
+    items = []
+    for label, done, total in rows:
+        description = f'{label}: {done} of {total} tasks complete' if total else f'{label}: no tasks'
+        items.append(f'<li><span class="module-label">{esc(label)}</span>'
+                     '<span class="module-progress">'
+                     f'<svg viewBox="0 0 240 8" preserveAspectRatio="none" role="img" aria-label="{esc(description)}">'
+                     f'<title>{esc(description)}</title><rect class="progress-track" x="0.5" y="0.5" width="239" height="7"/>'
+                     + (f'<rect class="progress-fill" x="1" y="1" width="{238 * done / total:.2f}" height="6"/>' if done and total else '')
+                     + f'</svg><span class="progress-value">{done} / {total}</span></span>'
+                     + ('<span class="note">No tasks</span>' if not total else '') + '</li>')
+    return '<ul class="module-progress-list">' + ''.join(items) + '</ul>'
+
+
+def _home_progress(compiled: dict, details: str = "") -> tuple[str, str]:
     """Execution progress is never combined with operations or validation."""
     tasks = compiled["tasks"]
     current_id = compiled["project"]["currentPhase"]
@@ -1259,13 +1293,14 @@ def _home_progress(compiled: dict) -> tuple[str, str]:
         operations = [t for t in selected if t["domain"] == "operations"]
         if operations:
             module_rows.append(completion(label + ' · operations', operations))
-    phase_heading = (f'<h2 id="current-phase-title">{esc(current["id"])} — {esc(current["name"])}</h2>'
+    phase_heading = (f'<header class="phase-heading"><h2 id="current-phase-title">{esc(current["id"])} · {esc(current["name"])}</h2>'
+                     f'<span class="phase-count">{current["progress"]["done"]} / {current["progress"]["total"]} <span>done</span></span></header>'
                      f'<p class="phase-outcome">{esc(current["outcome"] or "No phase outcome recorded.")}</p>') if current else (
                          '<h2 id="current-phase-title">No current phase</h2><p>No phase is active.</p>')
-    modules = (_progress_chart('Modules in this phase', module_rows) if module_rows else
+    modules = ('<h3>Modules in this phase</h3>' + _inline_progress(module_rows) if module_rows else
                '<p class="note">No modules recorded for this phase.</p>' if current else '')
     overview = (f'<section class="phase-overview" aria-labelledby="current-phase-title">'
-                f'<div>{phase_heading}</div><div>{modules}</div></section>')
+                f'{phase_heading}{modules}{details}</section>')
     execution = [t for t in tasks if t["domain"] == "execution"]
     phase_rows = [completion(f'{p["id"]} — {p["name"]}', [t for t in execution if t["phase"] == p["id"]])
                   for p in compiled["phases"]]
@@ -1296,9 +1331,45 @@ _MISSION_STYLE = """
 .pulse-facts { display: grid; grid-template-columns: max-content 1fr; gap: 10px 20px; margin: 0; }
 .pulse-facts dt { color: var(--muted); }
 .pulse-facts dd { margin: 0; }
-.phase-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 40px; padding: 24px 0 28px; border-bottom: 1px solid var(--line); }
-.phase-overview h2 { font-size: 28px; line-height: 1.25; margin: 0 0 12px; overflow-wrap: anywhere; }
-.phase-outcome { max-width: 65ch; margin: 0; }
+.phase-timeline { margin: 24px 0; overflow-x: auto; scrollbar-color: var(--line-strong) var(--bg); padding: 8px; }
+.phase-timeline ol { display: flex; list-style: none; padding: 0; margin: 0; min-width: min-content; }
+.timeline-step { flex: 1 0 160px; position: relative; padding-right: 20px; }
+.timeline-step:last-child { padding-right: 0; }
+.timeline-step:not(:last-child)::after { content: ""; position: absolute; top: 26px; right: 0; width: 20px; height: 1px; background: var(--line-strong); }
+.timeline-step a { display: block; min-height: 76px; padding: 12px 16px; border: 1px solid transparent; border-radius: var(--radius-s); color: var(--muted); text-decoration: none; }
+.timeline-step a:hover { background: var(--panel-raised); color: var(--ink); }
+.timeline-label { display: flex; align-items: baseline; gap: 12px; }
+.timeline-label strong { color: var(--ink); font-size: 16px; }
+.timeline-state, .timeline-count { font-size: 12px; }
+.timeline-count { display: block; margin-top: 6px; }
+.timeline-step.completed .timeline-state { color: var(--good); }
+.timeline-step.current a { border-color: var(--accent); background: var(--panel); color: var(--accent); }
+.timeline-step.current strong { color: var(--accent); }
+.phase { scroll-margin-top: 80px; }
+.home-layout { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); grid-template-areas: "phase action" "phase figures"; grid-template-rows: auto 1fr; gap: 20px 24px; align-items: start; }
+.home-layout > * { min-width: 0; overflow-wrap: anywhere; }
+.phase-overview { grid-area: phase; padding: 28px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+.phase-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; }
+.phase-overview h2 { font-size: 26px; line-height: 1.25; margin: 0; overflow-wrap: anywhere; }
+.phase-count { white-space: nowrap; font-size: 20px; font-weight: 600; }
+.phase-count > span { font-size: 13px; color: var(--muted); font-weight: 400; }
+.phase-outcome { max-width: 65ch; margin: 12px 0 28px; color: var(--muted); }
+.phase-overview h3 { font-size: 14px; margin: 24px 0 12px; }
+.module-progress-list { list-style: none; padding: 0; margin: 0; }
+.module-progress-list li { display: grid; grid-template-columns: minmax(0, 1fr) minmax(120px, .65fr); gap: 8px 24px; align-items: center; padding: 12px 0; }
+.module-progress { display: flex; align-items: center; gap: 12px; }
+.module-progress svg { width: 100%; min-width: 0; height: 8px; }
+.module-progress .progress-value { flex: none; }
+.phase-context { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 4px; }
+.phase-context p { margin: 8px 0; }
+.phase-context .work-list { margin: 0; }
+.phase-context .work-list > li { border: 0; padding: 4px 0; }
+.home-figures { grid-area: figures; padding: 4px 4px 0; }
+.home-figures dl { display: grid; grid-template-columns: 1fr auto; gap: 12px 16px; margin: 0; }
+.home-figures dt { color: var(--muted); }
+.home-figures dd { margin: 0; text-align: right; }
+.home-figures dd span { display: block; font-size: 12px; color: var(--muted); }
+.home-freshness { margin-top: 24px; font-size: 12px; color: var(--muted); }
 .home-progress { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 32px; margin: 28px 0; }
 .progress-chart { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .progress-chart caption { text-align: left; font-size: 18px; font-weight: 650; padding-bottom: 12px; }
@@ -1324,8 +1395,11 @@ _MISSION_STYLE = """
 .status-key { width: 24px; height: 16px; border: 1px solid var(--line-strong); flex: none; }
 html.js .status-table { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .owner-command { white-space: pre-wrap; overflow-wrap: anywhere; }
-.next-action { padding: 20px 0; border-bottom: 1px solid var(--line); }
-.next-action h2 { margin: 0 0 12px; }
+.next-action { grid-area: action; padding: 24px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--panel); }
+.next-action h2 { margin: 0 0 20px; font-size: 16px; }
+.next-action h3 { margin: 0 0 12px; font-size: 19px; line-height: 1.4; }
+.next-action p { margin: 12px 0; }
+.next-action .other-actions { margin-bottom: 0; font-size: 13px; }
 .next-action .primary-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-weight: 650; }
 .pulse-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
 .root-list, .work-list { list-style: none; padding: 0; }
@@ -1410,8 +1484,17 @@ input, textarea { caret-color: var(--accent); }
   main { padding: 12px 12px 80px; }
   .stickyhead { margin-inline: -12px; padding-inline: 12px; }
   .pulse, .pulse-bottom { grid-template-columns: 1fr; gap: 20px; }
-  .phase-overview, .home-progress { grid-template-columns: 1fr; gap: 20px; }
-  .phase-overview { padding-top: 16px; }
+  .home-layout { grid-template-columns: minmax(0, 1fr); grid-template-areas: "action" "phase" "figures"; gap: 16px; }
+  .phase-timeline { margin: 16px 0; }
+  .timeline-step { flex-basis: 160px; }
+  html:not(.js) .phase-timeline ol { flex-wrap: wrap; min-width: 0; gap: 8px; }
+  html:not(.js) .timeline-step { flex: 1 1 160px; padding-right: 0; }
+  html:not(.js) .timeline-step::after { display: none; }
+  .phase-overview, .next-action { padding: 20px; }
+  .phase-heading { flex-wrap: wrap; gap: 8px; }
+  .module-progress-list li { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .module-progress { max-width: 100%; }
+  .home-progress { grid-template-columns: 1fr; gap: 20px; }
   .phase-overview h2 { font-size: 24px; }
   .progress-chart thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
   .progress-chart tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 8px 0; border-bottom: 1px solid var(--line); }
@@ -1451,6 +1534,14 @@ function searchRecords(index, query) {
 """
 
 _MISSION_SCRIPT = """
+function positionHomeTimeline() {
+  const strip = document.querySelector('.phase-timeline');
+  const current = strip && strip.querySelector('[aria-current="step"]');
+  if (!current) return;
+  const bounds = strip.getBoundingClientRect();
+  const step = current.getBoundingClientRect();
+  strip.scrollLeft += step.left - bounds.left - (strip.clientWidth - step.width) / 2;
+}
 function reveal(target) {
   clearFilters();
   target.hidden = false;
@@ -1460,6 +1551,8 @@ function reveal(target) {
     if (node.classList.contains('panel')) selectTab(node.id.replace('panel-', ''), {record: false});
   }
   target.setAttribute('tabindex', '-1');
+  const sticky = document.querySelector('.stickyhead');
+  target.style.scrollMarginTop = ((sticky ? sticky.getBoundingClientRect().height : 0) + 16) + 'px';
   target.focus();
   target.scrollIntoView({block: 'start'});
 }
@@ -2250,7 +2343,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         title = next_decision.get("title", tasks.get(tid, {}).get("title", tid))
         next_action = (f'<h3>{esc(title)}</h3><p>Owner authority is required for {ref(tid)}.</p>'
                        f'<p>{len(next_decision["affected"])} downstream tasks depend on it. Other dependencies may still apply.</p>'
-                       f'<a class="primary-link" href="#review-{esc(next_decision["id"])}">Review action and affected work →</a>')
+                       f'<a class="primary-link" href="#review-{esc(next_decision["id"])}">{esc(next_decision.get("action", "Resolve"))} in Review →</a>')
     elif next_assumption:
         a = next(a for a in compiled["assumptions"] if a["id"] == next_assumption["id"])
         next_action = (f'<h3>Validate: {esc(a["title"])}</h3><p>Provisional assumption affecting '
@@ -2262,25 +2355,36 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     milestone_body = ''.join(f'<li>{esc(m["text"])} {ref(m["task"]) if m["task"] else ""}</li>' for m in milestones)
     freshness = compiled["project"].get("recordedDate")
     freshness_text = (esc(freshness["date"]) + ' · ' + source_link(freshness["source"])) if freshness else "Not recorded"
-    phase_overview, progress_charts = _home_progress(compiled)
+    gate_summary = (f'<p>{ref(gate["exitAuthority"])} · {len(gate["unmetCriteria"])} exit criteria unmet</p>'
+                    f'<p class="note">{"Ready to exit" if gate["ready"] else str(len(gate["unfinishedExecution"])) + " execution tasks open"}'
+                    f' · <a href="#panel-governance">Gate evidence →</a></p>') if gate else '<p>No phase exit pending.</p>'
+    phase_details = (f'<div class="phase-context"><h3>Next phase gate</h3>{gate_summary}'
+                     f'<h3>Root blocker</h3><p>{main_blocker}</p>'
+                     '<h3>Work in progress</h3>'
+                     + (f'<ul class="work-list">{wip_list}</ul>' if wip_list else '<p class="note">None. No active agent sessions are recorded.</p>')
+                     + '</div>')
+    phase_overview, progress_charts = _home_progress(compiled, phase_details)
+    other_owners = max(0, len(mission["review"]["now"]) - 1)
+    assumption_count = len(mission["review"]["assumptions"])
+    action_counts = []
+    if other_owners:
+        action_counts.append(f'+{other_owners} owner action' + ('s' if other_owners != 1 else ''))
+    if assumption_count:
+        action_counts.append(f'{assumption_count} assumption' + ('s' if assumption_count != 1 else '') + ' to validate')
+    other_actions = ('<p class="other-actions"><a href="#panel-review">'
+                     + ' · '.join(action_counts) + '</a></p>') if action_counts else ''
     home = panel("home", f'''
+      {_phase_timeline(compiled)}
+      <div class="home-layout">
+      <section class="next-action" aria-labelledby="next-action-title"><h2 id="next-action-title">Next human action</h2>
+      {next_action}{other_actions}</section>
       {phase_overview}
-      <section class="next-action"><h2>Next human action</h2>
-      <p class="note"><a href="#panel-review">{len(mission["review"]["now"])} actionable owner actions</a> ·
-      {len(mission["review"]["assumptions"])} assumptions to validate</p>{next_action}</section>
-      {progress_charts}
-      <div class="pulse"><div><h2>Most consequential blocker</h2><p>{main_blocker}</p></div>
-      <dl class="pulse-facts"><dt>Execution completion</dt><dd>{metrics["taskCompletion"]["done"]} / {metrics["taskCompletion"]["total"]} tasks</dd>
-      <dt>Validation strength</dt><dd>{metrics["validationCoverage"]["done"]} / {metrics["validationCoverage"]["total"]} reviewed or verified</dd>
-      <dt>Operations activity</dt><dd>{om["tasks"]["active"]} active · {om["events"]["total"]} recorded events</dd>
-      <dt>Latest recorded chronicle date</dt><dd>{freshness_text}</dd></dl></div>
-      <div class="pulse-bottom"><section><h2>Work in progress</h2><ul class="work-list">{wip_list}</ul>
-      {"" if wip_list else '<p class="note">No work in progress. No active agent sessions are recorded.</p>'}</section>
-      <section><h2>Next milestones</h2><ul class="work-list">{milestone_body}</ul>
-      {"" if milestone_body else '<p class="note">No upcoming milestone recorded.</p>'}
-      <h3>Next phase gate</h3>{gate_card}</section></div>
-      <p class="note">{len(active_roots)} active root blockers · {len(mission["affected"])} distinct downstream tasks ·
-      {len(mission["future"])} future owner obligations. <a href="#panel-work">Inspect work and dependencies →</a></p>
+      <section class="home-figures" aria-label="Project figures"><dl>
+      <dt>Execution completion</dt><dd>{metrics["taskCompletion"]["done"]} / {metrics["taskCompletion"]["total"]}<span>tasks done</span></dd>
+      <dt>Validation strength</dt><dd>{metrics["validationCoverage"]["done"]} / {metrics["validationCoverage"]["total"]}<span>reviewed or verified</span></dd>
+      <dt>Operations activity</dt><dd>{om["tasks"]["active"]} active<span>{om["events"]["total"]} recorded events</span></dd></dl>
+      <p class="note"><a href="#panel-work">Inspect work and dependencies →</a></p>
+      <p class="home-freshness">Latest recorded chronicle date<br>{freshness_text}</p></section></div>
     ''')
 
     def root_item(root: dict) -> str:
@@ -2314,14 +2418,20 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                  '<div class="work-scope"><button data-work-scope="current" aria-pressed="true">Current work</button>'
                  '<button data-work-scope="all" aria-pressed="false">All work</button></div>'
                  + ('<p class="note">Nothing ready. Inspect dependency waits and upcoming decisions; this does not mean everything failed.</p>' if not mission["states"]["Ready"] else '')
-                 + work_states + '<h2>Root blockers</h2>' + roots_body
+                 + work_states + '<h2>Root blockers</h2>'
+                 + f'<p class="note">{len(active_roots)} active root blockers · '
+                 f'{len(mission["affected"])} distinct downstream tasks · '
+                 f'{len(mission["future"])} future owner obligations.</p>' + roots_body
                  + '<details class="group"><summary>Critical path</summary>' + critical + '</details>'
                  + '<details class="group"><summary>Phases and product hierarchy</summary><h2>Phases</h2><div class="phases">'
                  + phase_cards + '</div><h2>Product hierarchy</h2>' + hierarchy + '</details>'
                  + registry + '<details class="group"><summary>Complete dependency graph</summary>'
                  + dependency_svg(tasks) + dependency_list + '</details>' + graph
                  + '<details class="group"><summary>Execution breakdown and progress</summary>'
-                 + _breakdown(compiled) + f'<h2>Execution progress</h2><div class="grid">{cards}</div>' + work_ahead + '</details>')
+                 + progress_charts + _breakdown(compiled) + f'<h2>Execution progress</h2><div class="grid">{cards}</div>' + work_ahead + '</details>'
+                 + '<details class="group"><summary>Milestones and next gate</summary><h2>Next milestones</h2>'
+                 + (f'<ul class="work-list">{milestone_body}</ul>' if milestone_body else '<p>No upcoming milestone recorded.</p>')
+                 + f'<h3>Next phase gate</h3>{gate_card}</details>')
     review_body, _, review_count, _ = review.panel_body(compiled, ref, interactive, mission=True)
     review_workspace = panel("review", f'<div id="needs-you" data-waiting="{review_count}">'
         f'<div class="needs-head"><h2>Human decision inbox</h2><span class="needcount{"" if review_count else " zero"}">{review_count}</span>'
