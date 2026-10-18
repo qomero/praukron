@@ -1067,14 +1067,15 @@ class TestDashboardTabs(FixtureCase):
         strip = self.panel("home")
         # P1 is ACTIVE, nothing is WIP, T-TWO is ready and is the exit authority.
         self.assertIn("Foundation", strip)
-        self.assertIn("No work in progress", strip)
+        self.assertIn('<h3>Work in progress</h3><p class="note">None.', strip)
         self.assertIn('data-task="T-TWO"', self.panel("work"))
-        self.assertIn("Exit authority for P1", strip)
+        self.assertIn("Exit authority for P1", self.panel("work"))
+        self.assertIn('1 exit criteria unmet', strip)
         self.assertIn("Gate A", strip)
         # The selection comes from analytics; the page only shows it.
         blocker = self.compiled["execution"]["mainBlocker"]
         self.assertEqual((blocker["kind"], blocker["id"]), ("GATE", "Gate A"))
-        self.assertIn("Most consequential blocker", strip)
+        self.assertIn('<h3>Root blocker</h3>', strip)
 
     def test_progress_and_phases_show_compiled_figures(self) -> None:
         overview = self.panel("work")

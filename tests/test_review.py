@@ -143,7 +143,7 @@ class TestBlockerGuidance(ReviewCase):
         for o in self.compiled["obstacles"]:
             self.assertIn(o["unblock"].replace("'", "&#x27;"), obstacles)
         home = self.html.split('id="panel-home"', 1)[1].split('<section class="panel"', 1)[0]
-        self.assertIn('Most consequential blocker', home)
+        self.assertIn('<h3>Root blocker</h3>', home)
         self.assertIn('T-TWO', home)
 
     def test_owner_held_blockers_are_grouped_and_offer_guide(self) -> None:

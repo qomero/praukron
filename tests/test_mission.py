@@ -199,7 +199,7 @@ class TestCompiledMission(DomainCase):
         self.build([_domain_task("T-1") + "- Scheduled start: 2099-01-01\n"], {"T-1": "NOT_RUN"})
         self.assertIsNone(self.compiled["project"]["recordedDate"])
         home = self.html().split('id="panel-home"')[1].split('id="panel-work"')[0]
-        self.assertIn("<dd>Not recorded</dd>", home)
+        self.assertIn('class="home-freshness">Latest recorded chronicle date<br>Not recorded</p>', home)
 
     def test_recorded_dates_ignore_prose_examples_invalid_dates_and_break_ties(self):
         records = [("TASKS.md", "## T-1: Work\n- Claimed: 2030-02-01\n"),
@@ -365,7 +365,7 @@ class TestMissionPage(FixtureCase):
         self.project.current_phase = None
         d, page = self.page()
         self.assertEqual(d["mission"]["roots"], [])
-        self.assertIn("No work in progress", page)
+        self.assertIn('<h3>Work in progress</h3><p class="note">None.', page)
         self.assertIn("No active agent sessions are recorded", page)
         self.project.tasks.clear()
         _, page = self.page()
