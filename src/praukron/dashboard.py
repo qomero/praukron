@@ -1180,15 +1180,14 @@ TOP_TABS = (
     ("home", "Home"), ("work", "Work"), ("review", "Review"), ("audit", "Audit"),
 )
 
-def _progress_chart(title: str, rows: list[tuple[str, int, int]], *, status: bool = False) -> str:
+def _progress_chart(title: str, rows: list[tuple[str, int, int]]) -> str:
     """Labelled bars and their exact counts share one readable table."""
     if not rows:
         return f'<p class="note">{esc(title)}: nothing recorded.</p>'
     body = []
     for label, count, total in rows:
         percent = _percent(count, total)
-        description = (f'{label}: {count} of {total} execution tasks' if status else
-                       f'{label}: {count} of {total} tasks complete') if total else f'{label}: no tasks'
+        description = f'{label}: {count} of {total} tasks complete' if total else f'{label}: no tasks'
         body.append(
             f'<tr><th scope="row">{esc(label)}</th><td class="progress-value">{count} / {total}</td>'
             f'<td class="progress-mark"><svg viewBox="0 0 240 12" preserveAspectRatio="none" '
@@ -1197,10 +1196,48 @@ def _progress_chart(title: str, rows: list[tuple[str, int, int]], *, status: boo
             + (f'<rect class="progress-fill" x="1" y="1" width="{238 * count / total:.2f}" height="10"/>' if total and count else '')
             + f'</svg><span class="note">{str(percent) + "%" if total else "No tasks"}</span></td></tr>')
     return ('<table class="progress-chart"><caption>' + esc(title) + '</caption>'
-            '<thead><tr><th scope="col">' + ('State' if status else 'Scope') + '</th>'
-            '<th scope="col">' + ('Tasks / total' if status else 'Done / total') + '</th>'
-            '<th scope="col">' + ('Share' if status else 'Completion') + '</th></tr></thead>'
+            '<thead><tr><th scope="col">Scope</th><th scope="col">Done / total</th>'
+            '<th scope="col">Completion</th></tr></thead>'
             '<tbody>' + ''.join(body) + '</tbody></table>')
+
+
+def _status_chart(rows: list[tuple[str, int, int]]) -> str:
+    """One proportionate bar; patterns, counts and text also work without colour."""
+    title = 'Execution status breakdown'
+    patterns = (
+        '<path d="M0 4H8"/>', '<path d="M-2 2L2 -2M0 8L8 0M6 10L10 6"/>',
+        '<path d="M4 0V8"/>', '<circle cx="4" cy="4" r="1"/>',
+        '<path d="M0 0L8 8M0 8L8 0"/>', '<path d="M0 4H8M4 0V8"/>',
+        '<rect class="status-solid" width="8" height="8"/>',
+    )
+    total = sum(count for _, count, _ in rows)
+    definitions, segments, legend = [], [], []
+    offset = 0
+    for index, (state, count, _) in enumerate(rows):
+        if not count:
+            continue
+        pattern_id = f'home-status-{index}'
+        definitions.append(f'<pattern id="{pattern_id}" width="8" height="8" patternUnits="userSpaceOnUse">'
+                           '<rect class="status-base" width="8" height="8"/>' + patterns[index] + '</pattern>')
+        width = count / total * 1000
+        segments.append(f'<rect x="{offset:.3f}" y="0" width="{width:.3f}" height="32" '
+                        f'fill="url(#{pattern_id})"><title>{esc(state)}: {count}</title></rect>')
+        offset += width
+        legend.append(f'<li><svg class="status-key" viewBox="0 0 24 16" aria-hidden="true">'
+                      f'<rect width="24" height="16" fill="url(#{pattern_id})"/></svg>'
+                      f'<span>{esc(state)}</span> <strong>{count}</strong></li>')
+    description = title + ': ' + ', '.join(f'{state} {count}' for state, count, _ in rows if count)
+    bar = (f'<svg class="status-bar" viewBox="0 0 1000 32" preserveAspectRatio="none" role="img" '
+           f'aria-label="{esc(description)}"><title>{esc(description)}</title><defs>'
+           + ''.join(definitions) + '</defs>' + ''.join(segments) + '</svg>') if total else '<p>No execution tasks recorded.</p>'
+    zero = ', '.join(state for state, count, _ in rows if not count)
+    table = ('<table class="status-table"><caption>' + title + '</caption>'
+             '<thead><tr><th scope="col">State</th><th scope="col">Tasks / total</th></tr></thead><tbody>'
+             + ''.join(f'<tr><th scope="row">{esc(state)}</th><td class="progress-value">{count} / {total}</td></tr>'
+                       for state, count, _ in rows) + '</tbody></table>')
+    return (f'<section class="status-chart" aria-label="{title}"><h3>{title}</h3>{bar}'
+            + ('<ul class="status-legend">' + ''.join(legend) + '</ul>' if legend else '')
+            + (f'<p class="note status-zero">Zero tasks: {esc(zero)}.</p>' if zero else '') + table + '</section>')
 
 
 def _home_progress(compiled: dict) -> tuple[str, str]:
@@ -1241,7 +1278,7 @@ def _home_progress(compiled: dict) -> tuple[str, str]:
               for state, ids in compiled["mission"]["states"].items()]
     charts = ('<section class="home-progress" aria-label="Execution progress">'
               + _progress_chart('Execution completion by phase', phase_rows)
-              + _progress_chart('Execution status breakdown', states, status=True) + '</section>')
+              + _status_chart(states) + '</section>')
     return overview, charts
 
 
@@ -1266,6 +1303,7 @@ _MISSION_STYLE = """
 .progress-chart { width: 100%; table-layout: fixed; border-collapse: collapse; }
 .progress-chart caption { text-align: left; font-size: 18px; font-weight: 650; padding-bottom: 12px; }
 .progress-chart th, .progress-chart td { padding: 10px 8px; overflow-wrap: anywhere; min-width: 0; }
+.progress-chart tbody tr > th, .progress-chart tbody tr > td { vertical-align: middle; border-bottom: 1px solid var(--line); }
 .progress-chart th { white-space: normal; }
 .progress-chart th:first-child { width: 48%; }
 .progress-chart thead { font-size: 12px; color: var(--muted); }
@@ -1275,6 +1313,17 @@ _MISSION_STYLE = """
 .progress-mark .note { font-variant-numeric: tabular-nums; }
 .progress-track { fill: var(--sunken); stroke: var(--line-strong); }
 .progress-fill { fill: var(--accent); }
+.status-chart h3 { font-size: 18px; margin: 0 0 16px; }
+.status-bar { display: block; width: 100%; height: 32px; border: 1px solid var(--line-strong); }
+.status-bar pattern { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+.status-bar .status-base { fill: var(--panel); stroke: none; }
+.status-bar .status-solid { fill: var(--good); stroke: none; }
+.status-legend { display: flex; flex-wrap: wrap; gap: 12px 24px; list-style: none; margin: 16px 0 12px; padding: 0; }
+.status-legend li { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.status-legend strong { font-variant-numeric: tabular-nums; }
+.status-key { width: 24px; height: 16px; border: 1px solid var(--line-strong); flex: none; }
+html.js .status-table { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.owner-command { white-space: pre-wrap; overflow-wrap: anywhere; }
 .next-action { padding: 20px 0; border-bottom: 1px solid var(--line); }
 .next-action h2 { margin: 0 0 12px; }
 .next-action .primary-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-weight: 650; }
@@ -1368,6 +1417,7 @@ input, textarea { caret-color: var(--accent); }
   .progress-chart tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .progress-chart th:first-child { width: auto; }
   .progress-chart th, .progress-chart td { border: 0; padding: 4px 0; }
+  .progress-chart tbody tr > th, .progress-chart tbody tr > td { border-bottom: 0; }
   .progress-chart .progress-value { padding-left: 12px; }
   .progress-mark { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; }
   .progress-mark svg { flex: 1; min-width: 0; margin: 0; }
@@ -2196,10 +2246,11 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                             ' · phase exit awaits gate evidence')
     next_action = '<p>No direct human decision is actionable now. Continue ready work or inspect upcoming decisions.</p><a class="primary-link" href="#panel-review">Open Review →</a>'
     if next_decision:
-        tid = next_decision["id"]
-        next_action = (f'<h3>{esc(tasks[tid]["title"])}</h3><p>Owner authority is required for {ref(tid)}.</p>'
+        tid = next_decision.get("target", next_decision["id"])
+        title = next_decision.get("title", tasks.get(tid, {}).get("title", tid))
+        next_action = (f'<h3>{esc(title)}</h3><p>Owner authority is required for {ref(tid)}.</p>'
                        f'<p>{len(next_decision["affected"])} downstream tasks depend on it. Other dependencies may still apply.</p>'
-                       f'<a class="primary-link" href="#review-{esc(tid)}">Review decision and affected work →</a>')
+                       f'<a class="primary-link" href="#review-{esc(next_decision["id"])}">Review action and affected work →</a>')
     elif next_assumption:
         a = next(a for a in compiled["assumptions"] if a["id"] == next_assumption["id"])
         next_action = (f'<h3>Validate: {esc(a["title"])}</h3><p>Provisional assumption affecting '
@@ -2214,7 +2265,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     phase_overview, progress_charts = _home_progress(compiled)
     home = panel("home", f'''
       {phase_overview}
-      <section class="next-action"><h2>Next human action</h2>{next_action}</section>
+      <section class="next-action"><h2>Next human action</h2>
+      <p class="note"><a href="#panel-review">{len(mission["review"]["now"])} actionable owner actions</a> ·
+      {len(mission["review"]["assumptions"])} assumptions to validate</p>{next_action}</section>
       {progress_charts}
       <div class="pulse"><div><h2>Most consequential blocker</h2><p>{main_blocker}</p></div>
       <dl class="pulse-facts"><dt>Execution completion</dt><dd>{metrics["taskCompletion"]["done"]} / {metrics["taskCompletion"]["total"]} tasks</dd>

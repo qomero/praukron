@@ -19,8 +19,11 @@ are excluded, and ties use the source pointer deterministically. No clock value,
 health score, ETA, schedule or event is invented.
 
 The first Home block pairs the current phase with its modules. With no current
-phase, it says so plainly. Three chart tables show current-module completion,
-execution completion by phase, and the execution status breakdown. All figures
+phase, it says so plainly. Chart tables show current-module completion and
+execution completion by phase. A single stacked horizontal bar shows execution
+states, with a patterned legend for non-zero states and their counts. Zero states
+are named once below it. A complete status table remains available to screen
+readers and appears visually without JavaScript. All figures
 come from compiled tasks; completion counts DONE tasks, while the status chart
 uses the existing mission states. Each inline SVG bar has an accessible name
 and exact counts in the same table, so colour is never the only signal. Zero-task
@@ -37,6 +40,15 @@ reasoning, references and existing responses inside that disclosure. Response
 controls appear first when served. A separate disclosure holds assumption filters
 and the ordering explanation. Opening an item still does not submit a response;
 the existing live Submit action and authentication rules apply.
+
+An owner task says **Decide** until its recorded contract criteria all pass;
+then it says **Verify** and offers verification controls. The summary names its
+task and downstream count. Compilation also carries validation findings and
+explicit owner commands into Review: errors such as a HUMAN_VERIFIED task
+missing its named owner's VERIFY appear in Actionable now even when the task is
+already DONE. Their disclosures contain the validator's exact terminal commands,
+and Home's action count includes them. Review does not infer new errors, change
+recorded completion, or run those commands on the owner's behalf.
 
 ## Attention and dependencies
 

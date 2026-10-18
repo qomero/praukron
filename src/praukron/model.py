@@ -499,6 +499,7 @@ class Finding:
     code: str
     message: str
     where: str
+    owner_action: tuple[str, ...] = ()
 
     def render(self) -> str:
         return f"{self.severity}: {self.code}: {self.message} ({self.where})"

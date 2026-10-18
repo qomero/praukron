@@ -1,17 +1,20 @@
 """Phase-first Home and one-level Review (AC-T-DASH-HOME-02-01 through -04)."""
 
 import html
+import json
 import re
 import sys
 import unittest
 from dataclasses import replace
 from html.parser import HTMLParser
 from pathlib import Path
+from xml.etree import ElementTree
 
 sys.path[:0] = [str(Path(__file__).resolve().parents[1] / "src"), str(Path(__file__).resolve().parent)]
-from praukron import analytics, compile as compiler, dashboard
+from praukron import analytics, compile as compiler, dashboard, mission, validate
 from test_praukron import FixtureCase
 from test_review import ReviewCase
+from test_owner_verify import OwnerCase
 
 
 class Disclosures(HTMLParser):
@@ -116,6 +119,37 @@ class TestHomeProgress(FixtureCase):
         self.assertNotRegex(home, r'(?:src|href)="https?://')
         self.assertIn('.progress-fill { fill: var(--accent); }', first)
 
+    def test_stacked_status_bar_matches_counts_with_nonzero_legend_and_patterns(self):
+        rows = [(state, count, 10) for state, count in zip(mission.STATES, (2, 1, 0, 0, 0, 0, 7))]
+        chart = dashboard._status_chart(rows)
+        svg = ElementTree.fromstring(re.search(r'<svg class="status-bar".*?</svg>', chart, re.S).group(0))
+        self.assertEqual(svg.attrib['role'], 'img')
+        self.assertEqual([(float(r.attrib['x']), float(r.attrib['width'])) for r in svg.findall('rect')],
+                         [(0, 200), (200, 100), (300, 700)])
+        self.assertEqual(len(svg.findall('defs/pattern')), 3)
+        self.assertTrue(all(r.attrib['fill'].startswith('url(#home-status-') for r in svg.findall('rect')))
+        legend = chart.split('<ul class="status-legend">', 1)[1].split('</ul>', 1)[0]
+        self.assertEqual(legend.count('<li>'), 3)
+        for state in ('Ready', 'In progress', 'Completed'):
+            self.assertIn(state, legend)
+        self.assertNotIn('Upcoming', legend)
+        self.assertIn('Zero tasks: Upcoming, Waiting for human, Waiting for dependencies, Blocked by failure.', chart)
+        self.assertEqual(table_rows(chart, 'Execution status breakdown'), dict((s, (c, t)) for s, c, t in rows))
+        self.assertEqual(chart, dashboard._status_chart(rows))
+
+    def test_empty_status_and_phone_chart_rules(self):
+        chart = dashboard._status_chart([(state, 0, 0) for state in mission.STATES])
+        self.assertNotIn('<svg', chart)
+        self.assertNotIn('status-legend', chart)
+        self.assertIn('No execution tasks recorded.', chart)
+        self.assertEqual(len(table_rows(chart, 'Execution status breakdown')), 7)
+        page = self.page()
+        phone = dashboard._MISSION_STYLE.split('@media (max-width: 640px)', 1)[1]
+        self.assertIn('.progress-chart tr { display: grid; grid-template-columns: minmax(0, 1fr) auto;', phone)
+        self.assertIn('vertical-align: middle; border-bottom: 1px solid var(--line)', page)
+        self.assertIn('.progress-track { fill: var(--sunken); stroke: var(--line-strong); }', page)
+        self.assertIn('html.js .status-table', page)
+
 
 class TestLayeredReview(ReviewCase):
     def test_each_item_exposes_title_why_target_action_and_one_disclosure(self):
@@ -129,9 +163,11 @@ class TestLayeredReview(ReviewCase):
         for summary in summaries:
             for part in ('review-title', 'review-why', 'review-target', 'review-action'):
                 self.assertIn('class="' + part + '"', summary)
+            self.assertIn('downstream', summary)
             for hidden in ('class="pill', '<textarea', 'Applied in:', 'If revised:', 'class="resp"'):
                 self.assertNotIn(hidden, summary)
-        self.assertIn('class="review-empty" aria-label="Upcoming decisions">Upcoming decisions <span class="count">0</span> · No items.</p>', review)
+        self.assertIn('class="review-empty">Upcoming decisions <span class="count">0</span> · No items.</p>', review)
+        self.assertNotRegex(review, r'<p[^>]*aria-label=')
         self.assertIn('<h2>Previously answered <span class="count">2</span>', review)
 
     def test_records_responses_and_forms_remain_inside_one_level(self):
@@ -150,6 +186,81 @@ class TestLayeredReview(ReviewCase):
         self.assertIn('Mặc định 7 ngày, không phải 30.', answered)
         self.assertIn("fetch('/respond'", self.html)
         self.assertIn('X-Praukron-Token', self.html)
+
+
+class TestOwnerReviewActions(OwnerCase):
+    def render(self, data, interactive=False):
+        return dashboard.render(self.project, analytics.report(self.project), data, interactive=interactive)
+
+    def test_decide_until_all_recorded_contract_criteria_pass_then_verify(self):
+        task = self.project.task('T-TWO')
+        for ready in (False, True):
+            with self.subTest(ready=ready):
+                for criterion in self.project.mandatory_criteria(task):
+                    criterion.state = 'PASS' if ready else 'NOT_RUN'
+                data = compiler.as_json(self.project)
+                action = next(i for i in data['mission']['review']['now'] if i['id'] == task.id)
+                self.assertEqual(action['action'], 'Verify' if ready else 'Decide')
+                for interactive in (False, True):
+                    card = self.render(data, interactive).split('id="review-T-TWO"', 1)[1].split('</details>', 1)[0]
+                    summary = card.split('</summary>', 1)[0]
+                    self.assertIn('>Verify</span>' if ready else '>Decide</span>', summary)
+                    self.assertIn('The contract is met;' if ready else "The contract is not yet met;", summary)
+                    self.assertIn('Affects: T-TWO · 1 downstream', summary)
+                    if interactive:
+                        self.assertEqual('data-verify="1"' in card, ready)
+                        self.assertIn('data-guide="1"', card)
+        self.project.contracts[task.contract].criteria.clear()
+        action = next(i for i in compiler.as_json(self.project)['mission']['review']['now'] if i['id'] == task.id)
+        self.assertEqual(action['action'], 'Decide')
+
+    def test_done_owner_error_is_a_recorded_action_with_exact_command_and_home_count(self):
+        task_file = self.authority / 'TASKS.md'
+        task_file.write_text(task_file.read_text(encoding='utf-8').replace(
+            '- Status: TODO\n- Module: M-FOUNDATION\n- Authority: owner\n- Validation: UNTESTED',
+            '- Status: DONE\n- Module: M-FOUNDATION\n- Authority: owner\n- Validation: HUMAN_VERIFIED'), encoding='utf-8')
+        self.load()
+        task = self.project.task('T-TWO')
+        self.assertEqual((task.status, task.validation), ('DONE', 'HUMAN_VERIFIED'))
+        data = json.loads(compiler.write(self.dir, self.project).read_text(encoding='utf-8'))
+        findings = [f for f in data['validationFindings'] if f['code'] == 'verification-without-owner']
+        self.assertEqual(len(findings), 1)
+        recorded = next(f for f in validate.check(self.project) if f.code == 'verification-without-owner')
+        self.assertEqual(findings[0]['ownerAction'], list(recorded.owner_action))
+        self.assertEqual(findings[0]['message'], recorded.message)
+        actions = data['mission']['review']['now']
+        self.assertEqual(len(actions), 1)
+        self.assertEqual((actions[0]['kind'], actions[0]['target']), ('validation', task.id))
+        page = self.render(data)
+        review = page.split('id="panel-review"', 1)[1].split('id="panel-audit"', 1)[0]
+        card = review.split('id="review-' + actions[0]['id'] + '"', 1)[1].split('</details>', 1)[0]
+        for command in recorded.owner_action:
+            self.assertIn('<code>' + command + '</code>', card)
+        self.assertIn('HUMAN_VERIFIED needs a VERIFY from a named owner', card)
+        self.assertIn('<h2>Actionable now <span class="count">1</span>', review)
+        self.assertEqual(Disclosures(review).maximum, 1)
+        home = page.split('id="panel-home"', 1)[1].split('id="panel-work"', 1)[0]
+        self.assertIn('1 actionable owner actions', home)
+        self.assertIn('href="#review-' + actions[0]['id'] + '"', home)
+        self.assertEqual(page, self.render(compiler.as_json(self.project)))
+        # Recorded status and progress stay unchanged; Review exposes the error.
+        self.assertIn(task.id, data['mission']['states']['Completed'])
+        without_findings = {**data, 'validationFindings': []}
+        self.assertEqual(mission.project(without_findings)['review']['now'], [])
+        self.project.responses.append(replace(self.project.responses[0], id='R-99', target=task.id,
+                                              action='VERIFY', by='thien-owner'))
+        self.assertEqual(compiler.as_json(self.project)['mission']['review']['now'], [])
+
+    def test_validation_owner_action_replaces_duplicate_open_task_and_ignores_other_errors(self):
+        task = self.project.task('T-TWO')
+        task.validation = 'HUMAN_VERIFIED'
+        task.dependencies.append('T-MISSING')
+        data = compiler.as_json(self.project)
+        actions = data['mission']['review']['now']
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]['kind'], 'validation')
+        self.assertTrue(any(f['code'] == 'unknown-dependency' for f in data['validationFindings']))
+        self.assertFalse(any(i['id'] == task.id for group in data['mission']['review'].values() for i in group))
 
 
 if __name__ == '__main__':

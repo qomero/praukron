@@ -43,7 +43,7 @@ details.acard > summary:hover { background: var(--panel-raised); }
 .review-result { font-size: 13px; flex: 1 0 100%; }
 .review-result:empty { display: none; }
 /* Served: a card already answered in this sitting says so before it is submitted. */
-details.acard.is-answered > summary::after, ul.owner-list > li.is-answered::after {
+details.acard.is-answered > summary::after, details.review-item.is-answered > summary::after, ul.owner-list > li.is-answered::after {
   content: "Answered, not yet submitted"; flex: 1 0 100%; font-size: 12px; font-weight: 600;
   color: var(--good); }
 ul.owner-list > li.is-answered::after { display: block; margin-top: 6px; }
@@ -146,7 +146,8 @@ if (reviewBars.length) {
   if (remaining) {
     needsPanel.classList.add('is-live');
     const badge = needsPanel.querySelector('.needcount');
-    const all = [...needsPanel.querySelectorAll('details.acard, ul.owner-list > li')];
+    const all = [...needsPanel.querySelectorAll('details.acard, details.review-item[data-actionable], ul.owner-list > li')]
+      .filter(item => !item.parentElement.closest('details.review-item'));
     const items = all.filter(item => item.querySelector('.aform'));
     const elsewhere = all.length - items.length;
     all.forEach(item => item.classList.toggle('is-offpage', !item.querySelector('.aform')));
@@ -158,8 +159,9 @@ if (reviewBars.length) {
         item.classList.toggle('is-answered', done);
         if (!done) left += 1;
       });
-      badge.textContent = left;
-      badge.classList.toggle('zero', !left);
+      const ownerCommands = all.filter(item => item.classList.contains('validation-action')).length;
+      badge.textContent = left + ownerCommands;
+      badge.classList.toggle('zero', !(left + ownerCommands));
       const outside = elsewhere ? ` · ${elsewhere} need${elsewhere === 1 ? 's' : ''} work outside this page` : '';
       remaining.textContent = (!items.length ? 'Nothing here takes an answer'
         : left ? `${left} of ${items.length} still need${left === 1 ? 's' : ''} a response`
@@ -335,9 +337,10 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             affected = ', '.join(a["tasks"][:2]) or 'No task linked'
             if len(a["tasks"]) > 2:
                 affected += f' + {len(a["tasks"]) - 2} more'
+            downstream = len(set(item["affected"]) - set(a["tasks"])) if item else 0
             summary = (f'<strong class="review-title">{esc(a["title"])}</strong>'
                        f'<span class="review-why">{why}</span>'
-                       f'<span class="review-target">Affects: {esc(affected)}</span>'
+                       f'<span class="review-target">Affects: {esc(affected)} · {downstream} downstream</span>'
                        f'<span class="review-action">{primary}</span>')
         return (
             '<details class="acard"' + (f' id="assumption-{esc(a["id"])}"' if anchor else "")
@@ -389,8 +392,9 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             tid = item["id"]
             task = tasks[tid]
             subset = {**compiled, "assumptionReport": {**report, "ownerHeld": [tid]}}
-            verification_body, _ = verification(subset, ref, interactive and group == "now")
-            body = (verification_body + guide(tid, interactive) if group == "now" else
+            verifying = item["action"] == "Verify"
+            verification_body, _ = verification(subset, ref, interactive and group == "now" and verifying)
+            body = ((verification_body if verifying else '') + guide(tid, interactive) if group == "now" else
                     verification_body if group == "answered" else
                     '<p class="note">Future obligation. Finish dependencies and reach the relevant phase first.</p>')
             body += '<p>Dependencies: ' + (", ".join(ref(t) for t in task["deps"]) or "none") + '</p>'
@@ -401,28 +405,45 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             body += ''.join(f'<p class="resp">{esc(r["text"])} · {esc(r["id"])}</p>'
                             for r in compiled["responses"] if r["target"] == tid)
             why = item.get("note") or {
-                "now": "Owner verification is required before this task can close.",
+                "now": ("The contract is met; owner verification is required." if verifying else
+                        "The contract is not yet met; the owner's decision is needed."),
                 "upcoming": "Owner decision awaits dependencies or its phase.",
                 "answered": "Owner verification awaits agent reconciliation.",
             }[group]
-            primary = "Review verification options" if group == "now" else (
+            primary = item["action"] if group == "now" else (
                 "Inspect prerequisites" if group == "upcoming" else "Inspect reconciliation")
-            return (f'<details class="review-item" id="review-{esc(tid)}"><summary>'
+            return (f'<details class="review-item" id="review-{esc(tid)}"' + (' data-actionable' if group == "now" else '') + '><summary>'
                     f'<strong class="review-title">{esc(task["title"])}</strong>'
                     f'<span class="review-why">{esc(why)}</span>'
-                    f'<span class="review-target">Affects: {esc(tid)}</span>'
+                    f'<span class="review-target">Affects: {esc(tid)} · {len(item["affected"])} downstream</span>'
                     f'<span class="review-action">{primary}</span>'
                     f'</summary><div class="review-body">{body}</div></details>')
+
+        def validation_card(item: dict) -> str:
+            finding = item["finding"]
+            why = finding["message"].split(';', 1)[0]
+            commands = ''.join(f'<pre class="owner-command"><code>{esc(command)}</code></pre>'
+                               for command in finding["ownerAction"])
+            return (f'<details class="review-item validation-action" data-actionable id="review-{esc(item["id"])}"><summary>'
+                    f'<strong class="review-title">{esc(item["title"])}</strong>'
+                    f'<span class="review-why">{esc(why)}</span>'
+                    f'<span class="review-target">Affects: {esc(item["target"])} · {len(item["affected"])} downstream</span>'
+                    '<span class="review-action">Run owner command</span></summary>'
+                    f'<div class="review-body"><p>{esc(finding["message"])}</p>{commands}'
+                    f'<p>Validation: {esc(finding["code"])} · {esc(finding["where"])}</p>'
+                    f'<p>Affected record: {ref(item["target"])}</p>'
+                    '<p>Affected work: ' + (', '.join(ref(t) for t in item["affected"]) or 'none') + '</p></div></details>')
 
         sections = []
         for key, label in (("now", "Actionable now"), ("upcoming", "Upcoming decisions"),
                            ("assumptions", "Assumptions requiring validation"), ("answered", "Previously answered")):
             items = compiled["mission"]["review"][key]
-            body = ''.join(card(by_id[i["id"]]) if i["kind"] == "assumption" else task_card(i, key) for i in items)
+            body = ''.join(card(by_id[i["id"]]) if i["kind"] == "assumption" else
+                           validation_card(i) if i["kind"] == "validation" else task_card(i, key) for i in items)
             if items:
                 sections.append(f'<section class="review-group" aria-label="{label}"><h2>{label} <span class="count">{len(items)}</span></h2>{body}</section>')
             else:
-                sections.append(f'<p class="review-empty" aria-label="{label}">{label} <span class="count">0</span> · No items.</p>')
+                sections.append(f'<p class="review-empty">{label} <span class="count">0</span> · No items.</p>')
         filters = ('<div class="controls"><input type="search" id="assume-search" aria-label="Search assumptions" placeholder="Filter assumptions…">'
                    + ''.join(f'<select id="assume-{key}" aria-label="{label}"><option value="">{label}: all</option>'
                              + ''.join(f'<option value="{esc(v)}">{esc(v)}</option>' for v in values) + '</select>'
