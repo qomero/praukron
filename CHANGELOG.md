@@ -4,6 +4,29 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 2.2.2 — 2026-10-18
+
+- Home now leads with the current phase and module completion, with accessible,
+  deterministic inline charts for phases, modules and execution states. Review
+  shows each item's purpose and action before a single disclosure, keeps group
+  counts visible, and preserves the existing response pathway and no-JavaScript
+  reading experience.
+- Review distinguishes owner decisions from verification using recorded
+  acceptance state, exposes downstream counts and recorded owner-action
+  validation errors, and includes them in Home's action count. Execution status
+  is one patterned stacked bar with a compact non-zero legend and full text table.
+- Redesign dashboard Home around a phase timeline, a current-phase card with inline module progress, gate and active work, and a next-action column with compact execution, validation and operations figures. On phones the action follows the scrolling timeline. Detailed completion/status tables and milestones remain available in Work; both themes and no-JavaScript reading are preserved.
+- Keep the current step visible on phones (wrap without JavaScript), clear the sticky navigation when opening a phase, distinguish other owner actions from assumptions, and retain deduplicated downstream totals in Work.
+- Classify later-phase owner work as Upcoming in Work and Review even when its
+  dependencies are met. Current-phase verified owner work remains Ready for
+  agent reconciliation; scope changes never make future owner work actionable.
+  Home, Work and Review name upcoming owner decisions that block current work,
+  including their downstream impact, without making them actionable early.
+- Draw the dashboard's critical path, phase flow, gates, dependency ordering and
+  calendar Gantt natively, with each Mermaid source alongside its drawing.
+  All six views work offline without JavaScript or third-party libraries, use
+  light/dark tokens and explicit status labels, and scroll within their own boxes.
+
 ## 2.2.1 — 2026-10-18
 
 - Add offline global dashboard search across tasks, decisions, assumptions, responses,
