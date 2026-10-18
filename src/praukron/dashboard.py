@@ -1,9 +1,7 @@
 """Static dashboard generation.
 
-One self-contained HTML file. The compiled project and the Mermaid sources are
-embedded, so the page opens straight from the filesystem with no server and no
-network. Mermaid renders the diagrams when it is reachable; when it is not, the
-page shows the diagram source instead of an empty box.
+One self-contained HTML file. The compiled project, offline dependency drawing
+and diagram sources are embedded. Nothing fetches an external resource.
 
 The dashboard is read-only by construction: it carries no control that writes.
 Its tabs, theme, and cross-filters are presentation state kept in the URL hash
@@ -15,12 +13,11 @@ from __future__ import annotations
 import html
 import json
 import re
+from urllib.parse import quote
 
 from .analytics import Report
 from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATIONS, Project, event_order
 from . import mermaid, review
-
-MERMAID_CDN = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"
 
 
 def esc(value: object) -> str:
@@ -86,51 +83,8 @@ a { color: var(--accent); text-underline-offset: 3px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0);
       white-space: nowrap; }
 main { max-width: 1600px; margin: 0 auto; padding: 20px 20px 96px; }
-/* The side panel: everything awaiting the owner, beside whichever tab is open
-   (ADR-065). Narrow windows stack it above the tabs. */
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
+.layout { display: block; }
 .content { min-width: 0; }
-aside.needs { position: sticky; top: 12px; max-height: calc(100vh - 24px); overflow-y: auto;
-              background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-              box-shadow: var(--shadow); padding: 16px; scrollbar-width: thin; }
-aside.needs > .needs-head { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; }
-aside.needs > .needs-head h2 { margin: 0; font-size: 17px; }
-aside.needs .needcount { font-size: 12px; line-height: 20px; min-width: 22px; text-align: center;
-              padding: 0 7px; border-radius: 999px; background: var(--warn); color: var(--on-warn);
-              font-weight: 700; }
-aside.needs .needcount.zero { background: var(--sunken); color: var(--ink); font-weight: 600; }
-aside.needs .live { display: none; margin-left: auto; font-size: 12px; font-weight: 600; color: var(--accent); }
-aside.needs h3 { margin: 18px 0 8px; }
-/* Inside the panel, items are rows split by rules, not cards in a card. */
-aside.needs .acards { padding: 0; }
-aside.needs details.acard, aside.needs ul.plain > li { background: none; border: 0; border-radius: 0;
-              border-top: 1px solid var(--line); box-shadow: none; margin: 0; padding: 10px 0; }
-aside.needs details.acard { padding: 0; }
-aside.needs details.acard > summary { padding: 10px 0; }
-aside.needs details.acard .abody { padding: 0 0 12px; }
-aside.needs ul.plain > li:last-child { border-bottom: 0; }
-aside.needs .controls { flex-wrap: wrap; }
-aside.needs .review-by { flex: 1 1 160px; min-width: 0; }
-aside.needs details.group { background: none; border: 0; box-shadow: none; margin: 0; }
-aside.needs details.group > summary { padding: 4px 0; }
-aside.needs details.group > .note { padding: 0; margin: 0 0 8px; }
-/* Served, the panel is where the owner answers, so it is marked live: an
-   accent frame, a live label, and a submit bar that stays in reach. */
-aside.needs.is-live { border: 2px solid var(--accent); padding: 15px;
-              background: color-mix(in srgb, var(--accent) 5%, var(--panel)); }
-aside.needs.is-live .live { display: inline; }
-aside.needs.is-live .review-bar { position: sticky; top: -15px; z-index: 2; margin: 10px -15px 0;
-              padding: 10px 15px; background: var(--panel);
-              border-block: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); }
-aside.needs .remaining { flex: 1 0 100%; font-size: 13px; font-weight: 600; }
-@media (max-width: 1099px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  /* The panel no longer scrolls itself here, so the page is what the
-     submit bar pins against. */
-  aside.needs { position: static; max-height: none; overflow: visible; order: -1; }
-  aside.needs.is-live .review-bar { top: 0; }
-  aside.needs[data-waiting="0"] { order: 1; }
-}
 header.top { display: flex; gap: 12px 16px; align-items: center; justify-content: space-between;
              flex-wrap: wrap; padding: 4px 0 14px; }
 h1 { font-size: 22px; line-height: 1.25; margin: 0 0 4px; letter-spacing: -0.015em; font-weight: 700; }
@@ -169,14 +123,10 @@ summary:focus-visible, .chips button:focus-visible, .theme button:focus-visible 
   outline: 2px solid var(--accent); outline-offset: 2px; }
 .toptabs button:focus-visible { outline-offset: -2px; }
 html.js .panel { display: none; }
-html.js[data-tab="overview"] #panel-overview,
-html.js[data-tab="assumptions"] #panel-assumptions,
-html.js[data-tab="execution"] #panel-execution,
-html.js[data-tab="graph"] #panel-graph,
-html.js[data-tab="operations"] #panel-operations,
-html.js[data-tab="governance"] #panel-governance,
-html.js[data-tab="decisions"] #panel-decisions,
-html.js[data-tab="tasks"] #panel-tasks { display: block; }
+html.js[data-tab="home"] #panel-home,
+html.js[data-tab="work"] #panel-work,
+html.js[data-tab="review"] #panel-review,
+html.js[data-tab="audit"] #panel-audit { display: block; }
 .panel { padding-top: 4px; }
 .panel:focus { outline: none; }
 
@@ -610,6 +560,7 @@ function showTask(id) {
       <dt>Dependencies</dt><dd>${deps}</dd>
       <dt>Blocks</dt><dd>${blocks}</dd>
       <dt>Acceptance — ${esc(task.ac || 'none')}</dt><dd><ul class="plain">${criteria}</ul></dd>
+      <dt>Full evidence</dt><dd><a href="#task-record-${esc(id)}" data-record="task-record-${esc(id)}">Open task record in Audit</a></dd>
       ${contract.inherits.length ? `<dt>Inherited invariants</dt><dd>${contract.inherits.map(i => `<code>${esc(i)}</code>`).join(', ')}</dd>` : ''}
       ${obstacles.length ? `<dt>Obstacles</dt><dd>${obstacles.map(o => `${pill(o.type)} ${esc(o.detail)}`).join('<br>')}</dd>` : ''}
       <dt>Domain</dt><dd>${esc(task.domain)} <span class="note">(${esc(task.domainSource)})</span></dd>
@@ -627,7 +578,7 @@ function showTask(id) {
 // focus strip, a step on the critical path. All read the one embedded project.
 document.addEventListener('click', event => {
   const opener = event.target.closest('[data-task]');
-  if (opener) showTask(opener.dataset.task);
+  if (opener) { event.preventDefault(); showTask(opener.dataset.task); }
 });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -638,6 +589,13 @@ document.addEventListener('keydown', event => {
 });
 document.querySelector('#detail .close').addEventListener('click',
   () => document.getElementById('detail').close());
+document.addEventListener('click', event => {
+  const link = event.target.closest('[data-record]');
+  if (!link) return;
+  event.preventDefault();
+  document.getElementById('detail').close();
+  reveal(document.getElementById(link.dataset.record));
+});
 
 // --- The diagram canvas ------------------------------------------------
 // A 48-task graph drawn to fit a panel is too small to read, so the diagram
@@ -926,9 +884,7 @@ if (window.mermaid) {
   // number on it still reports.
   canvas.classList.add('plain');
   document.querySelectorAll('.mermaid').forEach(node => {
-    const source = document.createElement('pre');
-    source.textContent = node.textContent;
-    node.replaceWith(source);
+    node.style.whiteSpace = 'pre';
   });
   document.getElementById('offline-note').hidden = false;
 }
@@ -1143,7 +1099,7 @@ function clearFilters() {
 }
 
 function writeHash() {
-  const name = document.documentElement.dataset.tab || 'overview';
+  const name = document.documentElement.dataset.tab || 'home';
   if (location.hash !== '#' + hashFor(name)) history.replaceState(null, '', '#' + hashFor(name));
 }
 
@@ -1186,11 +1142,15 @@ readFilters(location.hash.slice(1).split('?')[1]);
 // filters, so a reload or a shared link opens the same view, and it never
 // touches authority.
 
-const TOP = ['overview', 'assumptions', 'execution', 'graph', 'operations', 'governance', 'decisions', 'tasks'];
+const TOP = ['home', 'work', 'review', 'audit'];
+const LEGACY = { overview: 'home', assumptions: 'review', execution: 'work', graph: 'work',
+                 operations: 'audit', governance: 'audit', decisions: 'audit', tasks: 'work' };
 const topTabs = [...document.querySelectorAll('.toptabs [role="tab"]')];
 
 function selectTab(name, { focus = false, record = true } = {}) {
-  if (!TOP.includes(name)) name = 'overview';
+  const old = name;
+  name = LEGACY[name] || name;
+  if (!TOP.includes(name)) name = 'home';
   document.documentElement.dataset.tab = name;
   topTabs.forEach(tab => {
     const on = tab.dataset.tab === name;
@@ -1199,12 +1159,16 @@ function selectTab(name, { focus = false, record = true } = {}) {
     if (on && focus) tab.focus();
   });
   if (record && location.hash !== '#' + hashFor(name)) history.replaceState(null, '', '#' + hashFor(name));
-  if (name === 'graph') graphShown();
+  if (record) window.scrollTo(0, 0);
+  if (name === 'work') graphShown();
+  const legacy = document.getElementById('panel-' + old);
+  if (legacy && legacy.tagName === 'DETAILS') legacy.open = true;
 }
 
 topTabs.forEach(tab => tab.addEventListener('click', () => selectTab(tab.dataset.tab)));
 document.querySelector('.toptabs').addEventListener('keydown', event => {
-  const at = topTabs.findIndex(tab => tab.dataset.tab === document.documentElement.dataset.tab);
+  const ordered = [...topTabs].sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+  const at = ordered.findIndex(tab => tab.dataset.tab === document.documentElement.dataset.tab);
   const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
   let next = null;
   if (step) next = (at + step + topTabs.length) % topTabs.length;
@@ -1212,38 +1176,35 @@ document.querySelector('.toptabs').addEventListener('keydown', event => {
   else if (event.key === 'End') next = topTabs.length - 1;
   if (next === null) return;
   event.preventDefault();
-  selectTab(topTabs[next].dataset.tab, { focus: true });
+  selectTab(ordered[next].dataset.tab, { focus: true });
 });
 addEventListener('hashchange', () => {
   // A link to a card (#assumption-A-1, #needs-you) moves to it without
   // switching tabs; only a tab name selects a tab.
   const [name, query] = location.hash.slice(1).split('?');
-  if (TOP.includes(name)) {
+  if (TOP.includes(name) || LEGACY[name]) {
     readFilters(query);
     applyFilters({ record: false });
     return selectTab(name, { record: false });
   }
-  const target = document.getElementById(name);
+  const target = document.getElementById(decodeURIComponent(name));
   if (!target) return;
-  if (target.tagName === 'DETAILS') target.open = true;
-  const holder = target.parentElement && target.parentElement.closest('details');
-  if (holder) holder.open = true;
-  target.scrollIntoView({ block: 'start' });
+  reveal(target);
   // The anchor has done its work; the address goes back to tab and filters,
   // so a reload or a shared link keeps what the reader is looking at.
   if (filtering()) writeHash();
 });
-selectTab(location.hash.slice(1).split('?')[0] || 'overview', { record: Boolean(location.hash) });
+selectTab(location.hash.slice(1).split('?')[0] || 'home', { record: false });
 
 // A link to a tab switches to it and keeps the active filters; following the
 // bare href would replace the hash and drop them.
 document.addEventListener('click', event => {
   const link = event.target.closest('a[href^="#"]:not([data-focus])');
   const name = link && link.getAttribute('href').slice(1);
-  if (!name || !TOP.includes(name)) return;
+  if (!name || !(TOP.includes(name) || LEGACY[name])) return;
   event.preventDefault();
   selectTab(name);
-  document.getElementById('panel-' + name).focus();
+  document.getElementById('panel-' + (LEGACY[name] || name)).focus();
 });
 
 // --- Theme -------------------------------------------------------------
@@ -1346,13 +1307,10 @@ document.addEventListener('click', event => {
   event.preventDefault();
   const dialog = document.getElementById('detail');
   if (dialog.open) dialog.close();
-  selectTab('operations');
+  selectTab('audit');
   const target = document.getElementById(link.dataset.focus);
   if (!target) return;
-  if (target.tagName === 'DETAILS') target.open = true;
-  const holder = target.closest('details');
-  if (holder) holder.open = true;
-  target.scrollIntoView({ block: 'center' });
+  reveal(target);
   target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
 });
 
@@ -1531,25 +1489,226 @@ def _domain_pill(domain: str) -> str:
 
 
 TOP_TABS = (
-    ("overview", "Overview"),
-    ("assumptions", "Assumptions"),
-    ("execution", "Execution"),
-    ("graph", "Graph"),
-    ("operations", "Operations"),
-    ("governance", "Governance"),
-    ("decisions", "Decisions"),
-    ("tasks", "All Tasks"),
+    ("home", "Home"), ("work", "Work"), ("review", "Review"), ("audit", "Audit"),
 )
 
-# Obstacles in the order a reader acts on them. Dependency blockers come last
-# and are split by whether the work they wait on can start now (ADR-044).
-_OBSTACLE_GROUPS = (
-    ("ACCEPTANCE_BLOCKER", "Acceptance blockers"),
-    ("GATE_BLOCKER", "Gate blockers"),
-    ("PHASE_BLOCKER", "Phase blockers"),
-    ("VALIDATION_GAP", "Review gaps"),
-    ("SCHEDULE_BLOCKER", "Schedule blockers"),
-)
+_MISSION_STYLE = """
+.secondary { padding: 0 16px 16px; }
+.secondary > summary { margin: 0 -16px; }
+.secondary .box, .secondary .phase, .secondary .module, .secondary .card,
+.group .group { box-shadow: none; border: 0; border-radius: 0; background: transparent; }
+.group .group { border-top: 1px solid var(--line); }
+#needs-you .acard { box-shadow: none; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.diagram { padding: 12px; }
+.pulse { display: grid; grid-template-columns: 1.4fr 1fr; gap: 32px; padding: 24px 0; }
+.pulse h2 { font-size: 24px; margin: 0 0 12px; }
+.pulse p { max-width: 70ch; }
+.pulse-facts { display: grid; grid-template-columns: max-content 1fr; gap: 10px 20px; margin: 0; }
+.pulse-facts dt { color: var(--muted); }
+.pulse-facts dd { margin: 0; }
+.next-action { background: var(--panel); border: 1px solid var(--accent); border-radius: var(--radius); padding: 20px; }
+.next-action h2 { margin: 0 0 12px; }
+.next-action .primary-link { display: inline-flex; align-items: center; min-height: 44px; color: var(--accent); font-weight: 650; }
+.pulse-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; }
+.root-list, .work-list { list-style: none; padding: 0; }
+.root-list > li, .work-list > li { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.review-item { border-block-end: 1px solid var(--line); }
+.review-item > summary { cursor: pointer; padding: 16px 0; }
+.review-item > summary .note { display: block; margin-top: 4px; }
+.review-body { padding: 0 16px 16px; }
+#needs-you { max-width: 1000px; }
+#needs-you .review-bar { position: sticky; top: 60px; z-index: 3; background: var(--panel); padding: 12px; }
+.needs-head { display: flex; align-items: center; gap: 12px; }
+.needs-head .live { display: none; }
+.is-live .needs-head .live { display: inline; color: var(--accent); }
+.work-state { margin: 12px 0; }
+.work-state > summary { cursor: pointer; padding: 12px 0; font-weight: 650; }
+.work-state li { padding: 8px 0; }
+.work-scope { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+.work-scope button, #search-open, #search-close { min-height: 44px; padding: 8px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); background: var(--panel); cursor: pointer; }
+.work-scope button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.scope-hidden { display: none; }
+.offline-graph { overflow: auto; max-height: 560px; background: var(--panel); }
+.offline-graph svg { display: block; }
+.offline-graph rect { fill: var(--panel-raised); stroke: var(--line-strong); }
+.offline-graph text { fill: var(--ink); font: 13px ui-monospace, monospace; }
+.offline-graph path { fill: none; stroke: var(--muted); }
+.offline-graph a:hover rect, .offline-graph a:focus rect { stroke: var(--accent); stroke-width: 3; }
+.search-control { display: none; gap: 12px; align-items: center; }
+html.js .search-control { display: inline-flex; }
+#global-search { width: min(720px, calc(100vw - 32px)); padding: 20px; }
+#global-search::backdrop { background: rgb(0 0 0 / .5); }
+.search-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.search-head h2 { margin: 0; }
+#global-query { width: 100%; box-sizing: border-box; margin-top: 16px; min-height: 44px; font: inherit; padding: 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-s); color: var(--ink); background: var(--panel); }
+#search-results { list-style: none; padding: 0; max-height: 55vh; overflow: auto; }
+#search-results li { border-bottom: 1px solid var(--line); padding: 10px 0; overflow-wrap: anywhere; }
+#search-results a { display: block; padding: 8px 4px; }
+.search-source { font-size: 12px; color: var(--muted); }
+.record-body { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 75ch; }
+.primary-link:focus-visible, summary:focus-visible, a:focus-visible, button:focus-visible, input:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+::selection { background: var(--accent); color: var(--on-accent); }
+input, textarea { caret-color: var(--accent); }
+@media (max-width: 640px) {
+  main { padding: 12px 12px 80px; }
+  .stickyhead { margin-inline: -12px; padding-inline: 12px; }
+  .pulse, .pulse-bottom { grid-template-columns: 1fr; gap: 20px; }
+  .pulse-facts { grid-template-columns: 1fr; gap: 4px; }
+  .pulse-facts dd { margin-bottom: 8px; }
+  .toptabs { display: grid; grid-template-columns: repeat(4, 1fr); }
+  .toptabs [data-tab="review"] { order: -1; }
+  .toptabs button { padding-inline: 8px; min-height: 48px; }
+  .theme button, .controls button, .controls select, .aform label { min-height: 44px; }
+  .secondary { padding-inline: 10px; }
+  .secondary > summary { margin-inline: -10px; }
+  #global-search { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .flash { animation: none; outline: 2px solid var(--accent); } }
+"""
+
+SEARCH_JS = """
+function searchRecords(index, query) {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  return index.filter(item => item.text.includes(q)).sort((a, b) => {
+    const exact = Number(b.id.toLowerCase() === q) - Number(a.id.toLowerCase() === q);
+    const ka = a.kind + '\\u0000' + a.id + '\\u0000' + a.source;
+    const kb = b.kind + '\\u0000' + b.id + '\\u0000' + b.source;
+    return exact || (ka < kb ? -1 : ka > kb ? 1 : 0);
+  });
+}
+"""
+
+_MISSION_SCRIPT = """
+function reveal(target) {
+  clearFilters();
+  target.hidden = false;
+  target.classList.remove('scope-hidden');
+  for (let node = target; node; node = node.parentElement) {
+    if (node.tagName === 'DETAILS') node.open = true;
+    if (node.classList.contains('panel')) selectTab(node.id.replace('panel-', ''), {record: false});
+  }
+  target.setAttribute('tabindex', '-1');
+  target.focus();
+  target.scrollIntoView({block: 'start'});
+}
+const globalSearch = document.getElementById('global-search');
+const globalQuery = document.getElementById('global-query');
+const results = document.getElementById('search-results');
+const searchStatus = document.getElementById('search-status');
+let searchOpener = null;
+function openSearch() {
+  if (document.querySelector('dialog[open]')) return;
+  searchOpener = document.activeElement;
+  globalSearch.showModal();
+  globalQuery.focus();
+}
+document.getElementById('search-open').addEventListener('click', openSearch);
+document.getElementById('search-close').addEventListener('click', () => globalSearch.close());
+globalSearch.addEventListener('close', () => { if (searchOpener) searchOpener.focus(); });
+document.addEventListener('keydown', event => {
+  const editing = event.target.isContentEditable || event.target.closest('input, textarea, select');
+  if ((!editing && event.key === '/') || ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k')) {
+    event.preventDefault(); openSearch();
+  }
+});
+globalQuery.addEventListener('input', () => {
+  const matches = searchRecords(DATA.searchIndex, globalQuery.value);
+  results.replaceChildren();
+  matches.forEach(item => {
+    const li = document.createElement('li');
+    const link = document.createElement('a');
+    link.href = '#' + encodeURIComponent(item.destination);
+    link.textContent = item.kind + ' · ' + item.id + ' — ' + item.title;
+    link.addEventListener('click', event => {
+      event.preventDefault();
+      searchOpener = null;
+      globalSearch.close();
+      const target = document.getElementById(item.destination);
+      if (target) { reveal(target); history.replaceState(null, '', '#' + encodeURIComponent(item.destination)); }
+    });
+    const source = document.createElement('a');
+    source.className = 'search-source'; source.textContent = item.source;
+    const split = item.source.indexOf('#');
+    source.href = '../chronicle/' + item.source.slice(0, split).split('/').map(encodeURIComponent).join('/') + '#' + encodeURIComponent(item.source.slice(split + 1));
+    li.append(link, source); results.append(li);
+  });
+  searchStatus.textContent = matches.length ? matches.length + ' results. Use arrow keys or Tab to navigate.'
+    : globalQuery.value.trim() ? 'Nothing matched. Try an ID or fewer words.' : 'Search by ID, title or recorded words.';
+});
+globalSearch.addEventListener('keydown', event => {
+  const links = [...results.querySelectorAll('li > a:first-child')];
+  if (event.key === 'Escape') {
+    event.preventDefault(); globalSearch.close();
+  } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    const at = links.indexOf(document.activeElement);
+    const next = event.key === 'ArrowDown' ? at + 1 : at < 0 ? links.length - 1 : at - 1;
+    if (links.length) links[(next + links.length) % links.length].focus();
+  } else if (event.key === 'Enter' && document.activeElement === globalQuery && links.length) {
+    event.preventDefault(); links[0].click();
+  } else if (event.key === 'Tab') {
+    const focusable = [...globalSearch.querySelectorAll('button, input, a[href]')];
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
+});
+const scopeButtons = [...document.querySelectorAll('[data-work-scope]')];
+function workScope(all) {
+  document.querySelectorAll('[data-work-task]').forEach(row => {
+    row.classList.toggle('scope-hidden', !all && !DATA.mission.relevant.includes(row.dataset.workTask));
+  });
+  document.querySelectorAll('.work-state').forEach(group => {
+    const visible = [...group.querySelectorAll('[data-work-task]')].filter(row => !row.classList.contains('scope-hidden')).length;
+    group.querySelector('[data-state-count]').textContent = visible;
+    group.querySelector('.scope-empty').hidden = visible > 0;
+  });
+  scopeButtons.forEach(button => button.setAttribute('aria-pressed', String((button.dataset.workScope === 'all') === all)));
+}
+scopeButtons.forEach(button => button.addEventListener('click', () => workScope(button.dataset.workScope === 'all')));
+workScope(false);
+const initialTarget = document.getElementById(decodeURIComponent(location.hash.slice(1).split('?')[0]));
+if (initialTarget && !initialTarget.classList.contains('panel')) reveal(initialTarget);
+"""
+
+
+def source_link(source: dict) -> str:
+    pointer = source["file"] + "#" + source["anchor"]
+    return f'<a href="../chronicle/{quote(source["file"])}#{quote(source["anchor"])}">{esc(pointer)}</a>'
+
+
+def dependency_svg(tasks: dict) -> str:
+    """Small offline SVG; full IDs, edges and a textual equivalent below it."""
+    levels = {}
+    pending = set(tasks)
+    while pending:
+        ready = sorted(t for t in pending if all(d not in pending for d in tasks[t]["deps"]))
+        if not ready:  # Invalid cycles still render; validation owns diagnosis.
+            ready = sorted(pending)
+        for tid in ready:
+            levels[tid] = 1 + max((levels.get(d, -1) for d in tasks[tid]["deps"]), default=-1)
+            pending.remove(tid)
+    positions, rows = {}, {}
+    width = max(180, max((len(t) * 8 + 24 for t in tasks), default=180))
+    for tid in sorted(tasks):
+        level = levels[tid]
+        row = rows.get(level, 0)
+        rows[level] = row + 1
+        positions[tid] = (20 + level * (width + 80), 20 + row * 64)
+    edges, nodes = [], []
+    for tid, (x, y) in positions.items():
+        for dep in tasks[tid]["deps"]:
+            if dep in positions:
+                dx, dy = positions[dep]
+                edges.append(f'<path d="M {dx + width} {dy + 20} L {x} {y + 20}"/>')
+        nodes.append(f'<a href="#task-record-{esc(tid)}" data-task="{esc(tid)}">'
+                     f'<rect x="{x}" y="{y}" width="{width}" height="40" rx="6"/>'
+                     f'<text x="{x + 12}" y="{y + 25}">{esc(tid)}</text></a>')
+    return (f'<div class="offline-graph"><svg role="img" aria-label="Dependency graph; dependencies flow left to right. Full links below." '
+            f'width="{max((x + width + 20 for x, y in positions.values()), default=240)}" '
+            f'height="{max((y + 60 for x, y in positions.values()), default=80)}">'
+            + ''.join(edges + nodes) + '</svg></div>')
 
 _EVENT_SECTIONS = (
     ("tool-calls", "Tool calls", ("tool-call", "command")),
@@ -1568,8 +1727,10 @@ _BOOT = """(function () {
   }
   root.setAttribute('data-theme', theme);
   var tab = location.hash.slice(1).split('?')[0];
-  var known = ['overview', 'assumptions', 'execution', 'graph', 'operations', 'governance', 'decisions', 'tasks'];
-  root.setAttribute('data-tab', known.indexOf(tab) >= 0 ? tab : 'overview');
+  tab = ({overview:'home', execution:'work', graph:'work', tasks:'work', assumptions:'review',
+          operations:'audit', governance:'audit', decisions:'audit'})[tab] || tab;
+  var known = ['home', 'work', 'review', 'audit'];
+  root.setAttribute('data-tab', known.indexOf(tab) >= 0 ? tab : 'home');
 })();"""
 
 
@@ -1599,8 +1760,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         if task is None:
             return f"<code>{esc(task_id)}</code>"
         return (
-            f'<button type="button" class="tasklink{" ops" if task["domain"] == "operations" else ""}"'
-            f' data-task="{esc(task_id)}"><code>{esc(task_id)}</code> {esc(task["title"])}</button>'
+            f'<a href="#task-record-{esc(task_id)}" class="tasklink{" ops" if task["domain"] == "operations" else ""}"'
+            f' data-task="{esc(task_id)}"><code>{esc(task_id)}</code> {esc(task["title"])}</a>'
         )
 
     def trace_link(task_id: str, label: str = "Open its operations trace") -> str:
@@ -1636,7 +1797,12 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         "<th>Status</th><th>Validation</th></tr></thead>"
     )
 
-    def event_item(event: dict) -> str:
+    event_occurrences: dict[str, int] = {}
+
+    def event_item(event: dict, canonical: bool = False) -> str:
+        occurrence = event_occurrences.get(event["id"], 0) + 1
+        event_occurrences[event["id"]] = occurrence
+        anchor = "event-" + event["id"] + ("" if canonical else f"-{occurrence}")
         meta = []
         if event["task"]:
             meta.append(f"from {ref(event['task'])}")
@@ -1653,7 +1819,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         )
         unresolved = event["id"] in operations["unresolvedFailures"]
         return (
-            f'<li class="event" id="event-{esc(event["id"])}" data-type="{esc(event["type"])}">'
+            f'<li class="event" id="{esc(anchor)}" data-type="{esc(event["type"])}">'
             f'<div class="evhead"><code>{esc(event["id"])}</code> {_pill(event["type"])} '
             f'{_pill(event["outcome"], {"failure": "FAIL", "success": "PASS"}.get(event["outcome"], ""))}'
             + (' <span class="pill FAIL">unresolved</span>' if unresolved else "")
@@ -1667,61 +1833,10 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             + "</li>"
         )
 
-    def event_list(items: list[dict], empty: str) -> str:
+    def event_list(items: list[dict], empty: str, canonical: bool = False) -> str:
         if not items:
             return f'<p class="note">{esc(empty)}</p>'
-        return f'<ul class="plain events">{"".join(event_item(e) for e in items)}</ul>'
-
-    # --- Overview: the focus strip ------------------------------------------
-    # Primary cards describe execution. Operations appears here only when it
-    # blocks execution. Future derived signals (attention, risk) belong beside
-    # these values; the compiled project carries none today.
-    if current:
-        phase_card = (
-            f'<div class="v"><code>{esc(current["id"])}</code> · {esc(current["name"])}</div>'
-            f'<div class="more">{_pill(current["status"])} '
-            f'{current["progress"]["done"]} / {current["progress"]["total"]} execution tasks done</div>'
-        )
-    else:
-        phase_card = '<div class="v">No phase is active</div>'
-
-    in_flight = execution["inFlight"]
-    ready_execution = [t for t in compiled["ready"] if tasks.get(t, {}).get("domain") == "execution"]
-    upcoming = [t for t in compiled["criticalPath"] if t not in in_flight and t in tasks]
-    if in_flight:
-        active_card = f'<div class="v">{ref(in_flight[0])}</div>'
-        if len(in_flight) > 1:
-            active_card += f'<div class="more">and {len(in_flight) - 1} more in flight</div>'
-    elif ready_execution:
-        active_card = (
-            '<div class="v">No execution work in flight</div>'
-            f'<div class="more">Ready to start: {ref(ready_execution[0])}</div>'
-        )
-    else:
-        active_card = '<div class="v">No execution work in flight</div>'
-    if upcoming:
-        active_card += f'<div class="more">Next on the critical path: {ref(upcoming[0])}</div>'
-
-    blocker = execution["mainBlocker"]
-    if blocker and blocker["kind"] == "TASK":
-        blocker_card = (
-            f'<div class="v">{ref(blocker["id"])}</div>'
-            f'<div class="more">{_domain_pill(blocker["domain"])} {_pill(blocker["status"])} '
-            f'blocking {ref(blocker["blocking"])} · {esc(blocker["reason"])}</div>'
-            + (f'<div class="more">{trace_link(blocker["id"])}</div>' if blocker["domain"] == "operations" else "")
-        )
-    elif blocker:
-        blocker_card = (
-            f'<div class="v">{esc(blocker["id"])}</div>'
-            f'<div class="more">{_pill(blocker["status"])} blocking {esc(blocker["blocking"])} exit</div>'
-        )
-    else:
-        blocker_card = '<div class="v">Nothing is blocking execution</div>'
-    if blocker:
-        blocker_card += (
-            f'<div class="more"><strong>To unblock:</strong> {esc(blocker["unblock"])} · '
-            f'<strong>Who acts:</strong> {esc(blocker["actor"])}</div>'
-        )
+        return f'<ul class="plain events">{"".join(event_item(e, canonical) for e in items)}</ul>'
 
     gate = execution["nextGate"]
     if gate:
@@ -1748,15 +1863,6 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             )
     else:
         gate_card = '<div class="v">No phase exit pending</div>'
-
-    focus = (
-        '<div class="focus">'
-        f'<div class="card"><div class="k">Current phase</div>{phase_card}</div>'
-        f'<div class="card"><div class="k">In flight</div>{active_card}</div>'
-        f'<div class="card{" alert" if blocker else ""}"><div class="k">Main blocker</div>{blocker_card}</div>'
-        f'<div class="card"><div class="k">Next gate</div>{gate_card}</div>'
-        "</div>"
-    )
 
     started = metrics["acceptanceBreakdown"]["started"]
     later = metrics["acceptanceBreakdown"]["notStarted"]
@@ -1812,7 +1918,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     )
 
     phase_cards = "".join(
-        f'<article class="phase{" current" if phase["id"] == current_id else ""}"'
+            f'<article id="phase-{esc(phase["id"])}" class="phase{" current" if phase["id"] == current_id else ""}"'
         + _agg(done=_each(t.id for t in project.execution_in(phase["id"]) if t.done),
                total=_each(t.id for t in project.execution_in(phase["id"])))
         + '>'
@@ -1841,7 +1947,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     def module_block(module: dict) -> str:
         items = "".join(f"<li>{_pill(tasks[t]['status'])} {ref(t)}</li>" for t in module["tasks"])
         return (
-            f'<div class="module"{_agg(n=_each(module["tasks"]))}><div><code>{esc(module["id"])}</code>'
+            f'<div id="module-{esc(module["id"])}" class="module"{_agg(n=_each(module["tasks"]))}><div><code>{esc(module["id"])}</code>'
             f' <strong>{esc(module["name"])}</strong>'
             f' <span class="note" data-agg-text="{{n}} tasks">{len(module["tasks"])} tasks</span></div>'
             f'<div class="outcome">{esc(module["outcome"])}</div>'
@@ -1908,49 +2014,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             + "</li>"
         )
 
-    # Every obstacle only the owner can clear goes to the side panel, not to a
-    # tab (ADR-065); the groups below hold the rest.
     owner_held = [o for o in compiled["obstacles"] if o.get("actor") == "owner"]
-    execution_obstacles = [o for o in compiled["obstacles"]
-                           if o.get("domain", "execution") == "execution" and o not in owner_held]
-    blocked = set(compiled["blocked"])
-    groups = []
-    for kind, label in _OBSTACLE_GROUPS:
-        items = [o for o in execution_obstacles if o["type"] == kind]
-        if kind == "VALIDATION_GAP":
-            # Evidence recorded but nobody reviewed it is not the same as
-            # nothing ever exercised; never let one read as the other.
-            for variant, name in (("REVIEW_MISSING", "Evidence recorded, review missing"),
-                                  ("EVIDENCE_MISSING", "No exercised evidence, no review")):
-                chosen = [o for o in items if o.get("variant") == variant]
-                if chosen:
-                    groups.append((name, chosen, variant == "EVIDENCE_MISSING", ""))
-            continue
-        if items:
-            groups.append((label, items, True, ""))
-    dependency = [o for o in execution_obstacles if o["type"] == "DEPENDENCY_BLOCKER"]
-    direct = [o for o in dependency if any(b not in blocked for b in o["blockers"])]
-    downstream = [o for o in dependency if o not in direct]
-    if direct:
-        groups.append(("Waiting on work that can move now", direct, True, ""))
-    if downstream:
-        groups.append((
-            "Waiting on work that is itself blocked", downstream, False,
-            '<p class="note">Each of these clears once the obstacles above do.</p>',
-        ))
-    known_kinds = {kind for kind, _ in _OBSTACLE_GROUPS} | {"DEPENDENCY_BLOCKER"}
-    other = [o for o in execution_obstacles if o["type"] not in known_kinds]
-    if other:
-        groups.append(("Other obstacles", other, True, ""))
-    obstacles = (
-        f'<p class="note">{len(owner_held)} wait{"s" if len(owner_held) == 1 else ""} on the owner, in the '
-        '<a href="#needs-you">Needs you</a> panel.</p>' if owner_held else ""
-    ) + ("".join(
-        f'<details class="group"{" open" if opened else ""}><summary>{esc(label)}'
-        f'<span class="count">{len(items)}</span></summary>{note}'
-        f'<ul class="plain xf-list">{"".join(obstacle_item(o) for o in items)}</ul></details>'
-        for label, items, opened, note in groups
-    ) or '<p class="note">No other execution obstacles.</p>')
 
     critical = "".join(
         f'<li class="{"done" if tasks.get(t, {}).get("status") == "DONE" else ""}">'
@@ -2012,38 +2076,6 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     ops_tasks = project.operations_tasks
     blocked_ids = set(compiled["blocked"])
     unresolved = set(operations["unresolvedFailures"])
-
-    def event_entries(chosen) -> list:
-        # An event belongs to the task it came from and the tasks it affects.
-        return [([e.task] if e.task else []) + list(e.affects) for e in chosen]
-
-    def events_where(test) -> list:
-        return [(ids, 1) for ids in event_entries([e for e in project.events if test(e)])]
-
-    summary = "".join([
-        _count_card("Active operations", om["tasks"]["active"], f'{om["tasks"]["open"]} open',
-                    agg=_agg(n=_each(t.id for t in ops_tasks if t.status == "WIP"),
-                             open=_each(t.id for t in ops_tasks if not t.done)),
-                    template="{open} open"),
-        _count_card("Blocked operations", om["tasks"]["blocked"], alert=bool(om["tasks"]["blocked"]),
-                    agg=_agg(n=_each(t.id for t in ops_tasks if t.id in blocked_ids))),
-        _count_card("Affecting execution", len(om["affectingExecution"]),
-                    f'{len(om["affectingCriticalPath"])} on the critical path · {len(om["affectingGate"])} on the next gate',
-                    alert=bool(om["affectingExecution"]),
-                    agg=_agg(n=_each(om["affectingExecution"]), path=_each(om["affectingCriticalPath"]),
-                             gate=_each(om["affectingGate"])),
-                    template="{path} on the critical path · {gate} on the next gate"),
-        _count_card("Events recorded", om["events"]["total"], agg=_agg(n=events_where(lambda e: True))),
-        _count_card("Failures", om["events"]["failures"], f'{om["events"]["unresolvedFailures"]} unresolved',
-                    alert=bool(om["events"]["unresolvedFailures"]),
-                    agg=_agg(n=events_where(lambda e: e.failed),
-                             unresolved=events_where(lambda e: e.id in unresolved)),
-                    template="{unresolved} unresolved"),
-        _count_card("Retries", om["events"]["retries"],
-                    agg=_agg(n=events_where(lambda e: e.retry_of or e.type == "retry"))),
-        _count_card("Mutations", om["events"]["mutations"],
-                    agg=_agg(n=events_where(lambda e: e.type == "mutation"))),
-    ])
 
     def operation_row(task_id: str) -> str:
         task = tasks[task_id]
@@ -2181,7 +2213,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         ))
         body = "".join(f"<dt>{esc(k)}</dt><dd>{esc(v)}</dd>" for k, v in detail)
         return (
-            f'<details class="adr" data-status="{esc(decision["status"])}"'
+            f'<details class="adr" id="decision-{esc(decision["id"])}" data-status="{esc(decision["status"])}"'
             f' data-origin="{esc(decision["origin"])}"'
             f' data-text="{esc((decision["id"] + " " + decision["title"]).lower())}">'
             f'<summary><code>{esc(decision["id"])}</code> {_pill(decision["status"])}'
@@ -2226,53 +2258,23 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 
     tab_buttons = "".join(
         f'<button type="button" role="tab" id="tab-{name}" data-tab="{name}"'
-        f' aria-controls="panel-{name}" aria-selected="{str(name == "overview").lower()}"'
-        f' tabindex="{0 if name == "overview" else -1}">{label}</button>'
+        f' aria-controls="panel-{name}" aria-selected="{str(name == "home").lower()}"'
+        f' tabindex="{0 if name == "home" else -1}">{label}</button>'
         for name, label in TOP_TABS
     )
 
     def panel(name: str, body: str) -> str:
+        if name not in {key for key, _ in TOP_TABS}:
+            labels = {"graph": "Dependency graph and diagram sources", "tasks": "Full task registry",
+                      "operations": "Operational trace", "governance": "Evidence and governance",
+                      "decisions": "Architecture decisions", "execution": "Execution diagnostics"}
+            return (f'<details class="group secondary" id="panel-{name}">'
+                    f'<summary>{labels.get(name, name.title())}</summary>{body}</details>')
         return (
             f'<section class="panel" id="panel-{name}" role="tabpanel"'
             f' aria-labelledby="tab-{name}" tabindex="0">{body}</section>'
         )
 
-    exec_in_flight = in_flight
-    assumptions_body, queue, queued, awaiting_agent = review.panel_body(compiled, ref, interactive)
-    verify_list, to_verify = review.verification(compiled, ref, interactive)
-    waiting = len(owner_held) + queued + to_verify
-
-    # --- Attention: what to act on, before any progress figure -------------
-    review_gaps = [o for o in execution_obstacles if o["type"] == "VALIDATION_GAP"]
-    open_risk = [d for d in compiled["debt"] if d["status"] not in ("RESOLVED", "INVALIDATED")
-                 and d["triggerState"] in ("REACHED", "APPROACHING")]
-    reached = sum(1 for d in open_risk if d["triggerState"] == "REACHED")
-    events_by_id = {e.id: e for e in project.events}
-    attention = (
-        '<h2 class="sr">Needs attention</h2><div class="attention">'
-        + _signal(len(compiled["blocked"]), "Blocked tasks", "#execution", "bad",
-                  "waiting on unfinished dependencies", agg=_agg(n=_each(compiled["blocked"])))
-        + _signal(len(execution["failures"]), "Failing work", "#execution", "bad",
-                  f'{started["FAIL"]} criteria fail' if started["FAIL"] else "failed operational evidence",
-                  agg=_agg(n=_each(f["task"] for f in execution["failures"]), fail=criteria(True, "FAIL")),
-                  template="{fail} criteria fail" if started["FAIL"] else "")
-        + _signal(waiting, "Needs you", "#needs-you", "warn",
-                  f"{queued} to review · {len(owner_held)} held by you",
-                  agg=' data-agg-from="needs"', template="{review} to review · {held} held by you")
-        + _signal(len(review_gaps), "Review gaps", "#execution", "warn",
-                  "done without a recorded review", agg=_agg(n=_each(o["subject"] for o in review_gaps)))
-        + _signal(len(open_risk), "Debt at its trigger", "#governance", "bad" if reached else "warn",
-                  f"{reached} reached · {len(open_risk) - reached} approaching",
-                  agg=_agg(n=[(d["linkedTasks"], 1) for d in open_risk],
-                           reached=[(d["linkedTasks"], 1) for d in open_risk if d["triggerState"] == "REACHED"],
-                           approaching=[(d["linkedTasks"], 1) for d in open_risk if d["triggerState"] != "REACHED"]),
-                  template="{reached} reached · {approaching} approaching")
-        + _signal(om["events"]["unresolvedFailures"], "Unresolved failures", "#operations", "bad",
-                  "operational events not yet retried or explained",
-                  agg=_agg(n=[(ids, 1) for ids in event_entries(
-                      [events_by_id[e] for e in operations["unresolvedFailures"] if e in events_by_id])]))
-        + "</div>"
-    )
     ahead = execution.get("workAhead")
     work_ahead = (
         '<div class="box" id="work-ahead"><strong>Work ahead of phase closure</strong> '
@@ -2284,32 +2286,6 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         + ". A description, not a judgment: the phase rules are unchanged.</span></div>"
         if ahead else ""
     )
-    overview = panel("overview", f"""
-  {attention}
-  {focus}
-  {external_overview}
-  {work_ahead}
-  {_breakdown(compiled)}
-  <h2>Execution progress</h2>
-  <div class="grid">{cards}</div>
-  <h2>Phases</h2>
-  <div class="phases">{phase_cards}</div>
-  <h2>Product hierarchy</h2>
-  <div class="hierarchy">{hierarchy}</div>
-""")
-    execution_panel = panel("execution", f"""
-  <h2>In flight</h2>
-  <div class="tablewrap"><table>{table_head}<tbody>{task_rows(exec_in_flight)}</tbody></table></div>
-  <h2>Ready</h2>
-  <div class="tablewrap"><table>{table_head}<tbody>{task_rows(ready_execution)}</tbody></table></div>
-  <h2>Obstacles</h2>
-  {obstacles}
-  <h2>Owner guidance</h2>
-  {review.guidance(compiled, ref)}
-  {failures_section}
-  <h2>Critical path</h2>
-  {critical}
-""")
     graph = panel("graph", f"""
   <h2>Views</h2>
   <div class="tabs">{diagram_tabs}</div>
@@ -2326,8 +2302,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     </div>
   </div>
   <p class="note" id="offline-note" hidden>
-    Mermaid could not be loaded, so diagram source is shown instead. The page and
-    every number on it work offline.
+    Diagram sources are available offline. The complete dependency graph above
+    is drawn directly from the recorded dependencies, with no network resources.
   </p>
   <p class="note">Dashed nodes in the task graph are project operations; everything else is execution.</p>
   <h2>Schedule</h2>
@@ -2342,7 +2318,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   never counts as project progress, and it stays reviewable because it can explain why execution
   is blocked, failing, or wrong.</p>
   <h2>Summary</h2>
-  <div class="grid">{summary}</div>
+  <p class="note">{len(all_events)} recorded events · {len(open_ops)} open operations tasks.</p>
   {no_trace}
   <h2>Active operations</h2>
   {active_ops}
@@ -2356,7 +2332,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     <div class="chips" id="timeline-chips" role="group" aria-label="Filter timeline">{timeline_chips}</div>
     <span class="shown" id="timeline-shown" aria-live="polite">{len(all_events)} events</span>
   </div>
-  <div class="box" id="timeline">{event_list(all_events, "No events recorded.")}</div>
+  <div class="box" id="timeline">{event_list(all_events, "No events recorded.", True)}</div>
 """)
     governance = panel("governance", f"""
   <h2>Gates</h2>
@@ -2377,34 +2353,6 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   </div>
   <div class="box" id="decision-list">{decision_items or '<p class="note">No decisions recorded.</p>'}</div>
 """)
-    assumptions_panel = panel("assumptions", assumptions_body)
-    needs = (
-        f'<aside class="needs" id="needs-you" aria-labelledby="needs-title" data-waiting="{waiting}">'
-        '<div class="needs-head"><h2 id="needs-title">Needs you</h2>'
-        f'<span class="needcount{"" if waiting else " zero"}">{waiting}</span>'
-        '<span class="live">Answering live</span></div>'
-        '<p class="note">Everything waiting on a person, whichever tab is open.</p>'
-        '<p class="xf-needs" id="needs-filtered" hidden><span></span> '
-        '<button type="button" class="linkbtn" data-xf-clear>Show all</button></p>'
-        + (review.review_bar(True, reviewer) + '<p class="note">Each card starts at OK. A card you open or mark '
-           "reviewed is recorded as confirmed when you submit; a card you never open records nothing. "
-           "Feedback is recorded verbatim under your GitHub login.</p>" if interactive and waiting else "")
-        + ('<p class="respond-hint">This page is read-only. To answer, run '
-           "<code>praukron dashboard --serve</code> and open the link it prints.</p>"
-           if waiting and not interactive else "")
-        + (f"<h3>Assumptions to review</h3>{queue}" if queue else "")
-        + (
-            "<h3>Waiting on the owner</h3>"
-            '<p class="note">Only a named person can finish the work these wait on.</p>'
-            f'<ul class="plain owner-list xf-list">{"".join(obstacle_item(o, True) for o in owner_held)}</ul>'
-            if owner_held else ""
-        )
-        + (f"<h3>Owner tasks to verify</h3>{verify_list}" if verify_list else "")
-        + ("" if waiting else '<p class="note">Nothing waits for you.</p>')
-        + (f'<p class="note">{awaiting_agent} answered, waiting for the agent: '
-           '<a href="#assumptions">Assumptions</a>.</p>' if awaiting_agent else "")
-        + "</aside>"
-    )
     registry = panel("tasks", f"""
   <h2>All tasks</h2>
   <div class="controls">
@@ -2419,6 +2367,136 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   <tbody>{task_rows([t.id for t in project.tasks], registry=True)}</tbody></table></div>
 """)
 
+    # Mission Control reuses the existing inspection views and response forms.
+    mission = compiled["mission"]
+    active_roots = [r for r in mission["roots"] if r["current"]]
+    first_root = active_roots[0] if active_roots else None
+    next_decision = next(iter(mission["review"]["now"]), None)
+    next_assumption = next(iter(mission["review"]["assumptions"]), None)
+    main_blocker = (
+        f'<a href="#root-{esc(first_root["id"])}">{esc(first_root["id"])} — {esc(first_root["title"])}</a>'
+        f'<span class="note"> · {first_root["count"]} downstream tasks</span>'
+        if first_root else 'No active root blocker recorded'
+    )
+    if not first_root and gate:
+        pending_gates = [g["id"] for g in gate["gates"] if g["status"] != "GREEN"]
+        if pending_gates:
+            main_blocker = (f'<a href="#governance">{esc(", ".join(pending_gates))}</a>'
+                            ' · phase exit awaits gate evidence')
+    next_action = '<p>No direct human decision is actionable now. Continue ready work or inspect upcoming decisions.</p><a class="primary-link" href="#review">Open Review →</a>'
+    if next_decision:
+        tid = next_decision["id"]
+        next_action = (f'<h3>{esc(tasks[tid]["title"])}</h3><p>Owner authority is required for {ref(tid)}.</p>'
+                       f'<p>{len(next_decision["affected"])} downstream tasks depend on it. Other dependencies may still apply.</p>'
+                       f'<a class="primary-link" href="#review-{esc(tid)}">Review decision and affected work →</a>')
+    elif next_assumption:
+        a = next(a for a in compiled["assumptions"] if a["id"] == next_assumption["id"])
+        next_action = (f'<h3>Validate: {esc(a["title"])}</h3><p>Provisional assumption affecting '
+                       f'{len(next_assumption["affected"])} unfinished tasks. A response requires agent reconciliation; it does not itself unblock work.</p>'
+                       f'<a class="primary-link" href="#assumption-{esc(a["id"])}">Inspect assumption and respond →</a>')
+    wip_list = ''.join(f'<li>{ref(t)}<br><span class="note">Responsible: {esc(tasks[t]["owner"] or "unassigned")} · Runtime: unknown</span></li>'
+                       for t in compiled["wip"])
+    milestones = [m for m in compiled["milestones"] if not m["reached"]][:2]
+    milestone_body = ''.join(f'<li>{esc(m["text"])} {ref(m["task"]) if m["task"] else ""}</li>' for m in milestones)
+    freshness = compiled["project"].get("compiledAt")
+    home = panel("home", f'''
+      <div class="pulse"><div><h2>{esc(current["name"]) if current else "Project pulse"}</h2>
+      <p>{esc(current["outcome"]) if current else "No phase is active."}</p>
+      <p><strong>Most consequential blocker</strong><br>{main_blocker}</p></div>
+      <dl class="pulse-facts"><dt>Execution completion</dt><dd>{metrics["taskCompletion"]["done"]} / {metrics["taskCompletion"]["total"]} tasks</dd>
+      <dt>Validation strength</dt><dd>{metrics["validationCoverage"]["done"]} / {metrics["validationCoverage"]["total"]} reviewed or verified</dd>
+      <dt>Operations activity</dt><dd>{om["tasks"]["active"]} active · {om["events"]["total"]} recorded events</dd>
+      <dt>Compiled</dt><dd>{esc(freshness) if freshness else "Timestamp not recorded in metadata"}</dd></dl></div>
+      <section class="next-action"><h2>Next human action</h2>{next_action}</section>
+      <div class="pulse-bottom"><section><h2>Work in progress</h2><ul class="work-list">{wip_list}</ul>
+      {"" if wip_list else '<p class="note">No work in progress. No active agent sessions are recorded.</p>'}</section>
+      <section><h2>Next milestones</h2><ul class="work-list">{milestone_body}</ul>
+      {"" if milestone_body else '<p class="note">No upcoming milestone recorded.</p>'}
+      <h3>Next phase gate</h3>{gate_card}</section></div>
+      <p class="note">{len(active_roots)} active root blockers · {len(mission["affected"])} distinct downstream tasks ·
+      {len(mission["future"])} future owner obligations. <a href="#work">Inspect work and dependencies →</a></p>
+    ''')
+
+    def root_item(root: dict) -> str:
+        links = ', '.join(ref(t) for t in root["affected"]) or 'No unfinished downstream tasks.'
+        return (f'<li id="root-{esc(root["id"])}"><strong>{esc(root["title"])}</strong> '
+                f'<code>{esc(root["id"])}</code> · {root["count"]} downstream<br>'
+                f'<span class="note">{"Direct human action" if root["kind"] == "human" else "Direct technical blocker"}'
+                f' · {esc(root["actor"])} · {"current" if root["current"] else "future obligation"}</span>'
+                f'<p>{esc(root["reason"])}</p><details><summary>Cause, evidence and affected tasks</summary>'
+                f'<p>Cause: {ref(root["id"])}</p><p>{source_link(root["source"]) if root["source"] else "Source record missing"}</p>'
+                f'<p>Transitive impact: {links}</p><p class="note">Resolving this cause removes this dependency; other roots may still block these tasks.</p></details></li>')
+
+    roots_body = '<ul class="root-list">' + ''.join(root_item(r) for r in mission["roots"]) + '</ul>'
+    if not mission["roots"]:
+        roots_body = '<p class="note">No root blockers recorded. Waiting for ordinary dependencies is not a failure.</p>'
+    work_states = ''.join(
+        f'<details class="work-state"{" open" if state != "Completed" else ""}><summary>{state} · <span data-state-count>{len(ids)}</span></summary>'
+        + ('<ul class="plain">' + ''.join(f'<li data-work-task="{esc(t)}">{ref(t)}'
+            + (f'<span class="note"> · Responsible: {esc(tasks[t]["owner"] or "unassigned")} · Runtime: unknown</span>' if tasks[t]["status"] == "WIP" else '')
+            + '</li>' for t in ids) + '</ul>' if ids else '')
+        + f'<p class="note scope-empty"{" hidden" if ids else ""}>No tasks in this state for the selected scope.</p></details>'
+        for state, ids in mission["states"].items())
+    dependency_list = '<ul class="plain">' + ''.join(
+        f'<li>{ref(t)} ← ' + (', '.join(ref(d) for d in task["deps"]) or 'No dependencies') + '</li>'
+        for t, task in tasks.items()) + '</ul>'
+    work = panel("work", '<h2>Execution</h2><p class="note">Current phase, work in progress and their prerequisites. '
+                 'The full registry and graph below always include every task.</p>'
+                 '<div class="work-scope"><button data-work-scope="current" aria-pressed="true">Current work</button>'
+                 '<button data-work-scope="all" aria-pressed="false">All work</button></div>'
+                 + ('<p class="note">Nothing ready. Inspect dependency waits and upcoming decisions; this does not mean everything failed.</p>' if not mission["states"]["Ready"] else '')
+                 + work_states + '<h2>Root blockers</h2>' + roots_body
+                 + '<details class="group"><summary>Critical path</summary>' + critical + '</details>'
+                 + '<details class="group"><summary>Phases and product hierarchy</summary><h2>Phases</h2><div class="phases">'
+                 + phase_cards + '</div><h2>Product hierarchy</h2>' + hierarchy + '</details>'
+                 + registry + '<details class="group"><summary>Complete dependency graph</summary>'
+                 + dependency_svg(tasks) + dependency_list + '</details>' + graph
+                 + '<details class="group"><summary>Execution breakdown and progress</summary>'
+                 + _breakdown(compiled) + f'<h2>Execution progress</h2><div class="grid">{cards}</div>' + work_ahead + '</details>')
+    review_body, _, review_count, _ = review.panel_body(compiled, ref, interactive, mission=True)
+    review_workspace = panel("review", f'<div id="needs-you" data-waiting="{review_count}">'
+        f'<div class="needs-head"><h2>Human decision inbox</h2><span class="needcount{"" if review_count else " zero"}">{review_count}</span>'
+        '<span class="live">Answering live</span></div>'
+        + review.review_bar(interactive, reviewer)
+        + ('<p class="note">Each card starts at OK. A card you open or mark reviewed is confirmed when you submit. Unopened cards record nothing.</p>' if interactive else
+           '<p class="respond-hint">This page is read-only. To answer, run <code>praukron dashboard --serve</code>.</p>')
+        + '<p id="needs-filtered" hidden><span></span><button data-xf-clear>Show all</button></p>'
+        + ('<p class="note">Nothing waits for you.</p>' if not review_count else '')
+        + review_body + '</div>')
+    records = ''
+    for tid, task in tasks.items():
+        contract = compiled["acceptance"].get(task["ac"], {})
+        records += (f'<details class="group" id="task-record-{esc(tid)}"><summary><code>{esc(tid)}</code> {esc(task["title"])}</summary>'
+                    f'<p>{_pill(task["status"])} {_pill(task["validation"])} · {esc(task["domain"])} · Authority: {esc(task["authority"] or "agent")}</p>'
+                    f'<p>Evidence: {esc(task["evidence"] or "none recorded")}</p>'
+                    + '<p>Dependencies: ' + (', '.join(ref(d) for d in task["deps"]) or 'none') + '</p>'
+                    + '<p>Acceptance: ' + (', '.join(f'<a href="#criterion-{esc(c["id"])}">{esc(c["id"])}</a>' for c in contract.get("criteria", [])) or 'none') + '</p>'
+                    + '<p>Decisions: ' + (', '.join(f'<a href="#decision-{esc(d)}">{esc(d)}</a>' for d in task["decisions"]) or 'none') + '</p>'
+                    + source_link(task["source"]) + '</details>')
+    acceptance_records = ''.join(
+        f'<article id="criterion-{esc(c["id"])}"><h3>{esc(c["id"])}</h3><p>{esc(c["text"])}</p>'
+        f'<p>{_pill(c["state"])} · {esc(c["evidenceClass"])} · {esc(c.get("evidence") or "No evidence recorded")}</p>'
+        + source_link(c.get("source", contract["source"])) + '</article>'
+        for contract in [*compiled["acceptance"].values(), *compiled["invariants"]] for c in contract["criteria"])
+    response_records = ''.join(f'<article id="response-{esc(r["id"])}"><h3>{esc(r["id"])} · {esc(r["action"])}</h3>'
+                               f'<p class="record-body">{esc(r["text"])}</p><p>{esc(r["by"])} · {esc(r["date"])} · {esc(r["target"])}</p>'
+                               + source_link(r["source"]) + '</article>' for r in compiled["responses"])
+    history = ''.join(f'<details class="group" id="journal-{esc(j["id"])}"><summary>{esc(j["title"])}</summary>'
+                     f'<p class="record-body">{esc(j["text"])}</p>{source_link(j["source"])}</details>' for j in compiled["journal"])
+    audit = panel("audit", '<h2>Evidence and governance</h2><p class="note">Recorded evidence, decisions and history. No events are inferred.</p>'
+                  + governance + decisions
+                  + '<details class="group"><summary>Acceptance criteria and evidence</summary>'
+                  + (acceptance_records or '<p>No acceptance criteria recorded.</p>') + '</details>'
+                  + '<details class="group"><summary>Task records and implementation evidence</summary>' + records + '</details>'
+                  + operations_panel
+                  + '<details class="group" id="panel-execution"><summary>Execution diagnostics</summary>'
+                  + failures_section + '<h2>Obstacles</h2><ul class="plain xf-list">'
+                  + ''.join(obstacle_item(o) for o in compiled["obstacles"]) + '</ul>'
+                  + '<h2>Owner guidance</h2>' + review.guidance(compiled, ref) + external_overview + '</details>'
+                  + '<details class="group"><summary>Responses and reconciliation history</summary>'
+                  + (response_records or '<p>No responses recorded.</p>') + '</details>'
+                  + '<details class="group"><summary>Journal history</summary>' + (history or '<p>No journal entries recorded.</p>') + '</details>')
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -2426,7 +2504,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(project.name)} — project state</title>
 <script>{_BOOT}</script>
-<style>{_STYLE}{review.STYLE}</style>
+<style>{_STYLE}{review.STYLE}{_MISSION_STYLE}</style>
 </head>
 <body>
 <main>
@@ -2439,6 +2517,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
         compiled from <code>{esc(compiled["project"]["authority"])}/</code>
       </p>
     </div>
+    <button type="button" class="search-control" id="search-open" aria-haspopup="dialog" aria-controls="global-search">Search everything <kbd>Ctrl K</kbd></button>
     <div class="theme" role="group" aria-label="Theme">
       <button type="button" data-theme-choice="system" aria-pressed="false">System</button>
       <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
@@ -2449,7 +2528,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   <div class="layout">
   <div class="content">
   <div class="stickyhead">
-  <nav class="toptabs" role="tablist" aria-label="Report sections">{tab_buttons}</nav>
+<nav class="toptabs" role="tablist" aria-label="Workspaces">{tab_buttons}</nav>
   <div class="xfbar" id="xf-bar" role="region" aria-label="Active filters" hidden>
     <span class="xf-label">Filtered by</span><ul class="xf-chips" id="xf-chips"></ul>
     <button type="button" class="linkbtn" data-xf-clear>Clear all</button>
@@ -2457,16 +2536,11 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   </div>
   </div>
   <p class="sr" id="xf-status" aria-live="polite"></p>
-{overview}
-{assumptions_panel}
-{execution_panel}
-{graph}
-{operations_panel}
-{governance}
-{decisions}
-{registry}
+{home}
+{work}
+{review_workspace}
+{audit}
   </div>
-  {needs}
   </div>
   <footer>
     Generated by <code>praukron dashboard</code>. This page is derived and read-only:
@@ -2475,13 +2549,17 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   </footer>
 </main>
 
-<dialog id="detail"><button class="close" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg></button><div class="body"></div></dialog>
+<dialog id="detail" aria-label="Task details"><button class="close" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg></button><div class="body"></div></dialog>
+<dialog id="global-search" aria-labelledby="search-title">
+  <div class="search-head"><h2 id="search-title">Search everything</h2><button id="search-close" type="button">Close</button></div>
+  <label class="sr" for="global-query">Search records</label><input id="global-query" type="search" autocomplete="off" placeholder="Task, decision, assumption, or recorded words…">
+  <p id="search-status" role="status" aria-live="polite">Search by ID, title or recorded words.</p><ul id="search-results"></ul>
+</dialog>
 
 <script type="application/json" id="project-data">{embed(compiled)}</script>
 <script type="application/json" id="diagram-data">{embed(diagrams)}</script>
 <script type="application/json" id="node-map">{embed(node_map)}</script>
-<script src="{MERMAID_CDN}" onerror="window.mermaidFailed=true"></script>
-<script>{FILTER_JS}{_SCRIPT}{review.script(interactive)}</script>
+<script>{FILTER_JS}{_SCRIPT}{SEARCH_JS}{_MISSION_SCRIPT}{review.script(interactive)}</script>
 </body>
 </html>
 """

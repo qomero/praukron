@@ -575,17 +575,14 @@ praukron compile && praukron graph && praukron dashboard
 
 `praukron dashboard --open` opens it in a browser.
 
-The page has seven tabs. **Overview** opens first: the current phase, what is
-in flight, the main blocker, and the next gate, then execution progress and
-phases. **Execution** holds in-flight and ready work, obstacles grouped by type,
-execution failures with the operational evidence behind them, and the critical
-path. **Graph** has the six diagrams and the schedule; dashed nodes are
-operations. **Operations** is the review surface for support work: open
-operations tasks and their traces, failures and warnings, tool calls,
-mini-actions, changes, retries, and a timeline. **Governance** has gates and
-validation strength. **Decisions** lists every ADR, searchable.
-**All Tasks** is the full registry with search and filters. The URL hash names
-the tab (`#execution`), so a reload or a shared link opens the same view. The
+The page has four workspaces. **Home** opens with the phase, root blocker and next
+human action. **Work** keeps the full task registry, phases, dependency graph,
+critical path and filters. **Review** separates current owner decisions from
+future obligations, assumptions and answered items. **Audit** preserves acceptance
+evidence, governance, operations, ADRs and history. Search everything (Ctrl/Cmd+K
+or `/`) finds records across all four. See [Dashboard Mission Control](dashboard-ux.md)
+for classification rules and the reproducible usability evaluation.
+The URL hash names the workspace (`#work`), so a shared link opens the same view. The
 Light / Dark control remembers your choice in the browser; until you choose,
 the page follows your system setting. None of this is project state: the page
 still writes nothing.
@@ -606,7 +603,7 @@ maintains the environment the project is built in. Declare it on the task:
 A task names its module; the module in `MODULES.md` names its phase, here
 `P-NONE`. The project reads thesis → phase → module → task.
 
-Progress, phases, gates, the critical path, and the Overview describe execution
+Progress, phases, gates, the critical path, and Home's completion describe execution
 only. An operations task that an execution task depends on shows up as that
 task's external blocker, labelled as operations, with a link to its trace.
 

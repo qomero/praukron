@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import html
 import re
+from urllib.parse import quote
 
 STYLE = """
 /* Assumptions review: an inbox, not a table. */
@@ -52,7 +53,7 @@ ul.owner-list > li.is-offpage::after { content: "Needs work outside this page"; 
 
 SCRIPT = """
 // Assumptions: filter the review queue by values the compiler wrote.
-const acards = [...document.querySelectorAll('#panel-assumptions details.acard')];
+const acards = [...document.querySelectorAll('#panel-review details.acard, #panel-assumptions details.acard')];
 const aSearch = document.getElementById('assume-search');
 const aSelects = ['assume-phase', 'assume-impact', 'assume-status', 'assume-kind']
   .map(id => document.getElementById(id)).filter(Boolean);
@@ -268,7 +269,7 @@ def guidance(compiled: dict, ref) -> str:
     ) + "</div>"
 
 
-def panel_body(compiled: dict, ref, interactive: bool = False) -> tuple[str, str, int, int]:
+def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = False) -> tuple[str, str, int, int]:
     """The Assumptions tab, and the queue the side panel shows instead of it.
 
     Returns the tab body, the queue markup, how many cards the queue holds, and
@@ -276,7 +277,7 @@ def panel_body(compiled: dict, ref, interactive: bool = False) -> tuple[str, str
     only in the side panel, never also in the tab (ADR-065)."""
     assumptions = compiled["assumptions"]
     report = compiled["assumptionReport"]
-    if not assumptions:
+    if not assumptions and not mission:
         return ('<h2>Assumptions</h2><p class="note">No assumptions recorded. Agents record a '
                 "provisional choice in <code>ASSUMPTIONS.md</code> before relying on it.</p>", "", 0, 0)
     tasks = {t["id"]: t for t in compiled["tasks"]}
@@ -321,6 +322,7 @@ def panel_body(compiled: dict, ref, interactive: bool = False) -> tuple[str, str
             f'<summary><code>{esc(a["id"])}</code> {esc(a["title"])} {_pill(a["impact"])} {_pill(a["status"])}'
             + (' <span class="pill permission">Permission</span>' if a["permissions"] else "")
             + (' <span class="pill">awaiting the agent</span>' if a["id"] in waiting else "")
+            + (f' <span class="note">{len(next((r["affected"] for r in compiled["mission"]["review"]["assumptions"] if r["id"] == a["id"]), []))} affected tasks</span>' if mission else "")
             + '</summary><div class="abody">'
             + f'<p><strong>Assumed:</strong> {esc(a["assumption"])}</p>'
             + (f'<p class="perm"><strong>The agent assumed an access rule:</strong> {esc(a["permissions"])}</p>'
@@ -336,6 +338,8 @@ def panel_body(compiled: dict, ref, interactive: bool = False) -> tuple[str, str
             + f'<p class="note"><strong>If revised:</strong> the agent reconciles '
             + ", ".join([*(ref(t) for t in a["tasks"]), *map(esc, criteria), *map(esc, decisions)])
             + " and names what changed in <code>Reconciled by</code>.</p>"
+            + f'<p><a href="../chronicle/{quote(a["source"]["file"])}#{quote(a["source"]["anchor"])}">'
+              f'{esc(a["source"]["file"])}#{esc(a["source"]["anchor"])}</a></p>'
             + f"<div><strong>Responses</strong>{said}</div>{action}</div></details>"
         )
 
@@ -356,6 +360,52 @@ def panel_body(compiled: dict, ref, interactive: bool = False) -> tuple[str, str
     def rank(a: dict) -> tuple:
         on_done_or_path = bool(done_tasks(a)) or bool(path & set(a["tasks"]))
         return (a["impact"] != "HIGH", not on_done_or_path, current not in a["phases"], a["id"])
+
+    if mission:
+        by_id = {a["id"]: a for a in assumptions}
+
+        def task_card(item: dict, group: str) -> str:
+            tid = item["id"]
+            task = tasks[tid]
+            subset = {**compiled, "assumptionReport": {**report, "ownerHeld": [tid]}}
+            verification_body, _ = verification(subset, ref, interactive and group == "now")
+            body = (verification_body + guide(tid, interactive) if group == "now" else
+                    verification_body if group == "answered" else
+                    '<p class="note">Future obligation. Finish dependencies and reach the relevant phase first.</p>')
+            body += '<p>Dependencies: ' + (", ".join(ref(t) for t in task["deps"]) or "none") + '</p>'
+            body += '<p>Affected work: ' + (", ".join(ref(t) for t in item["affected"]) or "none") + '</p>'
+            body += f'<p>Evidence: {esc(task["evidence"] or "none recorded")}</p>'
+            body += '<p>Review acceptance and decisions: ' + ref(tid) + '</p>'
+            body += ''.join(f'<p class="resp">{esc(r["text"])} · {esc(r["id"])}</p>'
+                            for r in compiled["responses"] if r["target"] == tid)
+            return (f'<details class="review-item" id="review-{esc(tid)}"><summary>'
+                    f'<strong>{esc(task["title"])}</strong> <code>{esc(tid)}</code>'
+                    f'<span class="note">Owner authority · {len(item["affected"])} downstream</span>'
+                    f'</summary><div class="review-body">{body}</div></details>')
+
+        sections = []
+        for key, label in (("now", "Actionable now"), ("upcoming", "Upcoming decisions"),
+                           ("assumptions", "Assumptions requiring validation"), ("answered", "Previously answered")):
+            items = compiled["mission"]["review"][key]
+            body = ''.join(card(by_id[i["id"]]) if i["kind"] == "assumption" else task_card(i, key) for i in items)
+            body = body or '<p class="note">No items in this group.</p>'
+            if key in ("upcoming", "answered"):
+                sections.append(f'<details class="group"><summary>{label} <span class="count">{len(items)}</span></summary>{body}</details>')
+            else:
+                sections.append(f'<section aria-label="{label}"><h2>{label} <span class="count">{len(items)}</span></h2>{body}</section>')
+        filters = ('<div class="controls"><input type="search" id="assume-search" aria-label="Search assumptions" placeholder="Filter assumptions…">'
+                   + ''.join(f'<select id="assume-{key}" aria-label="{label}"><option value="">{label}: all</option>'
+                             + ''.join(f'<option value="{esc(v)}">{esc(v)}</option>' for v in values) + '</select>'
+                             for key, label, values in (
+                                 ("phase", "Phase", sorted({p for a in assumptions for p in a["phases"]})),
+                                 ("impact", "Impact", ["HIGH", "MEDIUM", "LOW"]),
+                                 ("status", "Status", ["OPEN", "CONFIRMED", "REVISED", "REJECTED", "WITHDRAWN"]),
+                                 ("kind", "Kind", ["permission"])))
+                   + f'<span id="assume-shown" aria-live="polite">{len(assumptions)} assumptions</span></div>')
+        return ('<p class="note">Owner decisions are separate from agent work. Assumptions are provisional, never approval. '
+                'Ordered by immediate impact, recorded permission sensitivity and downstream cost; no irreversibility is inferred.</p>'
+                + filters + ''.join(sections), "", len(compiled["mission"]["review"]["now"])
+                + len(compiled["mission"]["review"]["assumptions"]), len(waiting))
 
     opened = [a for a in assumptions if a["status"] == "OPEN" and a["id"] not in waiting]
     permission = sorted([a for a in opened if a["permissions"]], key=rank)

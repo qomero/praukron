@@ -523,6 +523,7 @@ class Project:
     decisions: list[Decision] = field(default_factory=list)
     intent: str = ""
     handoff: str = ""
+    journal: list[dict] = field(default_factory=list)
     events: list[TraceEvent] = field(default_factory=list)
     debts: list[TechDebt] = field(default_factory=list)
     assumptions: list[Assumption] = field(default_factory=list)
