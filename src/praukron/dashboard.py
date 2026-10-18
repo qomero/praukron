@@ -2712,4 +2712,4 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 </body>
 </html>
 """
-    return i18n.localize(page, selected_language, recorded_language)
+    return i18n.localize(page, selected_language, recorded_language, original_compiled['project']['name'])

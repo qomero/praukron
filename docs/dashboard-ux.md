@@ -11,7 +11,8 @@ values render English; `validate` warns about unsupported values.
 `praukron dashboard --lang en` overrides the field, including with `--serve`.
 
 The static HTML is localized on the server and works without JavaScript. The
-labelled header selector offers English and Tiếng Việt. A saved viewer choice
+labelled header selector offers English and Tiếng Việt. A viewer choice saved
+under this project's name in browser storage
 takes precedence, followed by the explicit CLI/project language. Only when
 neither is recorded does the browser language apply. Storage reads and writes
 are guarded; unavailable storage does not prevent using the selector.
@@ -31,13 +32,16 @@ Add one entry to `CATALOGUES` in `src/praukron/i18n.py`, containing its native
 `name`, `dateOrder` (`ymd` or `dmy`), and a complete `messages` dictionary with
 the same keys as English. No selector, CLI, validator or renderer changes are
 needed. The English messages are the lookup keys. Prefer complete messages;
-shared labels also cover dynamic state summaries. Keep `{name}` placeholders
-unchanged. Authored interpolations are protected before the HTML boundary;
-identifiers, links, form values, code and embedded project data are not translated.
+shared labels also cover dynamic state summaries. Count messages use complete
+phrases such as `{done} of {total} execution tasks done`; keep the placeholder
+names unchanged, but order them naturally for the language. Every compiled
+prose field is protected before the HTML boundary by default; only declared
+identifiers, enums, dates and compiler-generated explanations are exempt.
+Links, form values, code and embedded project data are not translated.
 
 Run `python -m unittest discover -s tests -p test_i18n.py`. The tests enforce
 catalogue parity and detect uncatalogued visible text and accessible names in
-the synthetic dashboard, as well as server/client translation parity, fallback,
+the synthetic dashboard and all client scripts, as well as server/client translation parity, fallback,
 CLI overrides, deterministic output and the response pathway in both languages.
 When adding UI, include its new states in the coverage fixture and check live
 search, task details and review feedback as well as static markup.

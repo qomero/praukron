@@ -2,6 +2,7 @@
 
 import copy
 import ast
+import html
 import io
 import json
 import re
@@ -15,7 +16,7 @@ from contextlib import redirect_stdout
 from unittest import mock
 
 from test_assumptions import AssumptionCase
-from praukron import analytics, cli, compile as compiler, dashboard, i18n, serve, validate
+from praukron import analytics, cli, compile as compiler, dashboard, i18n, review, serve, validate
 
 
 def island(page, name='i18n-data'):
@@ -31,6 +32,88 @@ def uncovered(source):
     source = re.sub(r'\b[A-Z]+(?:-[A-Z0-9]+)+\b|\bP\d+\b', '', source)
     source = re.sub(r'[\w./-]+\.md(?:#[\w-]+)?|Ctrl K', '', source)
     return source if re.search(r'[A-Za-z]{2,}', source) else ''
+
+
+def client_literals(script):
+    """Read JS strings, skipping comments/regex and template interpolations."""
+    literals = []
+
+    def string_at(start):
+        quote, pos, parts = script[start], start + 1, []
+        while pos < len(script):
+            char = script[pos]
+            if char == '\\':
+                parts.append(script[pos:pos + 2])
+                pos += 2
+                continue
+            if char == quote:
+                literals.append(''.join(parts))
+                return pos + 1
+            if quote == '`' and script[pos:pos + 2] == '${':
+                pos, depth = pos + 2, 1
+                while pos < len(script) and depth:
+                    if script[pos] in "'\"`":
+                        pos = string_at(pos)
+                        continue
+                    depth += (script[pos] == '{') - (script[pos] == '}')
+                    pos += 1
+                parts.append(' ')
+                continue
+            parts.append(char)
+            pos += 1
+        raise AssertionError('Unterminated JavaScript string')
+
+    pos = 0
+    while pos < len(script):
+        if script.startswith('//', pos):
+            end = script.find('\n', pos)
+            pos = len(script) if end < 0 else end + 1
+        elif script.startswith('/*', pos):
+            pos = script.index('*/', pos) + 2
+        elif script[pos] in "'\"`":
+            pos = string_at(pos)
+        elif script[pos] == '/' and script[:pos].rstrip()[-1:] in '(:,=[!&|?':
+            # Regex literals may themselves contain quotes or slash classes.
+            pos, in_class = pos + 1, False
+            while pos < len(script):
+                if script[pos] == '\\':
+                    pos += 2
+                    continue
+                if script[pos] == '/' and not in_class:
+                    pos += 1
+                    break
+                if script[pos] in '[]':
+                    in_class = script[pos] == '['
+                pos += 1
+        else:
+            pos += 1
+    return literals
+
+
+def client_uncovered(script):
+    missing = set()
+    tokens = {'ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Enter', 'End', 'Tab',
+              'Escape', 'DETAILS', 'FEEDBACK', 'POST', 'Content-Type', 'X-Praukron-Token'}
+    for literal in client_literals(script):
+        # Selectors, attribute fragments, identifiers, event names and paths
+        # are JS/HTML syntax rather than interface copy.
+        if re.search(r'\b[\w-]+=["\']', re.sub(r'<[^>]*>', '', literal)):
+            continue
+        parser = i18n.Localizer('en')
+        parser.feed(literal)
+        parser.flush()
+        for source in parser.sources + [v for attrs in parser.attributes for v in attrs.values()]:
+            source = source.strip()
+            if (source in tokens or source.startswith(('(prefers-', '/', '../', ':scope'))
+                    or re.fullmatch(r'[\w.-]+/[\w.-]+', source)
+                    or re.match(r'^(?:[.#\[]|[a-z]+(?:[.\[:]|\s*(?:>|,)))', source)
+                    or re.fullmatch(r'[a-z]+ [a-z]+\[[^]]+\]', source)):
+                continue
+            if re.fullmatch(r'[a-z][\w.-]*|[#.\[][\w\s.#\[\]="\':>~-]+|[\w/.-]+\.[\w]+', source):
+                continue
+            if uncovered(source):
+                missing.add(uncovered(source).strip())
+    return missing
 
 
 class DashboardLanguageCase(AssumptionCase):
@@ -67,12 +150,79 @@ class DashboardLanguageCase(AssumptionCase):
         for code, catalog in i18n.CATALOGUES.items():
             self.assertEqual(set(catalog['messages']), expected, code)
             self.assertTrue(all(catalog['messages'].values()))
+        self.assertEqual({key for key, value in i18n.CATALOGUES['vi']['messages'].items()
+                          if key == value}, set())
         for interactive in (False, True):
             data = island(self.page(interactive=interactive))
             sources = data['texts'] + [v for attrs in data['attributes'] for v in attrs.values()]
             missing = {uncovered(s).strip() for s in sources if uncovered(s)}
             self.assertEqual(missing, set())
         self.assertTrue(uncovered('A newly introduced untranslated interface sentence'))
+
+    def test_client_interface_literals_are_catalogued_and_mutations_fail(self):
+        scripts = [dashboard.FILTER_JS, dashboard._SCRIPT, dashboard.SEARCH_JS,
+                   dashboard._MISSION_SCRIPT, review.script(True), review.script(False)]
+        for script in scripts:
+            self.assertEqual(client_uncovered(script), set())
+        for script, original, mutation in [
+            (dashboard._SCRIPT, 'No criteria recorded.', 'Nothing has been written for this contract yet.'),
+            (dashboard._MISSION_SCRIPT, 'Search by ID, title or recorded words.', 'Type something to look it up.'),
+        ]:
+            self.assertIn(original, script)
+            with self.assertRaises(AssertionError):
+                self.assertEqual(client_uncovered(script.replace(original, mutation)), set())
+
+    def test_attribute_translation_respects_left_boundary(self):
+        page = i18n.localize('<a data-title="Home" title="Home">Home</a>', 'vi')
+        self.assertIn('data-title="Home" title="Trang chủ">Trang chủ</a>', page)
+
+    def test_counts_are_whole_phrases_and_vietnamese_states_are_clear(self):
+        self.assertEqual(i18n.translate('40 of 42 execution tasks done', 'vi'), '40/42 công việc đã xong')
+        self.assertEqual(i18n.translate('6 of 39 tasks match', 'vi'), '6/39 công việc khớp bộ lọc')
+        self.assertEqual(i18n.translate('1 of 1 task matches', 'vi'), '1/1 công việc khớp bộ lọc')
+        self.assertEqual(i18n.translate('HUMAN_VERIFIED', 'vi'), 'Chủ dự án đã xác minh')
+        self.assertNotIn('hợp đồng', ' '.join(i18n.CATALOGUES['vi']['messages'].values()))
+
+    def test_every_compiled_prose_field_is_protected_by_default(self):
+        compiled = compiler.as_json(compiler.load(self.dir))
+        words = 'Home Work Review done of all tasks 2026-10-18'
+        # Include optional fields that this fixture does not populate yet.
+        compiled['debt'].append(dict.fromkeys(('reason', 'interest', 'resolution', 'evidence'), words))
+        compiled['decisions'][0]['supersedes'] = words
+        compiled['execution']['mainBlocker']['title'] = words
+        compiled['execution']['mainBlocker']['blockingTitle'] = words
+        compiled['thesis']['futureProseField'] = words
+        prose = []
+
+        def fill(value, path=()):
+            if isinstance(value, dict):
+                return {key: fill(child, path + (key,)) for key, child in value.items()}
+            if isinstance(value, list):
+                return [fill(child, path + (i,)) for i, child in enumerate(value)]
+            if isinstance(value, str):
+                keys = tuple(key for key in path if isinstance(key, str))
+                key = keys[-1]
+                if (key in i18n.TECHNICAL_FIELDS or keys[:2] == ('mission', 'states')
+                        or key == 'recorded'
+                        or keys[0] == 'validationFindings' and key == 'message'
+                        or keys[0] == 'assumptionReport' and key == 'assumption'
+                        or key in {'detail', 'unblock'} or keys == ('execution', 'mainBlocker', 'reason')
+                        or keys[:2] == ('mission', 'review') and value.startswith('Owner action: ')):
+                    return value
+                prose.append(path)
+                return words
+            return value
+
+        filled = fill(compiled)
+        protected = i18n.protect(filled)
+        self.assertGreater(len(prose), 40)
+        for path in prose:
+            value = protected
+            for key in path:
+                value = value[key]
+            with self.subTest(path=path):
+                self.assertEqual(i18n.localize('<p>' + html.escape(value) + '</p>', 'vi'), '<p>' + words + '</p>')
+        self.assertEqual(filled['thesis']['futureProseField'], words)
 
     def test_static_interface_literals_and_empty_states_are_catalogued(self):
         source_dir = Path(dashboard.__file__).parent
@@ -132,7 +282,15 @@ class DashboardLanguageCase(AssumptionCase):
         self.assertIn('<option value="vi" selected>Tiếng Việt</option>', first)
         self.assertNotIn('fetch(', first)
         self.assertIn("try { savedLanguage = localStorage.getItem", first)
-        self.assertIn("try { localStorage.setItem('praukron-language'", first)
+        self.assertIn("try { localStorage.setItem(I18N.storageKey", first)
+
+    def test_remembered_language_is_scoped_to_project(self):
+        first = island(i18n.localize('<!--i18n-runtime-->', 'vi', 'vi', 'First project'))
+        second = island(i18n.localize('<!--i18n-runtime-->', 'vi', 'vi', 'Second project'))
+        self.assertNotEqual(first['storageKey'], second['storageKey'])
+        storage = {first['storageKey']: 'en'}
+        self.assertIsNone(storage.get(second['storageKey']))
+        self.assertIn('localStorage.getItem(I18N.storageKey)', i18n.SCRIPT)
 
     @unittest.skipUnless(shutil.which('node'), 'node needed for client rule parity')
     def test_client_choice_and_translation_match_server_including_placeholders(self):
@@ -140,6 +298,7 @@ class DashboardLanguageCase(AssumptionCase):
         translate = script[script.index('const protectedText'):script.index('function uiNodes')]
         choose = script[script.index('function chooseLanguage'):script.index('let savedLanguage')]
         values = ['Home', '1 task matches', '2 tasks match', '2026-10-18',
+                  '40 of 42 execution tasks done', '6 of 39 tasks match', '1 of 1 task matches',
                   '{fail} fail · {notrun} not run', i18n.verbatim('Home') + ' · Work']
         code = 'const I18N = ' + json.dumps({'catalogues': i18n.CATALOGUES}) + ';\nlet activeLanguage="vi";\n'
         code += translate + choose

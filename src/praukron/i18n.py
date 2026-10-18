@@ -7,7 +7,6 @@ text and accessible names, never identifiers, links, form values or records.
 from __future__ import annotations
 
 import html
-import copy
 import json
 import re
 from functools import lru_cache
@@ -24,52 +23,64 @@ def unmark(value: str) -> str:
     return value.replace(START, '').replace(END, '')
 
 
+# These fields carry machine identifiers, enums or dates, never authored prose.
+# New compiled fields are protected by default, including nested projections.
+TECHNICAL_FIELDS = frozenset('''
+id currentPhase language generator generatorVersion authority file anchor
+status state class evidenceClass validation domain domainSource phase module ac
+exitAuthority exitAuthorityStatus task tasks phases modules deps blocks inherits
+decisions assumptions references responses reconciledBy appliesTo verifiedBy affects
+origin type kind subject blockers actor variant impact action notify decision
+response target retryOf code severity destination source documents
+date start finish claimed estimate criticalPath unscheduled inFlight ready blocked wip
+unfinishedExecution unmetCriteria blocking affected relevant active ownerAction
+open openHigh openPermission openOnCurrentWork openOnExits ownerHeld
+awaitingReconciliation validationCounts reserved
+'''.split())
+
+
 def protect(data):
-    """Copy the compiled display model, marking only authored prose."""
-    result = copy.deepcopy(data)
+    """Copy the display model; all prose is opaque unless explicitly generated."""
+    def walk(value, path=()):
+        if isinstance(value, dict):
+            return {key: walk(child, path + (key,)) for key, child in value.items()}
+        if isinstance(value, list):
+            return [walk(child, path) for child in value]
+        if not isinstance(value, str) or not value:
+            return value
+        key = path[-1] if path else ''
+        if key in TECHNICAL_FIELDS or path[:2] == ('mission', 'states'):
+            return value
+        # These projections contain compiler-authored interface explanations.
+        if (key in {'detail', 'unblock'} and path[0] in {'obstacles', 'execution'}
+                or path == ('execution', 'mainBlocker', 'reason')
+                or path[0] == 'validationFindings' and key == 'message'
+                or path[0] == 'assumptionReport' and key == 'assumption'):
+            return value
+        if key == 'recorded':
+            match = re.fullmatch(r'(\d{4}-\d{2}-\d{2})(.*)', value, re.S)
+            if match:
+                return match[1] + (verbatim(match[2]) if match[2] else '')
+        return verbatim(value)
 
-    def mark(record, *fields):
-        for key in fields:
-            if isinstance(record.get(key), str) and record[key]:
-                record[key] = verbatim(record[key])
-
-    mark(result['project'], 'name')
-    mark(result['thesis'], 'statement')
-    for collection, fields in {
-        'tasks': ('title', 'evidence', 'owner'),
-        'phases': ('name', 'outcome'), 'modules': ('name', 'outcome'),
-        'gates': ('name', 'description'),
-        'assumptions': ('title', 'assumption', 'basis', 'permissions', 'appliedIn'),
-        'responses': ('text', 'by', 'via'), 'decisions': ('title', 'evidence'),
-        'journal': ('title', 'text'), 'milestones': ('text',),
-        'debt': ('title', 'debt', 'trigger', 'exitCondition'),
-    }.items():
-        for record in result.get(collection, []):
-            mark(record, *fields)
-    for contract in [*result['acceptance'].values(), *result['invariants']]:
-        mark(contract, 'title', 'evidence')
-        for criterion in contract['criteria']:
-            mark(criterion, 'text', 'evidence')
-    for event in result['operations']['events']:
-        mark(event, 'title', 'error', 'evidence', 'tool', 'target', 'agent', 'artifact')
-    for assumption in result['assumptions']:
-        recorded = assumption.get('recorded') or ''
-        match = re.fullmatch(r'(\d{4}-\d{2}-\d{2})(.*)', recorded, re.S)
-        if match and match[2]:
-            assumption['recorded'] = match[1] + verbatim(match[2])
-    for root in result['mission']['roots']:
-        mark(root, 'title')
-    for group in result['mission']['review'].values():
-        for item in group:
-            if item['kind'] != 'validation':
-                mark(item, 'title')
-            elif item['title'].startswith('Owner action: '):
-                item['title'] = 'Owner action: ' + verbatim(item['title'][14:])
+    result = walk(data)
+    for group, originals in zip(result['mission']['review'].values(), data['mission']['review'].values()):
+        for item, original in zip(group, originals):
+            if original['kind'] == 'validation':
+                title = original['title']
+                item['title'] = ('Owner action: ' + verbatim(title[14:])
+                                 if title.startswith('Owner action: ') else title)
     return result
 
 
 # One entry per language: native name, date order, and the complete messages.
 _VI = {
+    'Verified.': 'Đã xác minh.',
+    '{done} of {total} execution tasks done': '{done}/{total} công việc đã xong',
+    '{matching} of {total} tasks match': '{matching}/{total} công việc khớp bộ lọc',
+    '{matching} of {total} task matches': '{matching}/{total} công việc khớp bộ lọc',
+    '{done} of {total} tasks complete': '{done}/{total} công việc đã xong',
+    '{shown} of {total}': '{shown}/{total}',
     'Home': 'Trang chủ', 'Work': 'Công việc', 'Review': 'Duyệt', 'Audit': 'Kiểm tra',
     'Language': 'Ngôn ngữ', 'Theme': 'Giao diện', 'System': 'Theo hệ thống', 'Light': 'Sáng', 'Dark': 'Tối',
     'Search everything': 'Tìm kiếm tất cả', 'Search records': 'Tìm trong hồ sơ', 'Close': 'Đóng',
@@ -161,7 +172,7 @@ _VI = {
     'Validation': 'Kiểm chứng', 'Strength': 'Mức độ', 'Share': 'Tỷ lệ',
     'execution': 'thực hiện', 'operations': 'vận hành', 'Project operations': 'Vận hành dự án',
     'DONE': 'Hoàn thành', 'WIP': 'Đang làm', 'BLOCKED': 'Bị chặn', 'TODO': 'Chưa làm',
-    'HUMAN_VERIFIED': 'Người xác minh', 'AI_REVIEWED': 'AI đã duyệt', 'SYNTHETIC': 'Kiểm chứng tổng hợp', 'UNTESTED': 'Chưa duyệt',
+    'HUMAN_VERIFIED': 'Chủ dự án đã xác minh', 'AI_REVIEWED': 'AI đã duyệt', 'SYNTHETIC': 'Kiểm chứng tổng hợp', 'UNTESTED': 'Chưa duyệt',
     'PASS': 'Đạt', 'FAIL': 'Không đạt', 'NOT_RUN': 'Chưa chạy', 'MISSING': 'Thiếu',
     'COMPLETE': 'Hoàn thành', 'ACTIVE': 'Đang thực hiện', 'EXIT_PENDING': 'Chờ kết thúc',
     'GREEN': 'Đạt', 'RED': 'Chưa đạt', 'YELLOW': 'Cần chú ý', 'UNKNOWN': 'Chưa rõ',
@@ -181,7 +192,7 @@ _VI = {
     'Assumed:': 'Giả định:', 'Why:': 'Cơ sở:', 'Applied in:': 'Áp dụng tại:', 'If revised:': 'Nếu sửa lại:',
     'Already rests on it:': 'Đã dựa vào giả định:', 'The agent assumed an access rule:': 'Tác nhân đã giả định quy tắc truy cập:',
     'the agent reconciles': 'tác nhân cập nhật', 'and names what changed in': 'và ghi rõ thay đổi trong',
-    'Reconciled by': 'Reconciled by', 'Responses': 'Phản hồi', 'No response yet.': 'Chưa có phản hồi.',
+    'Responses': 'Phản hồi', 'No response yet.': 'Chưa có phản hồi.',
     'Answered; waiting for the agent to reconcile it.': 'Đã phản hồi; đang chờ tác nhân cập nhật.',
     'To respond, run': 'Để phản hồi, chạy', 'and open the link it prints. This page is read-only.': 'và mở liên kết được in ra. Trang này chỉ để xem.',
     'awaiting the agent': 'chờ tác nhân', 'affected unfinished tasks:': 'công việc chưa hoàn thành bị ảnh hưởng:',
@@ -201,13 +212,13 @@ _VI = {
     'Future obligation. Finish dependencies and reach the relevant phase first.': 'Trách nhiệm trong tương lai. Cần hoàn thành phụ thuộc và tới đúng giai đoạn trước.',
     'Affected work:': 'Công việc bị ảnh hưởng:', 'Owner authority': 'Thẩm quyền chủ dự án',
     'Review acceptance and decisions:': 'Xem tiêu chí nghiệm thu và quyết định:',
-    'The contract is met; owner verification is required.': 'Đã đáp ứng hợp đồng; cần chủ dự án xác minh.',
-    "The contract is not yet met; the owner's decision is needed.": 'Chưa đáp ứng hợp đồng; cần chủ dự án quyết định.',
+    'The contract is met; owner verification is required.': 'Đã đạt tiêu chí nghiệm thu; cần chủ dự án xác minh.',
+    "The contract is not yet met; the owner's decision is needed.": 'Chưa đạt tiêu chí nghiệm thu; cần chủ dự án quyết định.',
     'Owner decision awaits dependencies or its phase.': 'Quyết định của chủ dự án đang chờ phụ thuộc hoặc đúng giai đoạn.',
     'Owner verification awaits agent reconciliation.': 'Xác minh của chủ dự án đang chờ tác nhân cập nhật.',
     'Inspect prerequisites': 'Xem điều kiện tiên quyết', 'Run owner command': 'Chạy lệnh của chủ dự án',
     'Affected record:': 'Hồ sơ bị ảnh hưởng:', 'Resolve': 'Xử lý', 'Verify': 'Xác minh',
-    'Verified by': 'Được xác minh bởi', 'waiting for the agent to record HUMAN_VERIFIED.': 'chờ tác nhân ghi nhận Người xác minh.',
+    'Verified by': 'Được xác minh bởi', 'waiting for the agent to record HUMAN_VERIFIED.': 'chờ tác nhân ghi nhận trạng thái Chủ dự án đã xác minh.',
     'I verified': 'Tôi đã xác minh', 'What you verified on': 'Nội dung bạn đã xác minh về',
     'What you checked, recorded verbatim': 'Nội dung bạn đã kiểm tra, ghi nguyên văn',
     'Verify: run': 'Để xác minh, chạy', 'or': 'hoặc', 'at a terminal.': 'tại cửa sổ dòng lệnh.',
@@ -236,7 +247,7 @@ _VI = {
     'No criteria recorded.': 'Chưa ghi tiêu chí.', 'Nothing downstream': 'Không có công việc phía sau',
     'None recorded': 'Chưa ghi', 'none recorded': 'chưa ghi', 'Unscheduled': 'Chưa lên lịch',
     'Claimed:': 'Nhận việc:', 'Implementation files:': 'Tệp triển khai:', 'Implementation symbols:': 'Ký hiệu triển khai:',
-    'No schedule recorded': 'Chưa ghi lịch trình', 'Assumptions': 'Giả định', 'Contract evidence:': 'Bằng chứng hợp đồng:',
+    'No schedule recorded': 'Chưa ghi lịch trình', 'Assumptions': 'Giả định', 'Contract evidence:': 'Bằng chứng nghiệm thu:',
     'No evidence recorded': 'Chưa ghi bằng chứng', 'Source record missing': 'Thiếu hồ sơ nguồn',
     'Execution tasks only. Validation strength records review, not testing: UNTESTED means no review was recorded, even when criteria hold TEST or RUNTIME evidence. Completion is separate.': 'Chỉ tính công việc thực hiện. Mức độ kiểm chứng phản ánh việc duyệt: Chưa duyệt nghĩa là chưa ghi nhận đánh giá, kể cả khi tiêu chí có bằng chứng TEST hoặc RUNTIME. Tiến độ hoàn thành được tính riêng.',
     'Operational trace': 'Dấu vết vận hành', 'Summary': 'Tổng quan', 'Active operations': 'Vận hành đang thực hiện',
@@ -385,20 +396,42 @@ def language(code: str | None) -> str:
 @lru_cache(maxsize=1)
 def message_pattern():
     keys = sorted(CATALOGUES['en']['messages'], key=len, reverse=True)
-    return re.compile(r'(?<![\w-])(?:' + '|'.join(re.escape(k).replace(r'\ ', r'\s+') for k in keys) + r')(?![\w-])')
+    return re.compile(r'(?<![\w-])(?:' + '|'.join(message_expression(k) for k in keys) + r')(?![\w-])')
+
+
+def message_expression(key):
+    return re.sub(r'\\\{\w+\\\}', lambda m: r'\d+', re.escape(key).replace(r'\ ', r'\s+'))
+
+
+@lru_cache(maxsize=1)
+def count_templates():
+    return [(key, re.compile(message_expression(key).replace(r'\d+', r'(\d+)')))
+            for key in CATALOGUES['en']['messages'] if re.search(r'\{\w+\}', key)]
+
+
+def translated_message(source, lang):
+    messages = CATALOGUES[language(lang)]['messages']
+    key = ' '.join(source.split())
+    if key in messages:
+        return messages[key]
+    for template, pattern in count_templates():
+        match = pattern.fullmatch(source)
+        if match:
+            values = dict(zip(re.findall(r'\{(\w+)\}', template), match.groups()))
+            return messages[template].format_map(values)
+    return source
 
 
 def translate(source: str, lang: str) -> str:
     """Translate UI fragments while treating marked records as opaque."""
     parts = re.split('(' + START + '.*?' + END + r'|\{\w+\}|`[^`]*`)', source, flags=re.S)
-    messages = CATALOGUES[language(lang)]['messages']
     pattern = message_pattern()
     for i, part in enumerate(parts):
         if part.startswith((START, '`')) or re.fullmatch(r'\{\w+\}', part):
             parts[i] = unmark(part)
             continue
         if pattern:
-            parts[i] = pattern.sub(lambda m: messages[' '.join(m.group().split())] if lang != 'en' else m.group(), part)
+            parts[i] = pattern.sub(lambda m: translated_message(m.group(), lang) if lang != 'en' else m.group(), part)
         if CATALOGUES[language(lang)]['dateOrder'] == 'dmy':
             parts[i] = re.sub(r'\b(\d{4})-(\d{2})-(\d{2})\b', r'\3/\2/\1', parts[i])
     return ''.join(parts)
@@ -440,7 +473,7 @@ class Localizer(HTMLParser):
             if name in {'aria-label', 'title', 'placeholder', 'data-agg-text'}:
                 translated_attrs[name] = value
                 translated = translate(value, self.lang)
-                original = re.sub(r'(' + re.escape(name) + r'\s*=\s*)([\"\'])(.*?)\2',
+                original = re.sub(r'(?<![\w-])(' + re.escape(name) + r'\s*=\s*)([\"\'])(.*?)\2',
                                   lambda m: m[1] + m[2] + html.escape(translated, quote=True) + m[2], original, count=1)
         if translated_attrs:
             self.attributes.append(translated_attrs)
@@ -480,12 +513,12 @@ class Localizer(HTMLParser):
         self.output.append('<!' + decl + '>')
 
 
-def localize(page: str, lang: str, recorded: str | None = None) -> str:
+def localize(page: str, lang: str, recorded: str | None = None, project: str = '') -> str:
     parser = Localizer(lang)
     parser.feed(page)
     parser.flush()
     data = {'catalogues': CATALOGUES, 'texts': parser.sources, 'attributes': parser.attributes,
-            'recorded': recorded, 'rendered': language(lang)}
+            'recorded': recorded, 'rendered': language(lang), 'storageKey': 'praukron-language:' + unmark(project)}
     island = json.dumps(data, ensure_ascii=True).replace('</', '<\\/')
     runtime = '<script type="application/json" id="i18n-data">' + island + '</script><script>' + SCRIPT + '</script>'
     return ''.join(parser.output).replace('<!--i18n-runtime-->', runtime)
@@ -508,12 +541,27 @@ const protectedText = value => '\ue000' + String(value == null ? '' : value).rep
 const unmarkText = value => value.replace(/[\ue000\ue001]/g, '');
 const escapePattern = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const messageKeys = Object.keys(I18N.catalogues.en.messages).sort((a, b) => b.length - a.length);
-const messagePattern = new RegExp('(?<![\\p{L}\\p{N}_-])(?:' + messageKeys.map(key => escapePattern(key).replace(/ /g, '\\s+')).join('|') + ')(?![\\p{L}\\p{N}_-])', 'gu');
+const messageExpression = key => escapePattern(key).replace(/ /g, '\\s+').replace(/\\\{\w+\\\}/g, '\\d+');
+const messagePattern = new RegExp('(?<![\\p{L}\\p{N}_-])(?:' + messageKeys.map(messageExpression).join('|') + ')(?![\\p{L}\\p{N}_-])', 'gu');
+const countTemplates = messageKeys.filter(key => /\{\w+\}/.test(key)).map(key => ({key,
+  pattern: new RegExp('^' + messageExpression(key).replace(/\\d\+/g, '(\\d+)') + '$')}));
+function translatedMessage(source, catalog) {
+  const key = source.replace(/\s+/g, ' ');
+  if (Object.hasOwnProperty.call(catalog.messages, key)) return catalog.messages[key];
+  for (const template of countTemplates) {
+    const match = source.match(template.pattern);
+    if (!match) continue;
+    const names = [...template.key.matchAll(/\{(\w+)\}/g)].map(item => item[1]);
+    const values = Object.fromEntries(names.map((name, index) => [name, match[index + 1]]));
+    return catalog.messages[template.key].replace(/\{(\w+)\}/g, (_, name) => values[name]);
+  }
+  return source;
+}
 function translateUI(source, lang = activeLanguage) {
   const catalog = I18N.catalogues[lang] || I18N.catalogues.en;
   return String(source).split(/(\ue000[\s\S]*?\ue001|\{\w+\}|`[^`]*`)/).map(part => {
     if (part.startsWith('\ue000') || part.startsWith('`') || /^\{\w+\}$/.test(part)) return unmarkText(part);
-    let text = part.replace(messagePattern, key => lang === 'en' ? key : catalog.messages[key.replace(/\s+/g, ' ')]);
+    let text = part.replace(messagePattern, key => lang === 'en' ? key : translatedMessage(key, catalog));
     if (catalog.dateOrder === 'dmy') text = text.replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, '$3/$2/$1');
     return text;
   }).join('');
@@ -580,11 +628,11 @@ function chooseLanguage(stored, recorded, browser) {
   return I18N.catalogues[primary] ? primary : 'en';
 }
 let savedLanguage = null;
-try { savedLanguage = localStorage.getItem('praukron-language'); } catch (error) {}
+try { savedLanguage = localStorage.getItem(I18N.storageKey); } catch (error) {}
 activeLanguage = chooseLanguage(savedLanguage, I18N.recorded, navigator.language);
 languageControl.addEventListener('change', () => {
   activeLanguage = languageControl.value;
-  try { localStorage.setItem('praukron-language', activeLanguage); } catch (error) {}
+  try { localStorage.setItem(I18N.storageKey, activeLanguage); } catch (error) {}
   paintLanguage();
 });
 paintLanguage();
