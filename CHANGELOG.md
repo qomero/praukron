@@ -4,6 +4,16 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 2.2.5 — 2026-10-22
+
+- Bring the README and guide up to the shipped dashboard. All five README
+  screenshots are regenerated from a synthetic chronicle: Home with its Verify
+  tick, the Work state board, a task dialog with passing, failing and unrun
+  criteria, Audit, and the native critical path. The README and guide now
+  document `dashboard --serve`, `respond`, one-click Verify/Confirm and
+  "Approve selected", and the dashboard language; stale tab names, the command
+  total and the test count are corrected.
+
 ## 2.2.4 — 2026-10-19
 
 - Add one-click Verify and Confirm ticks to eligible Review items and Home's next action, plus atomic "Approve selected" batches in the served dashboard. Static controls remain disabled; English and Vietnamese labels, keyboard controls and announced results are included.
