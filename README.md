@@ -48,10 +48,10 @@ those documents into project state, and that state is then projected two ways.
 A person opens a page:
 
 <p align="center">
-  <img src="docs/assets/dashboard-state.png" alt="Home opens with a phase timeline, a current-phase card containing module progress, gate and active work, and a next-action column with separate project figures." width="900">
+  <img src="docs/assets/dashboard-state.png" alt="Home opens with a phase timeline, a current-phase card containing module progress, gate, root blocker and active work, and a next-action column whose Verify tick approves the owner task in one click, above separate project figures." width="900">
 </p>
 
-<p align="center"><em><code>praukron dashboard</code> on a synthetic test project. See the <a href="docs/dashboard-ux.md">workspace guide</a> for the interaction model.<br>
+<p align="center"><em><code>praukron dashboard --serve</code> on a synthetic test project. See the <a href="docs/dashboard-ux.md">workspace guide</a> for the interaction model.<br>
 Every figure is computed from the Markdown files in <code>.praukron/chronicle/</code>. No model, no service, no network.</em></p>
 
 Home opens with a phase timeline showing state and exact completion counts.
@@ -61,6 +61,13 @@ it; on phones, the action follows the timeline. Detailed progress charts remain
 in Work. Execution, operations and validation stay separate. Review shows each decision's title,
 reason, affected work and action first; one disclosure opens its records and
 response options. Both views remain readable without JavaScript.
+
+`praukron dashboard --serve` serves the same page on `127.0.0.1` so the owner
+can answer from it. Eligible Review items, and Home's next action, carry a
+**Verify** or **Confirm** tick that records the response in one click; **Approve
+selected** records several at once, all or nothing. Every answer is written to
+`RESPONSES.md` through `praukron respond`, under your `gh` login. The page is in
+English or Vietnamese (`--lang vi`, or `Language:` in `THESIS.md`).
 
 An agent asks for a packet, and gets the same state as structured text:
 
@@ -138,17 +145,17 @@ Nothing here is a status report someone wrote by hand. It is computed from the
 authored documents, so it cannot drift away from them.
 
 <p align="center">
-  <img src="docs/assets/dashboard-next.png" alt="Work separates ready work, work in progress, human decisions, dependency waits, failures and completed tasks, with expandable root causes and full inspection views." width="900">
+  <img src="docs/assets/dashboard-next.png" alt="Work lays out a state board of Ready, In progress, Upcoming, Waiting for human, Waiting for dependencies and Blocked, with Completed folded below, then root blockers beside the next gate." width="900">
 </p>
 
-<p align="center"><em>What is in flight, what is ready, what blocks the project, and what lies on the critical path.<br>
+<p align="center"><em>What is in flight, what is ready, what waits on a person, what failed, and what blocks the project.<br>
 Obstacles are grouped by kind, and an operations task that holds up the path is named as an external blocker rather than joining it.</em></p>
 
 <p align="center">
-  <img src="docs/assets/dashboard-operations.png" alt="Audit preserves governance, validation, technical debt, acceptance evidence, operational trace and history." width="900">
+  <img src="docs/assets/dashboard-operations.png" alt="Audit opens evidence and governance: gates, validation strength and technical debt, then architecture decisions, acceptance criteria, task records, operational trace, responses and journal history." width="900">
 </p>
 
-<p align="center"><em>Operations has its own tab: the support work around the project, the tool calls and commands behind it, what failed, and what was retried.<br>
+<p align="center"><em>Audit keeps the evidence, including the operational trace: the support work around the project, the tool calls and commands behind it, what failed, and what was retried.<br>
 None of it counts as progress. All of it stays reviewable, because it can explain why execution is stuck.</em></p>
 
 ## Done is a contract, not an opinion
@@ -167,11 +174,11 @@ Completion and confidence stay separate. A task can be `DONE` and still be
 manual evidence.
 
 <p align="center">
-  <img src="docs/assets/dashboard-contract.png" alt="A task detail dialog preserves dependencies, acceptance criteria, evidence, source references and a path to the full record in Audit." width="640">
+  <img src="docs/assets/dashboard-contract.png" alt="A task detail dialog shows dependencies, three acceptance criteria (not run, pass, fail), the obstacle they cause, decisions, schedule, source and a path to the full record in Audit." width="640">
 </p>
 
 <p align="center"><em>Click any task for its contract, its criteria, and the evidence behind each one.<br>
-One criterion passes, one fails, one has not run — and the test runs and the fix recorded against the task sit beside them.</em></p>
+One criterion passes, one fails, one has not run — so the task cannot close, and the dialog says why.</em></p>
 
 That last part matters more than it looks. When two people — or two agents —
 disagree about whether something is finished, the contract makes the
@@ -197,7 +204,7 @@ strongly each finished task is actually backed, which is a different question
 from whether it is done.
 
 <p align="center">
-  <img src="docs/assets/dashboard-views.png" alt="Work draws the critical path natively with task status labels and an expandable Mermaid source." width="900">
+  <img src="docs/assets/dashboard-views.png" alt="Work draws the complete dependency graph and, under Views, the critical path natively with task status labels and an expandable Mermaid source." width="900">
 </p>
 
 <p align="center"><em>Six views draw offline: dependencies, critical path, phases, gates, dependency ordering and calendar Gantt.<br>
@@ -374,7 +381,9 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
 | `praukron graph` | The six Mermaid views of the same state. |
 | `praukron dashboard` | Four workspaces: Home, Work, Review and Audit, with offline global search. |
+| `praukron dashboard --serve` | Serve the dashboard on `127.0.0.1` behind a per-session token so the owner can answer from Review: response forms, one-click Verify/Confirm ticks and atomic "Approve selected". |
 | `praukron dashboard --lang vi` | Render the dashboard in Vietnamese; overrides the optional `Language:` field in `THESIS.md`. Also works with `--serve`. |
+| `praukron respond <target> <action>` | Owner only: append `CONFIRM`, `REVISE`, `REJECT`, `GUIDE` or `VERIFY` for an assumption or task to `RESPONSES.md`, signed with the active `gh` login; `--batch` writes several, all or nothing. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
 
 The six write commands take a JSON payload (`--schema` prints it, `--dry-run`
@@ -456,9 +465,9 @@ into why the model is shaped this way.
 
 ## What is verified, and what is not
 
-**Implemented and tested.** The compiler and its twelve commands, acceptance
+**Implemented and tested.** The compiler and its nineteen commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses and the served review page. 297 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses and the served review page. 878 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 

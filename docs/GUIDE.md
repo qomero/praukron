@@ -587,6 +587,38 @@ Light / Dark control remembers your choice in the browser; until you choose,
 the page follows your system setting. None of this is project state: the page
 still writes nothing.
 
+The page speaks English or Vietnamese. Add `- Language: vi` to the thesis in
+`THESIS.md`, or pass `praukron dashboard --lang vi` (it overrides the field);
+the Language control in the header switches per viewer. Your records are
+shown as written.
+
+### Answering from the dashboard
+
+The static page only reads. To answer from it, the owner runs:
+
+```sh
+praukron dashboard --serve        # prints http://127.0.0.1:<port>/?token=...
+```
+
+It binds to `127.0.0.1` only, behind a token that lasts the session, and
+stops on Ctrl-C. Review then gains response controls. Eligible items, and
+Home's next action, also carry a tick: **Verify** records `VERIFY` for an
+owner task whose criteria all pass, and **Confirm** records `CONFIRM` for an
+open assumption; each tick records just that item. Mark several with their
+**Select** boxes and **Approve selected** writes them in one all-or-nothing
+batch; a stale item names itself and nothing is recorded. There is no undo. Every answer goes through `praukron respond`, so it
+lands in `RESPONSES.md` signed with your `gh` login, exactly as if you had
+typed it:
+
+```sh
+praukron respond T-205 VERIFY            # the text is read from stdin
+praukron respond A-12 CONFIRM --text-file note.md
+```
+
+An agent reconciles each response on its next turn; only the owner named in
+an ADR's `Owners:` can verify. The ticks are visible but disabled on the
+static page.
+
 ### Execution and operations
 
 Every task is either **execution** — work that advances the project itself —
@@ -614,7 +646,7 @@ the ones that need a `Domain:`.
 
 `TRACE.md` holds operational events — tool calls, commands, mini-actions,
 mutations, failures, retries — that an agent records when they could explain a
-problem later. They appear under Operations and in the task dialog, and never
+problem later. They appear under Audit's operational trace and in the task dialog, and never
 count as progress.
 
 ### Moving an older installation
@@ -695,7 +727,7 @@ actually needs.
 | `index-stale` or `index-missing` warning | The records changed, or `INDEX.md` was edited by hand | `praukron compile` |
 | `debt-trigger-reached` warning | A debt's trigger is reached and no repayment is scheduled | Schedule a task and link it, or record why the debt is still acceptable |
 | `ambiguous-domain` warning | A phase-independent task has no `Domain:` | Add `- Domain: execution` or `- Domain: operations`; `praukron domains` lists them |
-| A maintenance task disappeared from the Overview | It is declared `operations`, so it no longer competes with product work | Find it under Operations; it appears on the Overview only if execution waits on it |
+| A maintenance task disappeared from Home | It is declared `operations`, so it no longer competes with product work | Find it in Work's registry (filter by domain) and its trace under Audit; Home names it only if execution waits on it |
 | `stale-reference` warning | `HANDOFF.md` or `INTENT.md` names a file that moved or was deleted | Update the path in the handoff |
 | Merge conflict in `.praukron/compiled/` | Both branches recompiled | Take either side, then `praukron compile && praukron graph && praukron dashboard` |
 | Merge conflict in `INTENT.md` or `HANDOFF.md` | Both branches changed current state | Resolve by hand toward the branch whose work is current |
