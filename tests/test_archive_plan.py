@@ -657,7 +657,7 @@ class TestArchiveApply(ArchivePlanCase):
         self.assertEqual(result["digest"], digest)
         self.assertEqual(archive._records(compiler.load(self.root)), before)
         self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
-        self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
+        self.assertFalse((self.root / layout.COMPILED_DIR / "dashboard.html").exists())  # ADR-086: writes do not render it
         self.assertEqual(list((self.root / layout.RECOVERY_DIR).glob("archive-*.json")), [])
 
     def test_apply_requires_digest_and_dry_run_does_not_move(self):
@@ -709,7 +709,7 @@ class TestArchiveApply(ArchivePlanCase):
                 patches = {
                     "compile": mock.patch.object(compiler, "write", side_effect=OSError(step)),
                     "graph": mock.patch("praukron.mutate.mermaid.render_all", side_effect=OSError(step)),
-                    "dashboard": mock.patch("praukron.mutate.dashboard.render", side_effect=OSError(step)),
+                    "dashboard": mock.patch("praukron.mutate.dashboard.mark_stale", side_effect=OSError(step)),
                 }
                 with patches[step]:
                     code, result = self.run_cli("apply", "P1", "--plan", digest)

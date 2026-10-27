@@ -249,3 +249,77 @@ Reads are UTF-8 bytes of what an agent must read to edit the file: the whole fil
   the cost grows with many more phases; the Git mode on a repository with
   conversion attributes, which uses backups instead. Figures are one project on
   one machine on one day.
+
+# Scale: what an agent reads, and how long a write takes, as a chronicle grows
+
+Owners run Praukron on chronicles of tens of thousands of lines. This page measures
+whether the cost of using it grows with the chronicle (T-PERF-SCALE-01), and what
+T-PERF-OPT-01 changed. It is one machine on one day, and every token figure is an estimate.
+
+## Method
+
+[`tests/bench_scale.py`](../tests/bench_scale.py) generates synthetic chronicles
+deterministically: 100 tasks per phase in four modules, each task with a three-criterion
+contract and, once done, a journal entry; every phase but the last is COMPLETE, and the
+last is half done with three tasks in progress. Nothing is archived, so these are worst
+cases for a project that never archives. For each size it records the bytes an agent
+receives from `INDEX.md`, `context`, `context <task>`, `retrieve <task>`, `retrieve
+"<question>"`, `explain <task>`, `status` and one `task update` (payload and reply), and
+the wall time of `compile`, `graph`, `dashboard`, `validate` and two structured writes,
+each including validation and refresh. Times are the median of three fresh processes,
+interpreter start included. Tokens are `bytes / 4`.
+
+Before: praukron 2.2.5. After: `main` with T-PERF-OPT-01. Windows-11-10.0.26200-SP0, Python 3.14.7, 2026-10-28.
+
+## Results
+
+### What an agent receives (~tokens)
+
+|  | 10,274 lines | 40,194 lines | 100,034 lines |
+|---|---:|---:|---:|
+| `INDEX.md` | 692 | 707 | 699 |
+| `context` | 775 | 829 | 885 |
+| `context <task>` | 610 | 611 | 611 |
+| `retrieve <task>` | 956 | 958 | 958 |
+| `retrieve "<question>"` | 1,288 | 1,293 | 1,294 |
+| `explain <task>` | 214 | 215 | 215 |
+| `status` | 375 | 502 → 388 | 754 → 450 |
+| one `task update` | 74 | 74 | 74 |
+
+### Tool time, seconds (before → after)
+
+|  | 10,274 lines | 40,194 lines | 100,034 lines |
+|---|---:|---:|---:|
+| `compile` | 0.27 → 0.23 | 0.96 → 0.48 | 4.79 → 1.04 |
+| `graph` | 0.24 → 0.21 | 0.82 → 0.40 | 4.81 → 0.77 |
+| `dashboard` | 0.61 → 0.60 | 2.83 → 2.11 | 12.93 → 6.27 |
+| `validate` | 0.23 → 0.20 | 0.79 → 0.34 | 3.93 → 0.68 |
+| `task update`, with validation and refresh | 0.84 → **0.39** | 4.38 → **1.03** | 21.10 → **2.15** |
+| `journal append`, with validation and refresh | 0.78 → **0.37** | 4.25 → **0.93** | 23.37 → **1.97** |
+
+### Compiled output, bytes
+
+|  | 10,274 lines | 40,194 lines | 100,034 lines |
+|---|---:|---:|---:|
+| `project.json` | 2,080,211 | 8,380,285 | 20,994,746 |
+| `dashboard.html` | 4,774,240 | 18,510,737 | 46,034,569 |
+| `TASK_GRAPH.md` | 70,054 | 280,071 | 702,353 |
+| `STATE.md` | 3,781 | 6,857 | 13,051 |
+
+## What it shows, and what it does not
+
+- What an agent reads does not grow with the chronicle. From 10k to 100k lines, `INDEX.md`,
+  `context <task>`, `retrieve` and `explain` stay within a few tokens, `context` grows 1.14x
+  and one write costs the same 74 tokens. `status` listed every phase and grew 2x; it now folds
+  COMPLETE phases into one line and grows 1.2x, the rest being this fixture's longer list of
+  blocked tasks.
+- Time did grow, faster than the chronicle. Two quadratic scans in journal-order checking and
+  section location, a quadratic orphan-contract check and a linear task lookup made `compile`
+  and `validate` 5x slower for 2.5x the lines; they are now linear. Most of a write was
+  rendering a page no agent reads: since ADR-086 only `praukron dashboard` (and `--serve`, per
+  request) renders it, and a write marks an existing page as out of date instead.
+- The page itself is still large: about 46 MB at 100k lines, because it holds the project data,
+  every text node for the language switcher and the rendered HTML. Rendering it takes about
+  6 seconds there. That cost is now paid only when a person asks for the page.
+- These are synthetic chronicles. Real ones have longer evidence and journal entries, and
+  archiving COMPLETE phases (see above) shrinks the working files further.

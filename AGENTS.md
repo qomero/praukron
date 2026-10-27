@@ -57,14 +57,14 @@ by reading files:
 .praukron/praukron dashboard       # a browsable page of the same state
 ```
 
-After a direct edit of a chronicle file, run `validate`, then refresh
-everything in `.praukron/compiled/`: `compile` does not redraw the graphs or the
-dashboard, so run `compile && graph && dashboard`; a stale dashboard shows
-people a state the chronicle no longer holds. The tool writes only: the generated `INDEX.md`;
+After a direct edit of a chronicle file, run `validate`, then `compile &&
+graph`, which refresh everything an agent reads. Only `praukron dashboard`
+renders the page (ADR-086); `compile` and every write mark an existing page as
+out of date, so run `dashboard` only when a person needs the static page. The tool writes only: the generated `INDEX.md`;
 `respond` (the owner's responses); `archive plan|apply|restore <phase>` (owner
 only: moves a COMPLETE phase's, or P-NONE's, eligible closed records, verbatim,
 into `chronicle/archive/<phase>/`, where they stay authority and the write
-commands cannot change them; `RESPONSES.md`, `COORDINATION.md` and ADRs never move); and six validated, atomic structured writes (ADR-068, amended by ADR-074, ADR-076). Use these
+commands cannot change them; `RESPONSES.md`, `COORDINATION.md` and ADRs never move); and six validated, atomic structured writes (ADR-068, amended by ADR-074, ADR-076, ADR-086). Use these
 instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`:
 
 ```sh
@@ -89,9 +89,8 @@ acr add         {"task":"T-4","criterion":"AC-T-4-01","proposed":"Given a file, 
 batch apply     {"operations":[{"op":"task update","id":"T-1","expectRevision":"<rev>","set":{"status":"WIP","owner":"agent","claimed":"2026-10-16"}},{"op":"criterion set","criterion":"AC-T-1-01","state":"PASS","expectRevision":"<rev>"},{"op":"criterion set","criterion":"AC-T-1-02","state":"PASS","expectRevision":"<rev>"},{"op":"task update","id":"T-1","expectRevision":"<rev>","set":{"status":"DONE","evidence":"tests pass"}},{"op":"journal append","title":"Closed T-1","body":"Both criteria pass."}]}
 ```
 
-Each validates before and after it writes and refreshes every compiled view
-itself, so run neither `validate` nor `compile && graph && dashboard` after
-it. JSON input (`--schema`, `--dry-run`) returns one JSON line; refusals exit nonzero
+Each validates before and after it writes and refreshes every view an agent
+reads, so run neither `validate` nor `compile && graph` after it. JSON input (`--schema`, `--dry-run`) returns one JSON line; refusals exit nonzero
 and include a minimal payload. Updates require `expectRevision` (`expectTaskRevision`
 for `contract add`). Take the task's and criteria's `revision` from `context <task>`,
 `explain <task>` or `retrieve <task>`; criteria share a contract revision.

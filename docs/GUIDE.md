@@ -180,10 +180,11 @@ cannot edit an archived record; only `restore` brings one back.
 - A phase must be `COMPLETE` (`incomplete-phase`) or `P-NONE`, and must exist in
   `PHASES.md` (`unknown-phase`). `archive` refuses unless the chronicle validates
   cleanly first; `restore` validates the state it would write before writing.
-- Success refreshes `INDEX.md`, the compiled views, the graphs and the dashboard.
+- Success refreshes `INDEX.md`, the compiled views and the graphs, and marks
+  a rendered dashboard as out of date (ADR-086).
   If the move succeeded but the refresh failed, the result says `written: true`,
   `refreshed: false` and exits nonzero. The records are already moved: re-run
-  `compile && graph && dashboard`, never the archive. A move that cannot be
+  `compile && graph`, never the archive. A move that cannot be
   verified is undone, byte for byte, before the command returns.
 
 **What moves.** Eligibility is checked once, when `apply` (or the one-step
@@ -294,9 +295,8 @@ If an `apply` or `restore` wrote the move but refreshing afterwards failed, the
 result is `ok: false` with `error.code` `refresh-failed`, `written: true` and
 `refreshed: false`, the plan fields (`digest`, `changedFiles`, ...) still
 present, and exit code 1. The move is complete and stays. The refresh runs
-`compile` (which writes `INDEX.md` and the compiled data), then the graphs, then
-the dashboard, so run `praukron compile`, `praukron graph` and `praukron
-dashboard` and do nothing else. Never run `apply` again: the plan's digest no
+`compile` (which writes `INDEX.md` and the compiled data), then the graphs, so
+run `praukron compile` and `praukron graph` and do nothing else. Never run `apply` again: the plan's digest no
 longer matches, and the records are already moved.
 
 #### Journal ordering and repair
@@ -446,7 +446,7 @@ operation's result and the final revision of every section written, keyed by
 `file#anchor`. A section an earlier operation in the same batch created, such
 as a new task, takes `"$previous"` instead of a revision. `--dry-run` checks the
 whole batch without writing, and `praukron batch apply --schema` describes every
-operation. If only the refresh fails, rerun `compile`, `graph` and `dashboard`.
+operation. If only the refresh fails, rerun `compile` and `graph`.
 
 **3. Claim it.** Take `expectRevision` from the task's `revision` in `context`,
 `explain` or `retrieve`, or from the last write result. A stale one is
@@ -536,7 +536,7 @@ criterion only if the request is accepted.
 
 A refusal changes nothing and exits 1. If a write succeeds but its refresh
 fails (`"written":true,"refreshed":false`), do not repeat it; run
-`praukron compile && praukron graph && praukron dashboard`. If another writer
+`praukron compile && praukron graph`. If another writer
 holds the lock (`locked`), wait and retry.
 
 ### CodeGraph (optional)
@@ -567,13 +567,18 @@ compile despite validation errors, which you want roughly never. `compile`,
 `--force` overrides that too.
 
 `compile` does not write the diagrams or the page — `graph` and `dashboard`
-do. After editing the chronicle by hand, the full refresh is:
+do. After editing the chronicle by hand, refresh what agents read with:
 
 ```sh
-praukron compile && praukron graph && praukron dashboard
+praukron compile && praukron graph
 ```
 
-`praukron dashboard --open` opens it in a browser.
+Only `praukron dashboard` renders the page (ADR-086). Writes, `respond`,
+`archive` and `compile` leave an existing page in place but mark it with a
+notice that it is out of date, because on a large chronicle rendering it is
+most of a write's time. Run `praukron dashboard` when you want the static
+page, or `praukron dashboard --serve`, which renders a current page on every
+load. `praukron dashboard --open` opens it in a browser.
 
 The page has four workspaces. **Home** opens with the phase, root blocker and next
 human action. **Work** keeps the full task registry, phases, dependency graph,

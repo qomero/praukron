@@ -517,15 +517,19 @@ def _errors(project: Project, recovery: Path | None = None) -> set[tuple[str, st
 
 
 def refresh(root: Path) -> None:
-    """Recompile every projection after releasing the write lock."""
+    """Recompile what agents read after releasing the write lock.
+
+    The dashboard is rendered only by `praukron dashboard` (and per request by
+    `--serve`); a write flags an existing page as stale instead (ADR-086),
+    because rendering it dominates write time on a large chronicle.
+    """
     project = compiler.load(root)
     report = analytics.report(project)
     compiler.write(root, project)
     compiled = root / COMPILED_DIR
     for name, text in mermaid.render_all(project, report).items():
         (compiled / name).write_text(text, encoding="utf-8")
-    (compiled / "dashboard.html").write_text(
-        dashboard.render(project, report, compiler.as_json(project)), encoding="utf-8")
+    dashboard.mark_stale(compiled / "dashboard.html", dt.date.today().isoformat())
 
 
 @dataclass

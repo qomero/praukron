@@ -126,8 +126,9 @@ class TestJournalWrite(WriteCase):
                     for path, data in before.items():
                         if path.name not in ("JOURNAL.md", "INDEX.md"):
                             self.assertEqual((self.authority / path).read_bytes(), data)
-                    for name in ("project.json", "task-graph.mmd", "dashboard.html"):
+                    for name in ("project.json", "task-graph.mmd"):
                         self.assertTrue((self.root / layout.COMPILED_DIR / name).is_file())
+                    self.assertFalse((self.root / layout.COMPILED_DIR / "dashboard.html").exists())  # ADR-086: writes do not render it
 
     def test_duplicate_heading_working_or_any_archive_is_refused(self):
         self.assertTrue(journal.append(self.root, self.payload)["ok"])
@@ -197,7 +198,7 @@ class TestJournalWrite(WriteCase):
 
     def test_refresh_failures_leave_one_entry_and_refresh_only_retry_completes(self):
         # Fail each stage after authority has committed, including partial projections.
-        for target in ("compiler.write", "mermaid.render_all", "dashboard.render"):
+        for target in ("compiler.write", "mermaid.render_all", "dashboard.mark_stale"):
             with self.subTest(target=target):
                 self.journal.write_bytes(b"# Journal\n")
                 with mock.patch("praukron.mutate." + target, side_effect=OSError("projection failed")):

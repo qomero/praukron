@@ -8,6 +8,7 @@ or a model provider.
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import sys
 from pathlib import Path
@@ -107,8 +108,13 @@ def cmd_compile(root: Path, args: argparse.Namespace) -> int:
         _report_findings(errors, sys.stderr)
         print("Fix the authority, or pass --force to compile anyway.", file=sys.stderr)
         return 1
+    state = root / compiler.COMPILED_DIR / "project.json"
+    before = state.read_bytes() if state.is_file() else None
     target = compiler.write(root, project)
     print(f"Wrote {target.relative_to(root)}")
+    if state.is_file() and state.read_bytes() != before:
+        # The page no longer matches the records; only `dashboard` renders it (ADR-086).
+        dashboard.mark_stale(root / compiler.COMPILED_DIR / "dashboard.html", datetime.date.today().isoformat())
     return 0
 
 
@@ -190,7 +196,16 @@ def cmd_status(root: Path, args: argparse.Namespace) -> int:
         f"  gates        {metrics['gateReadiness']['done']} / "
         f"{metrics['gateReadiness']['total']} green"
     )
+    # Closed phases fold into one line so the output stays bounded as a
+    # project grows; `explain` and STATE.md still list every phase.
+    closed = [p for p in project.phases if p.status == "COMPLETE" and not report.phase_waits.get(p.id)]
+    folded = closed if len(closed) > 3 else []
+    if folded:
+        span = f"{folded[0].id}–{folded[-1].id}"
+        print(f"  {span:<12} {len(folded)} phases COMPLETE")
     for phase in project.phases:
+        if phase in folded:
+            continue
         progress = report.phase_progress[phase.id]
         waits = report.phase_waits.get(phase.id)
         print(f"  {phase.id:<12} {progress} · {phase.status}"
