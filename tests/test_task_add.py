@@ -107,7 +107,7 @@ class TestTaskAdd(CreationCase):
                                      (f"AC-T-NEW-{i:02d}", expected["text"], expected["class"], "NOT_RUN", None))
                 self.assertEqual(result["revision"], mutate.section(self.tasks.read_bytes(), added.id).revision)
                 self.assert_valid()
-                self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
+                self.assertFalse((self.root / layout.COMPILED_DIR / "dashboard.html").exists())  # ADR-086: writes do not render it
 
     def test_payload_and_reference_refusals_leave_every_byte(self):
         cases = [({"phase": "P1"}, "unknown-field"), ({"Phase": "P1"}, "unknown-field"),

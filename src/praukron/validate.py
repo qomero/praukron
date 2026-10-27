@@ -730,6 +730,7 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
             )
 
     criterion_ids: set[str] = set()
+    referenced = {task.contract for task in project.tasks}
     for contract in project.contracts.values():
         where = f"{contract.source.file}#{contract.id}"
         for inherited in contract.inherits:
@@ -759,9 +760,7 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
                     f"'{criterion.state}' is not a known criterion state",
                     where,
                 )
-        if not contract.is_global and contract.id not in {
-            task.contract for task in project.tasks
-        }:
+        if not contract.is_global and contract.id not in referenced:
             warn("orphan-contract", "contract is referenced by no task", where)
 
     for cycle in _cycles(project):

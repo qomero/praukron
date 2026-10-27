@@ -173,16 +173,22 @@ class EligibilityContext:
 def section_locations(text: str, pattern: re.Pattern[str] | None = None) -> dict[str, list[tuple[int, int]]]:
     """All locations per ID, or per full heading when pattern is None; duplicates survive."""
     found: dict[str, list[tuple[int, int]]] = {}
-    for heading in re.finditer(r"(?m)^## (.+)$", text):
+    for heading in _SECTION_HEADING.finditer(text):
         title = heading.group(1).strip()
         match = pattern.match(title) if pattern is not None else None
         if pattern is not None and match is None:
             continue
         key = match.group(1) if match is not None else title
-        following = re.search(r"(?m)^#{1,2} ", text[heading.end():])
-        end = heading.end() + following.start() if following else len(text)
+        # Search from the heading's end; slicing the rest of the text per
+        # heading is quadratic in the file's size.
+        following = _SECTION_END.search(text, heading.end())
+        end = following.start() if following else len(text)
         found.setdefault(key, []).append((heading.start(), end))
     return found
+
+
+_SECTION_HEADING = re.compile(r"(?m)^## (.+)$")
+_SECTION_END = re.compile(r"(?m)^#{1,2} ")
 
 
 class IdRule:
@@ -644,11 +650,22 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
     state.saved = saved
     owners = {h: i for i, sequence in enumerate(sequences) for h in sequence}
     dates: dict[str, list[str]] = {}
+    # Group once by date; a per-date rescan of every sequence is quadratic in
+    # the journal's length.
+    local_by_date: list[dict[str, list[str]]] = []
     for sequence in sequences:
+        local: dict[str, list[str]] = {}
         for heading in sequence:
-            dates.setdefault(_entry_date(heading), []).append(heading)
+            date = _entry_date(heading)
+            dates.setdefault(date, []).append(heading)
+            local.setdefault(date, []).append(heading)
+        local_by_date.append(local)
+    saved_by_date: dict[str, list[str]] = {}
+    for heading in saved:
+        saved_by_date.setdefault(_entry_date(heading), []).append(heading)
     positions = {h: i for i, h in enumerate(saved)}
     for date, headings in sorted(dates.items()):
+        members = set(headings)
         missing = [h for h in headings if h not in positions]
         split = date and len({owners[h] for h in headings}) > 1
         lost = [h for h in missing if owners[h] != working]
@@ -661,7 +678,7 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
         # with no saved heading on this date defaults to after all known ties.
         appended = missing if split and not any(h in positions and owners[h] == working
                                                 for h in headings) else []
-        priority = {h: i for i, h in enumerate(dict.fromkeys([*(h for h in saved if h in headings), *headings]))}
+        priority = {h: i for i, h in enumerate(dict.fromkeys([*(h for h in saved_by_date.get(date, ()) if h in members), *headings]))}
         following: dict[str, set[str]] = {h: set() for h in headings}
         incoming = dict.fromkeys(headings, 0)
 
@@ -670,8 +687,8 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
                 following[before].add(after)
                 incoming[after] += 1
 
-        for sequence in sequences:
-            local = [h for h in sequence if _entry_date(h) == date]
+        for grouped in local_by_date:
+            local = grouped.get(date, [])
             for before, after in zip(local, local[1:]):
                 edge(before, after)
             known = [h for h in local if h in positions]
@@ -680,7 +697,7 @@ def _journal_order_state(snapshot: Snapshot) -> _JournalOrderState:
                                       "the file wins and the next journal move refreshes the sidecar (ADR-072)")
         # All cross-file relations survive; saved relations within a file yield
         # to that file. A cycle now means separated relations cannot reconcile.
-        tied = [h for h in saved if _entry_date(h) == date]
+        tied = saved_by_date.get(date, [])
         for i, before in enumerate(tied):
             for after in tied[i + 1:]:
                 if owners[before] != owners[after]:

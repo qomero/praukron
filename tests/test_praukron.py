@@ -3102,7 +3102,7 @@ class TestArchive(FixtureCase):
         with redirect_stdout(buffer):
             self.assertEqual(cli.main(["-C", str(self.root), "archive", "P1", "--json"]), 0)
         self.assertTrue(json.loads(buffer.getvalue())["applied"])
-        self.assertTrue((self.root / layout.COMPILED_DIR / "dashboard.html").is_file())
+        self.assertFalse((self.root / layout.COMPILED_DIR / "dashboard.html").exists())  # ADR-086: writes do not render it
         with redirect_stderr(io.StringIO()):
             self.rewrite("PHASES.md", "Status:\nCOMPLETE", "Status:\nACTIVE")
             self.assertEqual(cli.main(["-C", str(self.root), "archive", "P1"]), 1)

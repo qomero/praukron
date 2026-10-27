@@ -683,7 +683,7 @@ class TestArchiveRestore(RecoveryCase):
                 archive.archive(self.root, "P1")
                 patches = {"compile": mock.patch.object(compiler, "write", side_effect=OSError(step)),
                            "graph": mock.patch("praukron.mutate.mermaid.render_all", side_effect=OSError(step)),
-                           "dashboard": mock.patch("praukron.mutate.dashboard.render", side_effect=OSError(step))}
+                           "dashboard": mock.patch("praukron.mutate.dashboard.mark_stale", side_effect=OSError(step))}
                 with patches[step]:
                     code, result = self.run_cli("restore", "P1")
                 self.assertEqual(code, 1, result)

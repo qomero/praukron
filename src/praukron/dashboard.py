@@ -2657,6 +2657,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 </head>
 <body>
 <main>
+{STALE_MARKER}
   <header class="top">
     <div>
       <h1>{esc(i18n.verbatim(project.name))}</h1>
@@ -2717,3 +2718,33 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 </html>
 """
     return i18n.localize(page, selected_language, recorded_language, original_compiled['project']['name'])
+
+
+STALE_MARKER = "<!--praukron-stale-->"
+_STALE_TEXT = {
+    "en": ("This page is out of date: the chronicle changed on {date}, after it was rendered. "
+           "Run <code>praukron dashboard</code> to rebuild it, or <code>praukron dashboard --serve</code> "
+           "for a page that is always current."),
+    "vi": ("Trang này đã cũ: chronicle đã thay đổi ngày {date}, sau khi trang được tạo. "
+           "Chạy <code>praukron dashboard</code> để tạo lại, hoặc <code>praukron dashboard --serve</code> "
+           "để luôn xem trạng thái mới nhất."),
+}
+
+
+def mark_stale(path, date: str) -> bool:
+    """Flag a rendered page after a write it does not show (ADR-086).
+
+    Rendering is left to `praukron dashboard`; the old page keeps its content
+    but says plainly that it is behind. Returns whether a banner was added.
+    """
+    if not path.is_file():
+        return False
+    page = path.read_text(encoding="utf-8")
+    if STALE_MARKER not in page:
+        return False  # already flagged, or written by an older release
+    lang = "vi" if '<html lang="vi"' in page[:400] else "en"
+    banner = ('<p class="stale-notice" role="status" style="margin:0 0 16px;padding:10px 14px;'
+              'border:1px solid var(--warn);border-radius:8px;color:var(--ink)">'
+              + _STALE_TEXT[lang].format(date=date) + "</p>")
+    path.write_text(page.replace(STALE_MARKER, banner, 1), encoding="utf-8")
+    return True

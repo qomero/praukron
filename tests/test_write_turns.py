@@ -128,10 +128,10 @@ class Guidance(unittest.TestCase):
         self.text = flat((ROOT / "AGENTS.md").read_text(encoding="utf-8"))
 
     def test_writes_validate_and_refresh_themselves(self):
-        self.assertIn("Each validates before and after it writes and refreshes every compiled view itself, "
-                      "so run neither `validate` nor `compile && graph && dashboard` after it.", self.text)
-        self.assertIn("After a direct edit of a chronicle file, run `validate`, then refresh everything in "
-                      "`.praukron/compiled/`", self.text)
+        self.assertIn("Each validates before and after it writes and refreshes every view an agent reads, "
+                      "so run neither `validate` nor `compile && graph` after it.", self.text)
+        self.assertIn("After a direct edit of a chronicle file, run `validate`, then `compile && graph`, "
+                      "which refresh everything an agent reads.", self.text)
         self.assertNotIn("Before finishing, refresh everything", self.text)
 
     def test_every_write_command_has_one_example(self):

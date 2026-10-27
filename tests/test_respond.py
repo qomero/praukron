@@ -191,10 +191,13 @@ class TestRespond(RespondCase):
         self.assertEqual(ids, ["R-3"])
         self.assertTrue(responses.read_bytes().startswith(earlier))
         compiled = self.dir / layout.COMPILED_DIR
-        for name in ("project.json", "dashboard.html", "task-graph.mmd"):
+        for name in ("project.json", "task-graph.mmd"):
             self.assertTrue((compiled / name).is_file(), name)
+        self.assertFalse((compiled / "dashboard.html").exists())  # ADR-086
         data = json.loads((compiled / "project.json").read_text(encoding="utf-8"))
         self.assertEqual(data["responses"][-1]["text"], "Seven days.")
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(["-C", str(self.dir), "dashboard"]), 0)
         self.assertIn("Seven days.", (compiled / "dashboard.html").read_text(encoding="utf-8"))
 
     def test_a_batch_is_all_or_nothing(self) -> None:

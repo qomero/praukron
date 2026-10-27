@@ -612,9 +612,18 @@ class Project:
         return [t for t in self.tasks if t.phase == phase_id and t.execution]
 
     def task(self, task_id: str) -> Task | None:
-        for task in self.tasks:
-            if task.id == task_id:
-                return task
+        # Positions are a cache, checked on every hit, so callers may still
+        # mutate `tasks`; a miss rebuilds once before reporting absence.
+        index = self.__dict__.get("_task_index")
+        for attempt in range(2):
+            if index is None or attempt:
+                index = {}
+                for position, task in enumerate(self.tasks):
+                    index.setdefault(task.id, position)
+                self.__dict__["_task_index"] = index
+            position = index.get(task_id)
+            if position is not None and position < len(self.tasks) and self.tasks[position].id == task_id:
+                return self.tasks[position]
         return None
 
     def phase(self, phase_id: str) -> Phase | None:
