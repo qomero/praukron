@@ -6,14 +6,16 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import shutil
 import sys
 import tempfile
 import unittest
 import urllib.error
+import urllib.parse
 import uuid
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -246,6 +248,11 @@ class FakeNotion(Client):
         self.writes += 1
         self.comments.append({"page": page_id, "rich_text": json.loads(json.dumps(rich_text))})
         return {"id": self._id()}
+
+    def list_comments(self, page_id) -> list[dict]:
+        if page_id not in self.pages or self.pages[page_id]["in_trash"]:
+            raise NotionError(404, "object_not_found", "missing")
+        return [json.loads(json.dumps(c)) for c in self.comments if c["page"] == page_id]
 
     def edit(self, page_id: str, editor: str = OWNER_ID, **values) -> None:
         """What the owner does in Notion."""
@@ -694,16 +701,17 @@ class PushTest(NotionCase):
                             for p in c[c["type"]].get("rich_text", [])))
 
 
+class Response(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
 class RetryTest(unittest.TestCase):
     def test_rate_limits_and_server_errors_are_retried(self) -> None:
         calls = []
-
-        class Response(io.BytesIO):
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *a):
-                return False
 
         def opener(request, timeout):
             calls.append(request)
@@ -716,6 +724,44 @@ class RetryTest(unittest.TestCase):
         client = Client(Token(SECRET, "environment"), opener=opener, sleep=slept.append)
         self.assertEqual(client.request("GET", "users/me"), {"ok": True})
         self.assertEqual(len(slept), 2)
+
+    def test_a_comment_whose_answer_is_lost_is_posted_once(self) -> None:
+        # Notion accepts each POST, but the answer never arrives: retrying would
+        # write the comment again, so only a 429 (not acted on) is retried.
+        bodies = []
+
+        def opener(request, timeout):
+            bodies.append(request.data)
+            if len(bodies) < 5:
+                raise urllib.error.URLError("connection reset")
+            return Response(b'{"id": "created-5"}')
+
+        client = Client(Token(SECRET, "environment"), opener=opener, sleep=lambda s: None)
+        with self.assertRaises(NotionError) as caught:
+            client.create_comment("page", notion_sync.text_parts("hi"))
+        self.assertEqual((caught.exception.status, len(bodies)), (0, 1))
+        for status in (500, 502, 503, 504):
+            bodies.clear()
+
+            def failing(request, timeout, status=status):
+                bodies.append(request.data)
+                raise urllib.error.HTTPError(request.full_url, status, "busy", {}, io.BytesIO(b"{}"))
+
+            client = Client(Token(SECRET, "environment"), opener=failing, sleep=lambda s: None)
+            with self.assertRaises(NotionError):
+                client.create_comment("page", notion_sync.text_parts("hi"))
+            self.assertEqual(len(bodies), 1, status)
+        bodies.clear()
+
+        def limited(request, timeout):
+            bodies.append(request.data)
+            if len(bodies) == 1:
+                raise urllib.error.HTTPError(request.full_url, 429, "slow down", {}, io.BytesIO(b"{}"))
+            return Response(b'{"id": "created"}')
+
+        client = Client(Token(SECRET, "environment"), opener=limited, sleep=lambda s: None)
+        self.assertEqual(client.create_comment("page", notion_sync.text_parts("hi")), {"id": "created"})
+        self.assertEqual(len(bodies), 2)
 
     def test_errors_never_carry_the_token(self) -> None:
         def opener(request, timeout):
@@ -1311,9 +1357,40 @@ class NotifyTest(NotionCase):
 - Reconciled by: none
 """, encoding="utf-8")
 
-    def texts(self) -> list[str]:
+    def raw_texts(self) -> list[str]:
         return ["".join(p.get("text", {}).get("content", "") for p in c["rich_text"])
                 for c in self.notion.comments]
+
+    def texts(self) -> list[str]:
+        """Each comment's words, without the marker that ends it."""
+        return [re.sub(r" · ref [0-9a-f]{10}$", "", text) for text in self.raw_texts()]
+
+    def wire(self, lose: Callable[[], bool]) -> Any:
+        """Comments through the real Client and its HTTP path, on the in-memory
+        Notion; `lose()` says whether an accepted POST's answer is lost."""
+        notion = self.notion
+
+        def opener(request, timeout):
+            url = urllib.parse.urlsplit(request.full_url)
+            try:
+                if request.get_method() == "POST" and url.path.endswith("/comments"):
+                    body = json.loads(request.data)
+                    FakeNotion.create_comment(notion, body["parent"]["page_id"], body["rich_text"])
+                    if lose():
+                        raise urllib.error.URLError("connection reset")
+                    return Response(b'{"id": "created"}')
+                if request.get_method() == "GET" and url.path.endswith("/comments"):
+                    page = urllib.parse.parse_qs(url.query)["block_id"][0]
+                    results = FakeNotion.list_comments(notion, page)
+                    return Response(json.dumps({"results": results, "has_more": False}).encode())
+            except NotionError as error:
+                raise urllib.error.HTTPError(request.full_url, error.status, "error", {}, io.BytesIO(
+                    json.dumps({"code": error.code, "message": "missing"}).encode())) from None
+            raise AssertionError(request.full_url)
+
+        client = Client(Token(SECRET, "environment"), opener=opener, sleep=lambda s: None)
+        return mock.patch.multiple(self.notion, create_comment=client.create_comment,
+                                   list_comments=client.list_comments)
 
     def page_of(self, kind: str, pid: str) -> str:
         return self.notion.row(kind, self.config, pid)["id"]
@@ -1352,6 +1429,10 @@ class NotifyTest(NotionCase):
             self.assertEqual(comment["rich_text"][0], self.MENTION)
             self.assertTrue(text.endswith(f" · {name}"), text)
             self.assertNotIn(SECRET, json.dumps(comment))
+        key = self.config["projectKey"]
+        self.assertEqual(self.raw_texts()[3], f" 🚦 Gate A chuyển RED → GREEN · {name} · "
+                         + notion_sync.marker(key, "phase:Gate A:GREEN"))
+        self.assertEqual(len({t[-10:] for t in self.raw_texts()}), 4)   # one marker per event
         self.assertIn("Build on it", self.texts()[0])
         self.assertNotIn("It holds weight", "".join(self.texts()))   # titles, never evidence
         self.assertEqual(self.push().notified, 0)
@@ -1381,7 +1462,7 @@ class NotifyTest(NotionCase):
         self.assertEqual([t.split(" — ")[0] for t in self.texts()],
                          [" ✅ T-TWO vừa DONE (0/1 criteria PASS)", " 🧑‍⚖️ T-TWO đang chờ bạn quyết định"])
 
-    def test_a_crash_between_comment_and_record_resends_at_most_that_event(self) -> None:
+    def test_a_crash_between_comment_and_record_never_resends_it(self) -> None:
         self.turn_on()
         self.set_status("## T-TWO: Build on it", "TODO", "DONE")
         self.add_assumption()
@@ -1390,7 +1471,7 @@ class NotifyTest(NotionCase):
 
         def write(events) -> None:
             calls.append(1)
-            if len(calls) == 2:   # the record of the first comment
+            if len(calls) == 3:   # pending, the first post's page, then its record
                 raise Crash()
             original(events)
 
@@ -1398,12 +1479,76 @@ class NotifyTest(NotionCase):
             with self.assertRaises(Crash):
                 self.push()
         self.assertEqual(len(self.notion.comments), 1)
-        self.assertEqual(self.push().notified, 2)   # the restart: the interrupted one again, then the other
+        self.assertEqual(self.push().notified, 2)   # the restart: the interrupted one found, then the other
         self.assertEqual(self.push().notified, 0)
         texts = self.texts()
-        self.assertEqual(len(texts), 3)
-        self.assertEqual(texts[0], texts[1])
+        self.assertEqual(len(texts), 2)
         self.assertEqual(len(set(texts)), 2)
+
+    def test_a_comment_whose_answer_is_lost_is_found_and_never_posted_twice(self) -> None:
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        with self.wire(lose=lambda: True):
+            self.assertEqual(self.push().notified, 0)   # Notion wrote it; the push cannot know
+        self.assertEqual(len(self.notion.comments), 1)
+        status = notion_sync.notify_status(self.dir)
+        self.assertEqual((status["pending"], status["lastError"]["event"]), (1, "done:T-TWO:DONE"))
+        with self.wire(lose=lambda: False):
+            self.assertEqual(self.push().notified, 1)   # the next push (a new process) finds it
+            self.assertEqual(self.push().notified, 0)
+        self.assertEqual(len(self.notion.comments), 1)
+        self.assertIsNone(notion_sync.notify_status(self.dir)["lastError"])
+
+    def test_a_lost_answer_on_the_hub_after_a_gone_row_is_found_there(self) -> None:
+        self.turn_on()
+        row = self.reject_a_submission()
+        self.notion.pages[row]["in_trash"] = True   # the row is gone, so its comments too
+        with self.wire(lose=lambda: True):
+            self.assertEqual(self.push().notified, 0)
+        with self.wire(lose=lambda: False):
+            self.assertEqual(self.push().notified, 1)
+        self.assertEqual([c["page"] for c in self.notion.comments], [self.config["instance"]])
+
+    def test_a_comment_that_never_landed_is_posted_on_the_next_push(self) -> None:
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        unreachable = NotionError(0, "unreachable", "connection refused")
+        with mock.patch.object(self.notion, "create_comment", side_effect=unreachable):
+            self.assertEqual(self.push().notified, 0)
+        self.assertEqual(self.push().notified, 1)
+        self.assertEqual(len(self.notion.comments), 1)
+
+    def test_notify_on_again_or_new_kinds_keep_the_baseline_and_pending_events(self) -> None:
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        refused = NotionError(403, "restricted_resource", "Insufficient permissions for this endpoint.")
+        with mock.patch.object(self.notion, "create_comment", side_effect=refused):
+            self.push()
+        self.assertEqual(notion_sync.notify_status(self.dir)["pending"], 1)
+        self.set_status("## T-THREE: Finish later", "TODO", "DONE")   # changed, awaiting the next push
+        notion_sync.notify_set(self.dir, True)                         # on again
+        notion_sync.notify_set(self.dir, True, ["done", "owner"])      # new kinds, done still on
+        status = notion_sync.notify_status(self.dir)
+        self.assertEqual((status["pending"], status["baseline"], status["lastError"]["event"]),
+                         (1, True, "done:T-TWO:DONE"))
+        self.assertEqual(self.push().notified, 2)
+        self.assertEqual(self.push().notified, 0)
+        self.assertEqual(sorted(t.split(" vừa")[0] for t in self.texts()), [" ✅ T-THREE", " ✅ T-TWO"])
+
+    def test_turning_a_kind_off_drops_only_its_pending_events(self) -> None:
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        self.add_assumption()
+        refused = NotionError(403, "restricted_resource", "Insufficient permissions for this endpoint.")
+        with mock.patch.object(self.notion, "create_comment", side_effect=refused):
+            self.push()
+        self.assertEqual(notion_sync.notify_status(self.dir)["pending"], 2)
+        notion_sync.notify_set(self.dir, True, ["assumption", "phase"])
+        status = notion_sync.notify_status(self.dir)
+        self.assertEqual((status["pending"], status["baseline"]), (1, True))
+        self.assertEqual(self.push().notified, 1)
+        (text,) = self.texts()
+        self.assertIn("A-3", text)
 
     def test_notifications_off_or_a_kind_off_write_no_comment(self) -> None:
         self.set_status("## T-TWO: Build on it", "TODO", "DONE")

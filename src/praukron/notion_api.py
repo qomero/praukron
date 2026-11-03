@@ -1,7 +1,8 @@
 """A small Notion API client on the standard library (ADR-087).
 
 It retries rate limits and server errors with backoff, pages through lists,
-and never puts the token in an exception or a log line.
+and never puts the token in an exception or a log line. A comment is not
+idempotent, so its POST is retried only after a 429, which Notion did not act on.
 """
 
 from __future__ import annotations
@@ -39,7 +40,9 @@ class Client:
         self.opener = opener or urllib.request.urlopen
         self.calls = 0
 
-    def request(self, method: str, path: str, body: dict | None = None) -> dict:
+    def request(self, method: str, path: str, body: dict | None = None, *, retry: bool = True) -> dict:
+        """`retry=False` is for a request Notion may have acted on although no
+        answer came back: only a 429 is tried again; every other failure raises."""
         data = None if body is None else json.dumps(body).encode("utf-8")
         delay = 1.0
         for attempt in range(1, self.attempts + 1):
@@ -62,7 +65,7 @@ class Client:
                     payload = {}
                 finally:
                     error.close()
-                if error.code in RETRY_STATUS and attempt < self.attempts:
+                if error.code in (RETRY_STATUS if retry else {429}) and attempt < self.attempts:
                     retry_after = error.headers.get("Retry-After") if error.headers else None
                     self.sleep(float(retry_after) if retry_after and retry_after.isdigit() else delay)
                     delay *= 2
@@ -70,7 +73,7 @@ class Client:
                 raise NotionError(error.code, str(payload.get("code", "http-error")),
                                   redact(str(payload.get("message", error.reason)), self._token)) from None
             except (urllib.error.URLError, OSError) as error:
-                if attempt < self.attempts:
+                if retry and attempt < self.attempts:
                     self.sleep(delay)
                     delay *= 2
                     continue
@@ -182,5 +185,12 @@ class Client:
         return self.request("PATCH", f"pages/{page_id}", body)
 
     def create_comment(self, page_id: str, rich_text: list[dict]) -> dict:
-        """A comment on a page; a user mention in it reaches that user's phone."""
-        return self.request("POST", "comments", {"parent": {"page_id": page_id}, "rich_text": rich_text})
+        """A comment on a page; a user mention in it reaches that user's phone.
+        Never retried after an uncertain failure: the caller reconciles with
+        `list_comments` before it posts again."""
+        return self.request("POST", "comments", {"parent": {"page_id": page_id}, "rich_text": rich_text},
+                            retry=False)
+
+    def list_comments(self, page_id: str) -> list[dict]:
+        """The unresolved comments on a page."""
+        return list(self.paginate("GET", f"comments?block_id={page_id}&page_size=100"))

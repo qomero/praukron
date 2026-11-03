@@ -1688,8 +1688,10 @@ def notify_settings(config: dict) -> tuple[bool, list[str]]:
 class Events:
     """`.praukron/notion-events.json` (local, ignored by Git, written whole): the
     state the last push saw, the events waiting for their comment, and the ids
-    of every event already commented. An event id is recorded only once its
-    comment exists, so a crash between the two sends at most that one again."""
+    of every event already commented. A pending event names each page it was
+    posted to (`tried`) before the post; its id moves to `sent` once its comment
+    exists. An event with `tried` pages is posted again only when none of their
+    comments carries its marker, so a lost answer or a crash never doubles it."""
 
     def __init__(self, root: Path) -> None:
         self.path = root / layout.HOME_DIR / EVENTS_FILE
@@ -1773,6 +1775,28 @@ def detect(before: dict, after: dict, project: dict, requests: dict[str, dict], 
     return out
 
 
+def marker(project_key: str, event_id: str) -> str:
+    """The tag that ends an event's comment, by which a later push finds it."""
+    return "ref " + hashlib.sha256(f"{project_key}/{event_id}".encode("utf-8")).hexdigest()[:10]
+
+
+def _commented(client: Client, pages: list[str], tag: str) -> bool:
+    """Whether one of `pages` already has the comment that ends with `tag`."""
+    for page in pages:
+        try:
+            comments = client.list_comments(page)
+        except NotionError as error:
+            if error.status == 404:   # the page is gone, and its comments with it
+                continue
+            raise
+        for comment in comments:
+            text = "".join(p.get("plain_text") or (p.get("text") or {}).get("content") or ""
+                           for p in comment.get("rich_text") or [])
+            if text.endswith(tag):
+                return True
+    return False
+
+
 def _mentions(owners: dict[str, str]) -> list[dict]:
     return [{"type": "mention", "mention": {"type": "user", "user": {"id": page_id(user)}}}
             for user in sorted(owners)]
@@ -1783,8 +1807,9 @@ def notify(client: Client, root: Path, config: dict, project: dict,
     """Comment once on each new event's row (or the hub), mentioning every user
     in the ADR's Notion owners. The first run after notifications are turned on
     records the current state and notifies nothing. A failed comment never fails
-    the push: it is logged, stays pending, and `notion doctor` reports it.
-    Returns the number of comments written."""
+    the push: it is logged, stays pending, and `notion doctor` reports it. A
+    comment whose post failed is looked for before it is posted again, since
+    Notion may have written it. Returns the number of events now commented."""
     from . import compile as compiler
 
     enabled, kinds = notify_settings(config)
@@ -1812,17 +1837,28 @@ def notify(client: Client, root: Path, config: dict, project: dict,
         return 0
     mentions = _mentions(compiler.load(root).notion_owners)
     sent = 0
+    hub = config["instance"]
     for event in list(state.pending):
         row = event["row"]
-        target = row if isinstance(row, str) else pages.get((row[0], row[1])) or config["instance"]
-        body = mentions + text_parts(" " + event["text"])
+        target = row if isinstance(row, str) else pages.get((row[0], row[1])) or hub
+        tag = marker(config["projectKey"], event["id"])
+        body = mentions + text_parts(f" {event['text']} · {tag}")
+
+        def post(page: str) -> None:
+            tried = event.setdefault("tried", [])
+            if page not in tried:   # recorded before the post, which may land unanswered
+                tried.append(page)
+                state.write()
+            client.create_comment(page, body)
+
         try:
-            try:
-                client.create_comment(target, body)
-            except NotionError as error:
-                if error.status != 404 or target == config["instance"]:
-                    raise
-                client.create_comment(config["instance"], body)   # the row is gone: the hub
+            if not _commented(client, event.get("tried") or [], tag):
+                try:
+                    post(target)
+                except NotionError as error:
+                    if error.status != 404 or target == hub:
+                        raise
+                    post(hub)   # the row is gone: the hub
         except NotionError as error:
             state.error = {"at": now(), "event": event["id"], "error": str(error)}
             state.write()
@@ -1837,10 +1873,13 @@ def notify(client: Client, root: Path, config: dict, project: dict,
 
 
 def notify_set(root: Path, enabled: bool, kinds: list[str] | None = None) -> dict:
-    """Turn notifications on or off. Turning them on starts a new baseline, so
-    nothing that happened while they were off is sent."""
+    """Turn notifications on or off, or change their kinds. Turning them on
+    starts a new baseline, so nothing that happened while they were off is sent;
+    while they stay on, the baseline and the pending events of every kind still
+    on are kept."""
     config = load_config(root)
     settings = dict(config.get("notify") or {})
+    was_enabled = bool(settings.get("enabled"))
     settings["enabled"] = enabled
     if kinds is not None:
         unknown = [k for k in kinds if k not in KINDS]
@@ -1853,9 +1892,12 @@ def notify_set(root: Path, enabled: bool, kinds: list[str] | None = None) -> dic
     save_config(root, config)
     if enabled:
         state = Events(root)
-        state.snapshot = None
-        state.pending = []
-        state.error = None
+        if was_enabled:
+            state.pending = [e for e in state.pending if e["kind"] in settings["kinds"]]
+        else:
+            state.snapshot = None
+            state.pending = []
+            state.error = None
         state.write()
     return settings
 
@@ -1882,7 +1924,7 @@ def notify_text(status: dict) -> str:
     if error:
         text += f" · last comment failed {error['at']}: {error['error']}"
         if " 403 " in error["error"]:
-            text += " (give the integration the Insert comments capability)"
+            text += " (give the integration the Read comments and Insert comments capabilities)"
     return text
 
 
