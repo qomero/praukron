@@ -1,6 +1,6 @@
-"""Notion provision, push, pull and watch against an in-memory Notion
-(T-NOTION-PROVISION-01, T-NOTION-PUSH-01, T-NOTION-IDENTITY-01, T-NOTION-PULL-01,
-T-NOTION-SCHED-01; ADR-087, ADR-088, ADR-089)."""
+"""Notion setup, push, pull and watch against an in-memory Notion
+(T-NOTION; ADR-087, ADR-088, ADR-089, ADR-090): each project mirrors into its own
+copy of the PPMP template and into one shared Project Portfolio."""
 
 from __future__ import annotations
 
@@ -35,6 +35,22 @@ OWNERS_ADR = f"""# ADR-003: Notion owners
 - Decision: Notion submissions from the owner count.
 - Notion owners: {OWNER_ID}=thien-owner
 """
+# The titles Plautilus gives its databases, by kind.
+PLAUTILUS_TITLES = {
+    "tasks": "Execution Tasks", "decisions": "Human Decisions", "phases": "Phases & Gates",
+    "operations": "Operations & Sync", "portfolio": "Project Portfolio",
+    "acceptance": "Acceptance & Evidence", "blockers": "Blockers & Dependencies",
+    "adrs": "ADR & Technical Debt", "ledger": "Action Ledger",
+    "modules": "🧩 Product Modules · Praukron", "assumptions": "✏️ Assumption Review Queue",
+    "outbox": "Agent Instructions Outbox", "responses": "📜 Owner Response History · Plautilus",
+}
+# The template's hub callouts, as the owner's copy holds them before any push.
+HUB_TEXTS = {
+    "header": "PLAUTILUS / PROJECT CONTROL CENTER · Executive view",
+    "done": "0 / 41\n\nExecution tasks DONE", "phase": "0 / 8\n\nP0 execution · 0% DONE",
+    "reviewed": "0 / 41\n\nAI reviewed / human verified", "gates": "0 / 5\n\nGREEN phase gates",
+    "owner": "VIỆC CỦA BẠN — 0 mục", "product": "THE PRODUCT\n\nA template.",
+}
 
 
 def _read(value: dict) -> dict:
@@ -46,6 +62,10 @@ def _read(value: dict) -> dict:
         if kind in value:
             return {"type": kind, kind: value[kind]}
     raise AssertionError(value)
+
+
+def _ids(page: dict, name: str) -> set[str]:
+    return set(filter(None, notion_sync.plain(page["properties"].get(name)).split(",")))
 
 
 class FakeNotion(Client):
@@ -66,21 +86,41 @@ class FakeNotion(Client):
 
     def _tick(self) -> str:
         self.clock += 1
-        return f"2026-11-03T00:00:{self.clock:02d}.000Z"
+        return f"2026-11-03T00:{self.clock // 60:02d}:{self.clock % 60:02d}.000Z"
 
     def me(self) -> dict:
         return {"bot": {"workspace_name": "Test Space"}}
 
     def add_page(self, name: str, parent: str | None = None) -> str:
-        """A plain page the owner made, such as a duplicate of the PPMP template."""
+        """A plain page the owner made, such as a duplicate of the PPMP template, inside `parent`."""
         page_id = self._id()
-        self.pages[page_id] = {"id": page_id, "parent": {"type": "workspace"}, "in_trash": False,
+        self.pages[page_id] = {"id": page_id, "in_trash": False,
+                               "parent": {"type": "page_id", "page_id": parent} if parent else {"type": "workspace"},
                                "properties": {"title": _read(notion_sync.title(name))}}
         self.blocks[page_id] = []
         if parent:
             self.blocks[parent].append({"id": page_id, "type": "child_page", "has_children": True,
                                         "child_page": {"title": name}})
         return page_id
+
+    def add_block(self, parent: str, kind: str, text: str = "", children: bool = False) -> str:
+        """A block the owner's template holds: a callout, a column or a column list."""
+        block_id = self._id()
+        body = {"rich_text": [{"type": "text", "plain_text": text, "text": {"content": text}}]} if text else {}
+        self.blocks.setdefault(parent, []).append({"id": block_id, "type": kind, "has_children": children,
+                                                   kind: body})
+        self.blocks.setdefault(block_id, [])
+        return block_id
+
+    def seed_database(self, parent: str, kind: str, title: str, drop: tuple[str, ...] = ()) -> None:
+        """A database the duplicate already holds: the template's properties, no relations, no write counted."""
+        spec = notion_sync.DATABASES[kind]
+        writes = self.writes
+        self.create_database(parent, title, {n: v for n, v in spec["properties"].items() if n not in drop})
+        self.writes = writes
+
+    def block(self, block_id: str) -> dict:
+        return next(b for blocks in self.blocks.values() for b in blocks if b["id"] == block_id)
 
     def page(self, page_id: str) -> dict:
         if page_id not in self.pages and page_id not in self.blocks:
@@ -93,8 +133,15 @@ class FakeNotion(Client):
     def append(self, block_id: str, blocks: list[dict]) -> dict:
         self.writes += 1
         for block in blocks:
-            self.blocks.setdefault(block_id, []).append({"id": self._id(), **block})
+            self.blocks.setdefault(block_id, []).append({"id": self._id(), "has_children": False, **block})
         return {}
+
+    def update_block(self, block_id: str, body: dict) -> dict:
+        self.writes += 1
+        block = self.block(block_id)
+        for kind, value in body.items():
+            block[kind] = {**block.get(kind, {}), **value}
+        return block
 
     def delete_block(self, block_id: str) -> dict:
         self.writes += 1
@@ -181,8 +228,13 @@ class FakeNotion(Client):
         return next(p for p in self.rows(kind, config)
                     if notion_sync.plain(p["properties"].get("ID")) == pid)
 
+    def shared_rows(self, config: dict) -> list[dict]:
+        return self.query(config["shared"]["data_source_id"])
 
-class NotionCase(unittest.TestCase):
+
+class Base(unittest.TestCase):
+    """A project on disk and an empty Notion holding a portfolio page and a blank copy; nothing set up yet."""
+
     def setUp(self) -> None:
         self.dir = Path(tempfile.mkdtemp(prefix="praukron-notion-"))
         self.addCleanup(shutil.rmtree, self.dir, True)
@@ -192,103 +244,210 @@ class NotionCase(unittest.TestCase):
         (authority / "RESPONSES.md").write_text(RESPONSES, encoding="utf-8")
         (authority / "ADR" / "ADR-002.md").write_text(POLICY_ADR, encoding="utf-8")
         (authority / "ADR" / "ADR-003.md").write_text(OWNERS_ADR, encoding="utf-8")
+        tasks = authority / "TASKS.md"   # T-TWO waits on the owner, so the hub and Human Decisions have one
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace(
+            "- AC: AC-T-TWO\n", "- AC: AC-T-TWO\n- Authority: owner\n", 1), encoding="utf-8")
         refresh = mock.patch("praukron.respond.refresh")
         refresh.start()
         self.addCleanup(refresh.stop)
         self.notion = FakeNotion()
         self.portfolio = self.notion.add_page("Praukron · Portfolio")
         self.instance = self.notion.add_page("PPMP · Demo", self.portfolio)
-        self.config = notion_sync.setup(self.notion, self.dir,
-                                        f"https://www.notion.so/x-{self.instance.replace('-', '')}", key="DEMO")
+
+    def setup_notion(self, page: str | None = None, **kw) -> dict:
+        page = page or self.instance
+        return notion_sync.setup(self.notion, self.dir, f"https://www.notion.so/x-{page.replace('-', '')}", **kw)
+
+    def saved(self) -> dict:
+        return json.loads((self.dir / ".praukron" / "notion.json").read_text(encoding="utf-8"))
+
+
+class NotionCase(Base):
+    def setUp(self) -> None:
+        super().setUp()
+        self.config = self.setup_notion(key="DEMO")
 
 
 def _databases_under(notion: FakeNotion, page: str) -> set[str]:
     return {b["child_database"]["title"] for b in notion.blocks.get(page, []) if b["type"] == "child_database"}
 
 
-class ProvisionTest(NotionCase):
-    def test_setup_on_a_blank_page_builds_the_nine_ppmp_databases_with_relations(self) -> None:
+class ProvisionTest(Base):
+    def test_setup_on_a_blank_copy_builds_thirteen_databases_a_shared_board_and_the_hub(self) -> None:
+        config = self.setup_notion(key="DEMO")
+        self.assertEqual(len(notion_sync.ORDER), 13)
         self.assertEqual(_databases_under(self.notion, self.instance),
                          {spec["title"] for spec in notion_sync.DATABASES.values()})
-        tasks = self.notion.sources[self.config["databases"]["tasks"]["data_source_id"]]["properties"]
-        for name in ("ID", "Depends On", "Blocks Tasks", "Phase Link", "Acceptance Records", "Work Bucket",
-                     "Review", "Project Key", "Source Revision", "Evidence"):
-            self.assertIn(name, tasks)
-        ledger = self.notion.sources[self.config["databases"]["ledger"]["data_source_id"]]["properties"]
+        # the shared board sits under the portfolio page, not under the copy
+        self.assertEqual(_databases_under(self.notion, self.portfolio), {"Project Portfolio"})
+        self.assertEqual(len(self.notion.databases), 14)
+        self.assertNotEqual(config["shared"], config["databases"]["portfolio"])
+        sources = {kind: self.notion.sources[config["databases"][kind]["data_source_id"]]["properties"]
+                   for kind in notion_sync.ORDER}
+        for name in ("ID", "Depends On", "Blocked By", "Blocks Tasks", "Phase Link", "Module Link",
+                     "Human Feedback", "Governing ADRs", "Agent Instructions", "Work Bucket", "Review",
+                     "Project Key", "Source Revision", "Evidence"):
+            self.assertIn(name, sources["tasks"])
+        for kind in notion_sync.ORDER:
+            for name, target, dual in notion_sync.DATABASES[kind]["relations"]:
+                with self.subTest(kind=kind, relation=name):
+                    relation = sources[kind][name]["relation"]
+                    self.assertEqual(relation["data_source_id"], config["databases"][target]["data_source_id"])
+                    if dual:
+                        self.assertIn(dual, sources[target])
         for name in ("Source Assumption", "Source Instruction", "Target Task Link"):
-            self.assertIn(name, ledger)
-        saved = json.loads((self.dir / ".praukron" / "notion.json").read_text(encoding="utf-8"))
-        self.assertEqual((saved["projectKey"], saved["template"], saved["instance"]),
-                         ("DEMO", "PPMP", self.instance))
+            self.assertIn(name, sources["ledger"])
+        hub = config["hubBlocks"]
+        self.assertEqual(set(hub), set(notion_sync.HUB_MARKERS))
+        self.assertEqual(set(hub.values()), {b["id"] for b in self.notion.blocks[self.instance]
+                                              if b["type"] == "callout"})
+        saved = self.saved()
+        self.assertEqual((saved["projectKey"], saved["template"], saved["instance"], saved["portfolioPage"]),
+                         ("DEMO", "PPMP", self.instance, self.portfolio))
+        for field in ("databases", "shared", "hubBlocks"):
+            self.assertEqual(saved[field], config[field])
         self.assertEqual(set(saved["databases"]), set(notion_sync.ORDER))
-        self.assertIn(saved["hub"], {b["id"] for b in self.notion.blocks[self.instance]})
 
-    def test_setup_binds_a_duplicated_template_and_only_adds_what_is_missing(self) -> None:
-        copy = self.notion.add_page("PPMP · Praukron Project Management Protocol| TEMPLATE (1)", self.portfolio)
-        layer = self.notion.add_page("90 · Data Layer & Schema Reference", copy)
-        made = notion_sync.provision(self.notion, layer)   # what the duplicate already holds
-        tasks = made["tasks"]["data_source_id"]
-        del self.notion.sources[tasks]["properties"]["Evidence"]
-        before = len(self.notion.databases)
-        other = Path(tempfile.mkdtemp(prefix="praukron-notion-b-"))
-        self.addCleanup(shutil.rmtree, other, True)
-        build_fixture(other)
-        config = notion_sync.setup(self.notion, other, copy, key="OTHER", name="Other")
-        self.assertEqual(len(self.notion.databases), before)
-        self.assertEqual(config["databases"], made)
-        self.assertIn("Evidence", self.notion.sources[tasks]["properties"])
-        self.assertEqual(notion_sync.page_title(self.notion.pages[copy]), "PPMP · Other · OTHER")
+    def test_setup_binds_a_duplicated_template_and_adds_only_what_is_missing(self) -> None:
+        copy = self.notion.add_page("PPMP · Plautilus | TEMPLATE (1)", self.portfolio)
+        layer = self.notion.add_page("90 · Dữ liệu & Schema", copy)
+        for kind, title in PLAUTILUS_TITLES.items():
+            self.notion.seed_database(layer, kind, title, drop=("Evidence",) if kind == "tasks" else ())
+        # the template's callouts sit in columns, as in Plautilus
+        row = self.notion.add_block(copy, "column_list", children=True)
+        left = self.notion.add_block(row, "column", children=True)
+        right = self.notion.add_block(row, "column", children=True)
+        callouts = {name: self.notion.add_block(left if i % 2 else right, "callout", text)
+                    for i, (name, text) in enumerate(HUB_TEXTS.items())}
+        self.notion.seed_database(self.portfolio, "portfolio", "Project Portfolio", drop=("Health",))
+        existing = next(b["id"] for b in self.notion.blocks[self.portfolio] if b["type"] == "child_database")
+        before_databases = set(self.notion.databases)
+        top_level = [b["id"] for b in self.notion.blocks[copy]]
 
-    def test_setup_again_duplicates_nothing(self) -> None:
-        before = len(self.notion.databases)
-        again = notion_sync.setup(self.notion, self.dir, self.instance, key="DEMO")
-        self.assertEqual(len(self.notion.databases), before)
-        self.assertEqual(again["hub"], self.config["hub"])
-        self.assertEqual(again["databases"], self.config["databases"])
+        config = self.setup_notion(page=copy, name="Demo", key="DEMO")
 
-    def test_setup_refuses_the_template_itself(self) -> None:
+        self.assertEqual(set(self.notion.databases), before_databases)   # none created
+        self.assertEqual(set(config["databases"]), set(notion_sync.ORDER))
+        tasks = self.notion.sources[config["databases"]["tasks"]["data_source_id"]]["properties"]
+        self.assertIn("Evidence", tasks)
+        self.assertIn("Depends On", tasks)
+        # the existing shared board is bound, repaired, and not duplicated
+        self.assertEqual(config["shared"]["database_id"], existing)
+        self.assertIn("Health", self.notion.sources[config["shared"]["data_source_id"]]["properties"])
+        self.assertEqual(_databases_under(self.notion, self.portfolio), {"Project Portfolio"})
+        # the hub is the template's own callouts; no skeleton is appended
+        self.assertEqual(config["hubBlocks"], callouts)
+        self.assertEqual([b["id"] for b in self.notion.blocks[copy]], top_level)
+        self.assertEqual(notion_sync.page_title(self.notion.pages[copy]), "Demo · Project Management")
+
+    def test_setup_again_changes_nothing(self) -> None:
+        first = self.setup_notion(key="DEMO")
+        writes, databases = self.notion.writes, len(self.notion.databases)
+        blocks = {k: [b["id"] for b in v] for k, v in self.notion.blocks.items()}
+        again = self.setup_notion(key="DEMO")
+        self.assertEqual(self.notion.writes, writes)
+        self.assertEqual(len(self.notion.databases), databases)
+        self.assertEqual({k: [b["id"] for b in v] for k, v in self.notion.blocks.items()}, blocks)
+        self.assertEqual(again, first)
+
+    def test_setup_refuses_the_template_itself_and_writes_nothing(self) -> None:
         template = self.notion.add_page("PPMP · Praukron Project Management Protocol| TEMPLATE", self.portfolio)
         before = self.notion.writes
         with self.assertRaises(NotionError) as caught:
-            notion_sync.setup(self.notion, self.dir, template, key="DEMO")
+            self.setup_notion(page=template, key="DEMO")
         self.assertEqual(caught.exception.code, "template-page")
+        self.assertEqual(self.notion.writes, before)
+        self.assertFalse((self.dir / ".praukron" / "notion.json").exists())
+
+    def test_setup_refuses_a_copy_with_no_parent_page(self) -> None:
+        orphan = self.notion.add_page("PPMP · Orphan")
+        before = self.notion.writes
+        with self.assertRaises(NotionError) as caught:
+            self.setup_notion(page=orphan, key="DEMO")
+        self.assertEqual(caught.exception.code, "no-portfolio-page")
         self.assertEqual(self.notion.writes, before)
 
 
 class PushTest(NotionCase):
-    def test_push_mirrors_records_with_relations_and_is_idempotent(self) -> None:
+    def project(self) -> dict:
+        return compiler.as_json(compiler.load(self.dir))
+
+    def hub_text(self, name: str) -> str:
+        return notion_sync._block_text(self.notion.block(self.config["hubBlocks"][name]))
+
+    def test_push_mirrors_every_record_kind_with_relations(self) -> None:
         first = notion_sync.push(self.notion, self.dir, self.config)
         self.assertGreater(first.created, 0)
-        task = self.notion.row("tasks", self.config, "T-TWO")
+        wanted = notion_sync.records(self.dir, self.project())
+        for kind in notion_sync.MIRRORED:
+            with self.subTest(kind=kind):
+                self.assertEqual({notion_sync.plain(r["properties"]["ID"]) for r in self.notion.rows(kind, self.config)},
+                                 {r.pid for r in wanted if r.kind == kind})
+
+        def page(kind: str, pid: str) -> dict:
+            return self.notion.row(kind, self.config, pid)
+
+        task = page("tasks", "T-TWO")
         self.assertEqual(notion_sync.plain(task["properties"]["Status"]), "TODO")
+        self.assertEqual(notion_sync.plain(task["properties"]["Authority"]), "owner")
         self.assertEqual(notion_sync.plain(task["properties"]["Project Key"]), "DEMO")
         self.assertTrue(notion_sync.plain(task["properties"]["Source Revision"]))
-        one = self.notion.row("tasks", self.config, "T-ONE")["id"]
-        project = compiler.as_json(compiler.load(self.dir))
-        deps = next(t for t in project["tasks"] if t["id"] == "T-TWO")["deps"]
-        if "T-ONE" in deps:
-            self.assertIn(one, notion_sync.plain(task["properties"]["Depends On"]))
-        for kind, pid in (("assumptions", "A-1"), ("adrs", "ADR-001"), ("phases", "P1")):
-            self.notion.row(kind, self.config, pid)
-        adr = self.notion.row("adrs", self.config, "ADR-001")["properties"]
-        self.assertEqual(notion_sync.plain(adr["Kind"]), "ADR")
-        self.assertIn("ADR-001", notion_sync.plain(adr["Rationale"]))
-        for criterion in self.notion.rows("acceptance", self.config):
-            self.assertIn(notion_sync.plain(criterion["properties"]["Result"]), ("NOT_RUN", "PASS", "FAIL"))
-        self.assertTrue(self.notion.rows("acceptance", self.config))
+        self.assertEqual(_ids(task, "Depends On"), {page("tasks", "T-ONE")["id"]})
+        self.assertEqual(_ids(task, "Phase Link"), {page("phases", "P1")["id"]})
+        self.assertEqual(_ids(task, "Module Link"), {page("modules", "M-FOUNDATION")["id"]})
+        self.assertEqual(_ids(page("modules", "M-FOUNDATION"), "Tasks"),
+                         {page("tasks", t)["id"] for t in ("T-ONE", "T-TWO", "T-THREE")})
+        self.assertEqual(notion_sync.plain(page("phases", "Gate A")["properties"]["Kind"]), "GATE")
+        self.assertEqual(notion_sync.plain(page("phases", "M-FIRST")["properties"]["Kind"]), "MILESTONE")
+        adr = page("adrs", "ADR-001")
+        self.assertEqual(notion_sync.plain(adr["properties"]["Kind"]), "ADR")
+        self.assertIn("ADR-001", notion_sync.plain(adr["properties"]["Rationale"]))
+        self.assertIn(page("tasks", "T-ONE")["id"], _ids(adr, "Governed Tasks"))
+        criterion = page("acceptance", "AC-T-ONE-01")
+        self.assertEqual(notion_sync.plain(criterion["properties"]["Result"]), "PASS")
+        self.assertEqual(_ids(criterion, "Task Link"), {page("tasks", "T-ONE")["id"]})
+        assumption = page("assumptions", "A-1")
+        self.assertEqual(_ids(assumption, "Related Task Links"),
+                         {page("tasks", "T-ONE")["id"], page("tasks", "T-TWO")["id"]})
+        self.assertEqual(notion_sync.plain(assumption["properties"]["Delivery State"]), "NOT_SUBMITTED")
+        self.assertEqual(notion_sync.plain(assumption["properties"]["Decision"]), "PENDING")
+        reply = page("responses", "R-1")
+        self.assertEqual(_ids(reply, "Assumption Link"), {assumption["id"]})
+        self.assertEqual(notion_sync.plain(reply["properties"]["Action"]), "REVISE")
+        self.assertEqual(_ids(page("responses", "R-2"), "Task Link"), {task["id"]})
+        decision = page("decisions", "T-TWO")
+        self.assertEqual(notion_sync.plain(decision["properties"]["Kind"]), "APPROVAL")
+        self.assertEqual(notion_sync.plain(decision["properties"]["State"]), "OPEN")
+        self.assertEqual(_ids(decision, "Task Link"), {task["id"]})
+        self.assertEqual({r.pid for r in wanted if r.kind == "decisions"}, {"T-TWO"})
+        blocker = page("blockers", "DEPENDENCY_BLOCKER:T-THREE")
+        self.assertEqual(_ids(blocker, "Affected Tasks"), {task["id"]})
+        self.assertEqual(_ids(blocker, "Root Task Link"), {page("tasks", "T-THREE")["id"]})
+
+    def test_a_second_push_writes_nothing_and_keeps_one_sync_row(self) -> None:
+        notion_sync.push(self.notion, self.dir, self.config)
+        sync = self.notion.row("operations", self.config, notion_sync.SYNC_ROW)["properties"]
+        self.assertEqual(notion_sync.plain(sync["Kind"]), "SYNC")
+        self.assertEqual(notion_sync.plain(sync["Record ID"]), notion_sync.SYNC_ROW)
         writes = self.notion.writes
         second = notion_sync.push(self.notion, self.dir, self.config)
         self.assertEqual(self.notion.writes, writes)
-        self.assertEqual((second.created, second.updated, second.archived), (0, 0, 0))
+        self.assertEqual((second.created, second.updated, second.archived, second.hub), (0, 0, 0, False))
+        self.assertEqual(len(self.notion.rows("operations", self.config)), 1)
 
-    def test_a_removed_record_is_archived_not_left_current(self) -> None:
+    def test_a_removed_assumption_is_trashed(self) -> None:
         notion_sync.push(self.notion, self.dir, self.config)
-        authority = self.dir / layout.AUTHORITY_DIR
-        (authority / "ASSUMPTIONS.md").write_text(ASSUMPTIONS.split("## A-2")[0], encoding="utf-8")
         page = self.notion.row("assumptions", self.config, "A-2")
+        (self.dir / layout.AUTHORITY_DIR / "ASSUMPTIONS.md").write_text(
+            ASSUMPTIONS.split("## A-2")[0], encoding="utf-8")
         result = notion_sync.push(self.notion, self.dir, self.config)
         self.assertEqual(result.archived, 1)
         self.assertTrue(self.notion.pages[page["id"]]["in_trash"])
+        self.assertEqual({notion_sync.plain(r["properties"]["ID"])
+                          for r in self.notion.rows("assumptions", self.config)}, {"A-1"})
+        writes = self.notion.writes
+        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertEqual(self.notion.writes, writes)
 
     def test_owner_fields_survive_a_push(self) -> None:
         notion_sync.push(self.notion, self.dir, self.config)
@@ -301,21 +460,58 @@ class PushTest(NotionCase):
         self.assertEqual(notion_sync.plain(props["Feedback"]), "draft")
         self.assertEqual(notion_sync.plain(props["Decision"]), "REVISE")
 
-    def test_live_status_and_sync_row_match_status(self) -> None:
+    def test_the_hub_callouts_show_the_summary_and_list_what_waits_for_the_owner(self) -> None:
+        summary = notion_sync.summary(self.project(), "DEMO")
+        self.assertEqual(summary["attention"], 3)
+        self.assertTrue(notion_sync.push(self.notion, self.dir, self.config).hub)
+        done = self.hub_text("done")
+        self.assertIn(f"{summary['done']} / {summary['total']}", done)
+        self.assertIn("Execution tasks DONE", done)
+        self.assertIn("GREEN phase gates", self.hub_text("gates"))
+        self.assertIn("Project Key DEMO", self.hub_text("header"))
+        self.assertIn("NEEDS_OWNER", self.hub_text("header"))
+        owner = self.config["hubBlocks"]["owner"]
+        self.assertIn("VIỆC CỦA BẠN", self.hub_text("owner"))
+        self.assertIn(f"{summary['attention']} mục", self.hub_text("owner"))
+        children = self.notion.children(owner)
+        mentioned = {part["mention"]["page"]["id"] for child in children
+                     if child["type"] == "bulleted_list_item"
+                     for part in child["bulleted_list_item"]["rich_text"] if part["type"] == "mention"}
+        self.assertEqual(mentioned, {self.notion.row("assumptions", self.config, "A-1")["id"],
+                                     self.notion.row("assumptions", self.config, "A-2")["id"],
+                                     self.notion.row("tasks", self.config, "T-TWO")["id"]})
+        self.assertIn("Payment term defaults to thirty days", " ".join(notion_sync._block_text(c) for c in children))
+
+    def test_both_portfolio_rows_carry_the_counts_and_health(self) -> None:
         notion_sync.push(self.notion, self.dir, self.config)
-        project = compiler.as_json(compiler.load(self.dir))
-        summary = notion_sync.summary(project, "DEMO")
-        text = json.dumps(self.notion.blocks[self.config["hub"]], ensure_ascii=False)
-        self.assertIn(f"{summary['done']} / {summary['total']} execution tasks DONE", text)
-        self.assertIn(f"{summary['attention']} item(s) need you", text)
-        for line in summary["assumptions"]:
-            self.assertIn(line.split(" · ")[0], text)
-        sync = self.notion.row("operations", self.config, notion_sync.SYNC_ROW)["properties"]
-        self.assertEqual(notion_sync.plain(sync["Kind"]), "SYNC")
-        self.assertTrue(notion_sync.plain(sync["Source Hash"]))
+        summary = notion_sync.summary(self.project(), "DEMO")
+        own, shared = self.notion.rows("portfolio", self.config), self.notion.shared_rows(self.config)
+        self.assertEqual((len(own), len(shared)), (1, 1))
+        for row in (own[0], shared[0]):
+            props = row["properties"]
+            self.assertEqual(props["Execution Done"]["number"], summary["done"])
+            self.assertEqual(props["Execution Total"]["number"], summary["total"])
+            self.assertEqual(props["Open Assumptions"]["number"], 2)
+            self.assertEqual(props["Red Gates"]["number"], 1)
+            self.assertEqual(notion_sync.plain(props["Health"]), "NEEDS_OWNER")
+            self.assertEqual(notion_sync.plain(props["Project Key"]), "DEMO")
+            self.assertTrue(props["Last Synced"]["date"]["start"])
+            self.assertIn(self.instance.replace("-", ""), notion_sync.plain(props["Project Page"]))
+
+    def test_a_second_push_leaves_the_hub_untouched_and_a_change_rewrites_it(self) -> None:
+        notion_sync.push(self.notion, self.dir, self.config)
+        before = {name: self.hub_text(name) for name in self.config["hubBlocks"]}
         writes = self.notion.writes
-        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertFalse(notion_sync.push(self.notion, self.dir, self.config).hub)
         self.assertEqual(self.notion.writes, writes)
+        self.assertEqual({name: self.hub_text(name) for name in self.config["hubBlocks"]}, before)
+        (self.dir / layout.AUTHORITY_DIR / "ASSUMPTIONS.md").write_text(
+            ASSUMPTIONS.split("## A-2")[0], encoding="utf-8")
+        self.assertTrue(notion_sync.push(self.notion, self.dir, self.config).hub)
+        self.assertIn("2 mục", self.hub_text("owner"))
+        texts = " ".join(notion_sync._block_text(c) for c in self.notion.children(self.config["hubBlocks"]["owner"]))
+        self.assertNotIn("Sales may read their own clients only", texts)
+        self.assertEqual(self.saved()["hubBlocks"], self.config["hubBlocks"])
 
 
 class RetryTest(unittest.TestCase):
@@ -378,36 +574,50 @@ class PullTest(NotionCase):
         return notion_sync.plain(self.notion.pages[row_id]["properties"]["Delivery State"])
 
     def ledger(self, row_id: str) -> dict:
-        return next(p["properties"] for p in self.notion.rows("ledger", self.config)
-                    if notion_sync.plain(p["properties"]["Request ID"]) == row_id)
+        (found,) = [p["properties"] for p in self.notion.rows("ledger", self.config)
+                    if notion_sync.plain(p["properties"]["Source Page ID"]) == row_id]
+        return found
+
+    def ledger_count(self, row_id: str) -> int:
+        return len([p for p in self.notion.rows("ledger", self.config)
+                    if notion_sync.plain(p["properties"]["Source Page ID"]) == row_id])
 
     def responses(self) -> str:
         return (self.dir / layout.AUTHORITY_DIR / "RESPONSES.md").read_text(encoding="utf-8")
 
-    def test_owner_decision_lands_verbatim_with_mapped_login_and_receipt(self) -> None:
-        states = []
+    def pull_with_states(self) -> tuple[notion_sync.PullResult, list[str]]:
+        states: list[str] = []
         original = notion_sync._mark
 
         def spy(client, row_id, state, *a, **k):
             states.append(state)
             return original(client, row_id, state, *a, **k)
 
+        with mock.patch.object(notion_sync, "_mark", spy):
+            return notion_sync.pull(self.notion, self.dir, self.config), states
+
+    def test_owner_decision_lands_verbatim_with_mapped_login_and_receipt(self) -> None:
         row = self.submit_assumption(Decision=notion_sync.select("REVISE"),
                                      Feedback=notion_sync.rich("Mặc định 14 ngày."))
-        with mock.patch.object(notion_sync, "_mark", spy):
-            result = notion_sync.pull(self.notion, self.dir, self.config)
+        self.assertEqual(self.state(row), "NOT_SUBMITTED")
+        result, states = self.pull_with_states()
         self.assertEqual(result.applied, ["R-3"])
         self.assertEqual(states, ["QUEUED", "LOCAL_RECORDED", "APPLIED"])
         text = self.responses()
         self.assertIn("## R-3: A-1 REVISE\n- By: thien-owner", text)
         self.assertIn(f"- Via: notion {OWNER_ID.replace('-', '')} request {row}", text)
         self.assertIn("> Mặc định 14 ngày.", text)
-        self.assertIn("R-3", notion_sync.plain(self.notion.pages[row]["properties"]["Apply Evidence"]))
+        props = self.notion.pages[row]["properties"]
+        self.assertEqual(notion_sync.plain(props["Request ID"]), row)
+        self.assertEqual(props["Apply Evidence"]["type"], "rich_text")
+        self.assertIn("R-3", notion_sync.plain(props["Apply Evidence"]))
         ledger = self.ledger(row)
-        self.assertEqual([notion_sync.plain(ledger[k]) for k in ("ID", "Status", "Applied Revision", "Source")],
-                         ["R-3", "APPLIED", "R-3", "ASSUMPTION"])
+        self.assertEqual([notion_sync.plain(ledger[k]) for k in ("ID", "Status", "Source Database", "Target ID")],
+                         ["R-3", "APPLIED", "ASSUMPTION", "A-1"])
+        self.assertIn("R-3", notion_sync.plain(ledger["Action Title"]))
+        self.assertEqual(_ids({"properties": ledger}, "Source Assumption"), {row})
 
-    def test_a_submission_seen_twice_is_written_once(self) -> None:
+    def test_a_submission_seen_twice_is_written_once_with_one_ledger_row(self) -> None:
         row = self.submit_assumption()
         notion_sync.pull(self.notion, self.dir, self.config)
         self.notion.pages[row]["properties"]["Delivery State"] = {"type": "select", "select": {"name": "QUEUED"}}
@@ -415,8 +625,8 @@ class PullTest(NotionCase):
         self.assertEqual(again.applied, ["R-3"])
         self.assertEqual(self.responses().count("## R-3"), 1)
         self.assertNotIn("## R-4", self.responses())
-        self.assertEqual(len([p for p in self.notion.rows("ledger", self.config)
-                              if notion_sync.plain(p["properties"]["Request ID"]) == row]), 1)
+        self.assertEqual(self.ledger_count(row), 1)
+        self.assertEqual(self.state(row), "APPLIED")
 
     def test_a_stale_row_conflicts_and_writes_nothing(self) -> None:
         row = self.submit_assumption()
@@ -428,22 +638,40 @@ class PullTest(NotionCase):
         self.assertEqual(self.state(row), "CONFLICT")
         self.assertFalse(self.notion.pages[row]["properties"]["Submit"]["checkbox"])
         self.assertEqual(self.responses(), before)
-        self.assertEqual(notion_sync.plain(self.ledger(row)["Status"]), "CONFLICT")
+        ledger = self.ledger(row)
+        self.assertEqual(notion_sync.plain(ledger["Status"]), "CONFLICT")
+        self.assertIn("changed", notion_sync.plain(ledger["Error"]))
 
-    def test_a_stranger_is_rejected_and_nothing_is_written(self) -> None:
+    def test_a_stranger_is_rejected_and_the_reason_is_in_the_ledger(self) -> None:
         row = self.submit_assumption(editor=STRANGER)
         before = self.responses()
         result = notion_sync.pull(self.notion, self.dir, self.config)
         self.assertEqual(result.rejected, 1)
         self.assertEqual(self.state(row), "REJECTED")
         self.assertEqual(self.responses(), before)
-        self.assertIn("not listed", notion_sync.plain(self.ledger(row)["Error"]))
+        ledger = self.ledger(row)
+        self.assertEqual(notion_sync.plain(ledger["Status"]), "REJECTED")
+        self.assertIn("not listed", notion_sync.plain(ledger["Error"]))
+        self.assertIn(STRANGER.replace("-", ""), notion_sync.plain(ledger["Error"]))
 
-    def outbox(self, intent: str, target: str = "T-TWO", editor: str = OWNER_ID) -> str:
+    def test_revise_or_reject_without_feedback_is_rejected(self) -> None:
+        for pid, decision in (("A-1", "REVISE"), ("A-2", "REJECT")):
+            with self.subTest(decision=decision):
+                row = self.submit_assumption(pid, Decision=notion_sync.select(decision))
+                before = self.responses()
+                result = notion_sync.pull(self.notion, self.dir, self.config)
+                self.assertEqual(result.rejected, 1)
+                self.assertEqual(self.state(row), "REJECTED")
+                self.assertEqual(self.responses(), before)
+                self.assertIn("Feedback", notion_sync.plain(self.ledger(row)["Error"]))
+                self.assertFalse(self.notion.pages[row]["properties"]["Submit"]["checkbox"])
+
+    def outbox(self, intent: str, target: str = "T-TWO", editor: str = OWNER_ID, heading: str = "") -> str:
         source = self.config["databases"]["outbox"]["data_source_id"]
         task = self.notion.row("tasks", self.config, target)["id"] if target.startswith("T-") else None
         page = self.notion.create_page({"type": "data_source_id", "data_source_id": source}, {
             "ID": notion_sync.title("Use staging"),
+            "Instruction Title": notion_sync.rich(heading),
             "Instruction Text": notion_sync.rich("Chạy trên staging trước."),
             "Intent": notion_sync.select(intent), "Delivery State": notion_sync.select("DRAFT"),
             **({"Target Task Link": notion_sync.relation([task])} if task else
@@ -455,18 +683,39 @@ class PullTest(NotionCase):
     def test_instructions_become_guide_responses_on_their_target(self) -> None:
         for intent in ("IMPLEMENT", "FIX", "REVIEW", "REPLAN", "PAUSE", "OTHER"):
             with self.subTest(intent=intent):
-                row = self.outbox(intent)
-                notion_sync.pull(self.notion, self.dir, self.config)
+                row = self.outbox(intent, heading="Dùng staging")
+                _, states = self.pull_with_states()
+                self.assertEqual(states, ["QUEUED", "LOCAL_RECORDED", "COMPILED", "APPLIED"])
                 self.assertEqual(self.state(row), "APPLIED")
-                self.assertEqual(notion_sync.plain(self.ledger(row)["Source"]), "INSTRUCTION")
+                ledger = self.ledger(row)
+                self.assertEqual(notion_sync.plain(ledger["Source Database"]), "INSTRUCTION")
+                self.assertEqual(_ids({"properties": ledger}, "Target Task Link"),
+                                 {self.notion.row("tasks", self.config, "T-TWO")["id"]})
+                self.assertEqual(_ids({"properties": ledger}, "Source Instruction"), {row})
         text = self.responses()
         self.assertIn("T-TWO GUIDE\n- By: thien-owner", text)
+        self.assertIn("> Dùng staging", text)
         self.assertIn("> Chạy trên staging trước.", text)
         self.assertIn("(Notion · intent PAUSE)", text)
         project = compiler.as_json(compiler.load(self.dir))
         self.assertTrue(any(r["target"] == "T-TWO" and "notion" in (r["via"] or "") for r in project["responses"]))
 
-    def test_verify_from_a_listed_owner_is_passed_as_verify(self) -> None:
+    def test_an_instruction_may_name_its_target_by_id(self) -> None:
+        row = self.outbox("ANSWER", target="A-1")
+        notion_sync.pull(self.notion, self.dir, self.config)
+        self.assertEqual(self.state(row), "APPLIED")
+        self.assertIn("A-1 GUIDE\n- By: thien-owner", self.responses())
+        self.assertEqual(notion_sync.plain(self.ledger(row)["Target ID"]), "A-1")
+
+    def test_an_instruction_without_a_target_is_rejected(self) -> None:
+        row = self.outbox("IMPLEMENT", target="nothing")
+        before = self.responses()
+        result = notion_sync.pull(self.notion, self.dir, self.config)
+        self.assertEqual(result.rejected, 1)
+        self.assertEqual(self.state(row), "REJECTED")
+        self.assertEqual(self.responses(), before)
+
+    def test_approve_from_an_owner_is_passed_as_verify(self) -> None:
         calls = []
 
         def fake(root, items, via, verify, by):
@@ -476,9 +725,10 @@ class PullTest(NotionCase):
         row = self.outbox("APPROVE")
         notion_sync.pull(self.notion, self.dir, self.config, append=fake)
         self.assertEqual(calls, [("VERIFY", True, "thien-owner")])
-        self.assertEqual(notion_sync.plain(self.ledger(row)["Source"]), "APPROVAL")
+        self.assertEqual(notion_sync.plain(self.ledger(row)["Source Database"]), "APPROVAL")
+        self.assertEqual(notion_sync.plain(self.ledger(row)["ID"]), "R-9")
 
-    def test_offline_submissions_are_applied_in_order_when_back(self) -> None:
+    def test_offline_submissions_are_applied_in_edit_order_when_back(self) -> None:
         first = self.outbox("GUIDE")
         second = self.submit_assumption("A-2", Decision=notion_sync.select("CONFIRM"))
         result = notion_sync.pull(self.notion, self.dir, self.config)
