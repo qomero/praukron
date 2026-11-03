@@ -835,7 +835,10 @@ def hub_blocks_found(client: Client, instance: str) -> dict[str, str]:
         for block in client.children(queue.pop(0)):
             kind = block.get("type")
             if kind == "callout":
+                # Plautilus puts a callout's label lines in child blocks.
                 text = _block_text(block)
+                if block.get("has_children"):
+                    text += "\n" + "\n".join(_block_text(child) for child in client.children(block["id"]))
                 for name, pattern in HUB_MARKERS.items():
                     if name not in found and re.search(pattern, text):
                         found[name] = block["id"]
@@ -845,23 +848,28 @@ def hub_blocks_found(client: Client, instance: str) -> dict[str, str]:
     return found
 
 
-def _callout(parts: list[dict], icon: str, color: str = "gray_background") -> dict:
-    return {"type": "callout", "callout": {"rich_text": parts, "icon": {"type": "emoji", "emoji": icon},
-                                           "color": color}}
+def _callout(parts: list[dict], icon: str, color: str = "gray_background",
+             children: list[dict] | None = None) -> dict:
+    body = {"rich_text": parts, "icon": {"type": "emoji", "emoji": icon}, "color": color}
+    if children:
+        body["children"] = children
+    return {"type": "callout", "callout": body}
 
 
 def add_hub_skeleton(client: Client, instance: str) -> dict[str, str]:
     """A page without the template's callouts gets them, so push has a place to write."""
     skeleton = [
-        ("🪐", "purple_background", "PROJECT CONTROL CENTER"),
-        ("✅", "gray_background", "— / —\n\nExecution tasks DONE"),
-        ("📍", "purple_background", "— / —\n\nPHASE · DONE"),
-        ("🔎", "gray_background", "— / —\n\nAI reviewed / human verified"),
-        ("🚦", "gray_background", "— / —\n\nGREEN phase gates"),
-        ("✏️", "red_background", "VIỆC CỦA BẠN"),
-        ("🧭", "gray_background", "THE PRODUCT"),
+        ("🪐", "purple_background", "[PROJECT NAME] / PROJECT CONTROL CENTER", None),
+        ("✅", "gray_background", "— / —", "Execution tasks DONE"),
+        ("📍", "purple_background", "— / —", "PHASE · DONE"),
+        ("🔎", "gray_background", "— / —", "AI reviewed / human verified"),
+        ("🚦", "gray_background", "— / —", "GREEN phase gates"),
+        ("✏️", "red_background", "VIỆC CỦA BẠN", None),
+        ("🧭", "gray_background", "THE PRODUCT", None),
     ]
-    client.append(instance, [_callout(text_parts(text), icon, color) for icon, color, text in skeleton])
+    client.append(instance, [_callout(text_parts(text), icon, color,
+                                      [_para(text_parts(label))] if label else None)
+                             for icon, color, text, label in skeleton])
     return hub_blocks_found(client, instance)
 
 
@@ -879,20 +887,24 @@ def _para(parts: list[dict], kind: str = "paragraph") -> dict:
     return {"type": kind, kind: {"rich_text": parts}}
 
 
-def hub_content(s: dict, config: dict, pages: dict[tuple[str, str], str]) -> dict[str, tuple[list[dict], list[dict] | None]]:
-    """What each hub callout says: (rich text, children, or None to keep them)."""
-    def kpi(value: str, label: str) -> list[dict]:
-        return text_parts(value, bold=True) + text_parts(f"\n\n{label}")
+def hub_content(s: dict, config: dict,
+                pages: dict[tuple[str, str], str]) -> dict[str, tuple[list[dict], list[dict], bool]]:
+    """What each hub callout says, laid out as Plautilus does: (first line, child
+    blocks, whether to keep the callout's existing lines that link pages)."""
+    def kpi(value: str, label: str) -> tuple[list[dict], list[dict], bool]:
+        return text_parts(value, bold=True), [_para(text_parts(label))], False
 
     pct = round(100 * s["phaseDone"] / s["phaseTotal"]) if s["phaseTotal"] else 0
     dbs = config["databases"]
     header = (text_parts(f"{s['name'].upper()} / PROJECT CONTROL CENTER", bold=True)
-              + text_parts(" · Executive view & delivery intelligence\n\n")
-              + text_parts(s["thesis"], bold=True)
-              + text_parts(f"\n\n{s['phaseId']} {s['phaseStatus']} · Health: ")
+              + text_parts(" · Executive view & delivery intelligence"))
+    header_lines = [
+        _para(text_parts(s["thesis"], bold=True)),
+        _para(text_parts(f"{s['phaseId']} {s['phaseStatus']}", bold=True) + text_parts(" · Health: ")
               + text_parts(s["health"], bold=True)
               + text_parts(f" — {s['attention']} việc chờ chủ dự án · Project Key {s['key']} · "
-                           f"Snapshot {_dt.date.today().isoformat()} · đồng bộ từ Praukron chronicle"))
+                           f"Snapshot {_dt.date.today().isoformat()} · đồng bộ từ Praukron chronicle")),
+    ]
     children = [_para(text_parts("Chỉ có ") + text_parts("2 nơi bạn nhập liệu", bold=True)
                       + text_parts(": ") + [_db_mention(dbs["assumptions"]["database_id"])]
                       + text_parts(" và ") + [_db_mention(dbs["outbox"]["database_id"])]
@@ -918,27 +930,50 @@ def hub_content(s: dict, config: dict, pages: dict[tuple[str, str], str]) -> dic
     if not (s["assumptions"] or s["ownerTasks"]):
         children.append(_para(text_parts("Không có việc chờ bạn.")))
     return {
-        "header": (header, None),
-        "done": (kpi(f"{s['done']} / {s['total']}", "Execution tasks DONE"), None),
-        "phase": (kpi(f"{s['phaseDone']} / {s['phaseTotal']}", f"{s['phaseId']} execution · {pct}% DONE"), None),
-        "reviewed": (kpi(f"{s['reviewed']} / {s['total']}", "AI reviewed / human verified"), None),
-        "gates": (kpi(f"{s['gatesGreen']} / {s['gates']}", "GREEN phase gates"), None),
-        "owner": (text_parts(f"VIỆC CỦA BẠN — {s['attention']} mục cần nhập / duyệt thủ công", bold=True), children),
-        "product": (text_parts("THE PRODUCT", bold=True) + text_parts(f"\n\n{s['thesis']}"), None),
+        "header": (header, header_lines, True),
+        "done": kpi(f"{s['done']} / {s['total']}", "Execution tasks DONE"),
+        "phase": kpi(f"{s['phaseDone']} / {s['phaseTotal']}", f"{s['phaseId']} execution · {pct}% DONE"),
+        "reviewed": kpi(f"{s['reviewed']} / {s['total']}", "AI reviewed / human verified"),
+        "gates": kpi(f"{s['gatesGreen']} / {s['gates']}", "GREEN phase gates"),
+        "owner": (text_parts(f"VIỆC CỦA BẠN — {s['attention']} mục cần nhập / duyệt thủ công", bold=True),
+                  children, False),
+        "product": (text_parts("THE PRODUCT", bold=True), [_para(text_parts(s["thesis"]))], True),
     }
+
+
+def _reusable(block: dict) -> dict | None:
+    """A child line that links pages (the template's navigation), rebuilt so it
+    can be written back; None for anything else."""
+    kind = block.get("type")
+    parts = (block.get(kind) or {}).get("rich_text") or []
+    if kind not in ("paragraph", "bulleted_list_item") or not any(p.get("type") == "mention" for p in parts):
+        return None
+    clean = []
+    for part in parts:
+        if part.get("type") == "mention":
+            clean.append({"type": "mention", "mention": part["mention"]})
+        else:
+            text = part.get("text") or {"content": part.get("plain_text", "")}
+            clean.append({"type": "text", "text": {"content": text.get("content", ""), "link": text.get("link")}})
+        if part.get("annotations"):
+            clean[-1]["annotations"] = part["annotations"]
+    return _para(clean, kind)
 
 
 def write_hub(client: Client, config: dict, content: dict) -> None:
     blocks = config.get("hubBlocks") or {}
-    for name, (parts, children) in content.items():
+    for name, (parts, children, keep_links) in content.items():
         block = blocks.get(name)
         if not block:
             continue
         client.update_block(block, {"callout": {"rich_text": parts}})
-        if children is not None:
-            for child in client.children(block):
-                client.delete_block(child["id"])
-            client.append(block, children)
+        kept = []
+        for child in client.children(block):
+            again = _reusable(child) if keep_links else None
+            if again is not None:
+                kept.append(again)
+            client.delete_block(child["id"])
+        client.append(block, children + kept)
 
 
 # --------------------------------------------------------------------------
