@@ -850,7 +850,6 @@ def summary(project: dict, key: str, requests: list[tuple[str, str, str]] | None
         "mainBlocker": (main.get("detail") or main.get("id") or "") if isinstance(main, dict) else str(main or ""),
         "assumptions": [(a["id"], a["title"], a.get("impact") or "") for a in open_assumptions],
         "ownerTasks": [(t["id"], t["title"], downstream.get(t["id"], 0)) for t in waiting],
-        "ownerLater": [t["id"] for t in owner_open if not t.get("ready")],
         # A pending ACR holds its task, and so everything behind it (T-NOTION-HUB-OWNER-01).
         "requests": [(rid, tid, proposed, downstream.get(tid, 0) + 1 if tid else 0)
                      for rid, tid, proposed in requests],
@@ -986,10 +985,8 @@ def hub_content(s: dict, config: dict,
                                   + text_parts(f" — {short} — ")
                                   + text_parts(f"gỡ {behind} task", bold=behind >= 5),
                                   "bulleted_list_item"))
-    if s["ownerLater"]:
-        more = "…" if len(s["ownerLater"]) > 3 else ""
-        children.append(_para(text_parts(f"Chưa cần làm: {len(s['ownerLater'])} task owner khác "
-                                         f"({', '.join(s['ownerLater'][:3])}{more}) đang chờ phụ thuộc.")))
+    # Owner tasks still waiting on others are not listed: the callout names only
+    # what the owner can act on now, each with the tasks it unblocks.
     if not (s["assumptions"] or s["ownerTasks"] or s["requests"]):
         children.append(_para(text_parts("Không có việc chờ bạn.")))
     return {
