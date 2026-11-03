@@ -577,6 +577,68 @@ class PushTest(NotionCase):
                                      self.notion.row("tasks", self.config, "T-TWO")["id"]})
         self.assertIn("Payment term defaults to thirty days", " ".join(notion_sync._block_text(c) for c in children))
 
+    def test_a_pending_acr_is_listed_for_the_owner_with_its_task_and_what_it_unblocks(self) -> None:
+        """T-NOTION-HUB-OWNER-01: an ACR awaiting the owner shows in the owner
+        callout, linked to its task; a decided one does not."""
+        acceptance = self.dir / layout.AUTHORITY_DIR / "ACCEPTANCE.md"
+        acceptance.write_text(acceptance.read_text(encoding="utf-8") + (
+            "\n### ACR-001 — AC-T-TWO-01\n- Task: T-TWO\n- Criterion: `AC-T-TWO-01`\n"
+            "- Current contract: Old text. `TEST`\n- Proposed contract: Exports keep every row. `TEST`\n"
+            "- Reason: Wrong.\n- Impact: not stated\n- Decision: PENDING — awaiting the owner\n"
+            "\n### ACR-002 — AC-T-TWO-01\n- Task: T-TWO\n- Criterion: `AC-T-TWO-01`\n"
+            "- Current contract: Old text. `TEST`\n- Proposed contract: Already settled. `TEST`\n"
+            "- Reason: Wrong.\n- Impact: not stated\n- Decision: ACCEPTED 2026-11-03 by the owner (R-1).\n"),
+            encoding="utf-8")
+        summary = notion_sync.summary(self.project(), "DEMO", notion_sync.pending_requests(self.dir, self.project()))
+        self.assertEqual([r[:3] for r in summary["requests"]], [("ACR-001", "T-TWO", "Exports keep every row.")])
+        self.assertEqual(summary["attention"], 4)
+        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertIn("4 mục", self.hub_lines("owner")[0])
+        text = self.hub_text("owner")
+        self.assertIn("ACR-001", text)
+        self.assertIn("Exports keep every row.", text)
+        self.assertIn("Outbox", text)
+        self.assertNotIn("ACR-002", text)
+        line = next(c for c in self.notion.children(self.config["hubBlocks"]["owner"])
+                    if "ACR-001" in notion_sync._block_text(c))
+        mentions = [p["mention"]["page"]["id"] for p in line["bulleted_list_item"]["rich_text"] if p["type"] == "mention"]
+        self.assertEqual(mentions, [self.notion.row("tasks", self.config, "T-TWO")["id"]])
+
+    def test_the_owner_callout_names_only_root_actions_never_what_they_hold(self) -> None:
+        """Astra PR 71 R1-1: an owner task waiting on another owner task, or held by
+        a pending ACR's task, is counted on the root action and never named."""
+        tasks = self.dir / layout.AUTHORITY_DIR / "TASKS.md"
+        text = tasks.read_text(encoding="utf-8")
+        start = text.index("## T-THREE")
+        tasks.write_text(text[:start] + text[start:].replace("- Status: TODO\n", "- Status: TODO\n- Authority: owner\n", 1),
+                         encoding="utf-8")
+        acceptance = self.dir / layout.AUTHORITY_DIR / "ACCEPTANCE.md"
+        acceptance.write_text(acceptance.read_text(encoding="utf-8") + (
+            "\n### ACR-001 — AC-T-TWO-01\n- Task: T-TWO\n- Criterion: `AC-T-TWO-01`\n"
+            "- Current contract: Old text. `TEST`\n- Proposed contract: Exports keep every row. `TEST`\n"
+            "- Reason: Wrong.\n- Impact: not stated\n- Decision: PENDING — awaiting the owner\n"), encoding="utf-8")
+        notion_sync.push(self.notion, self.dir, self.config)
+        text = self.hub_text("owner")
+        self.assertNotIn("T-THREE", text)
+        self.assertIn("Build on it — 1 task phía sau", text)   # T-TWO, the root, counts T-THREE
+        self.assertIn("gỡ 2 task", text)                        # the ACR holds T-TWO and T-THREE
+        mentioned = {part["mention"]["page"]["id"] for child in self.notion.children(self.config["hubBlocks"]["owner"])
+                     for kind in ("paragraph", "bulleted_list_item") if child["type"] == kind
+                     for part in child[kind]["rich_text"] if "page" in part.get("mention", {})}
+        self.assertNotIn(self.notion.row("tasks", self.config, "T-THREE")["id"], mentioned)
+        self.assertIn(self.notion.row("tasks", self.config, "T-TWO")["id"], mentioned)
+
+    def test_with_nothing_waiting_the_owner_callout_says_so(self) -> None:
+        authority = self.dir / layout.AUTHORITY_DIR
+        (authority / "ASSUMPTIONS.md").write_text(
+            ASSUMPTIONS.replace("- Status: OPEN", "- Status: CONFIRMED"), encoding="utf-8")
+        tasks = authority / "TASKS.md"
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace("- Authority: owner\n", "", 1), encoding="utf-8")
+        summary = notion_sync.summary(self.project(), "DEMO", notion_sync.pending_requests(self.dir, self.project()))
+        self.assertEqual((summary["attention"], summary["requests"]), (0, []))
+        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertIn("Không có việc chờ bạn.", self.hub_text("owner"))
+
     def test_both_portfolio_rows_carry_the_counts_and_health(self) -> None:
         notion_sync.push(self.notion, self.dir, self.config)
         summary = notion_sync.summary(self.project(), "DEMO")

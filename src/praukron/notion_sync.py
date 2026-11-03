@@ -571,7 +571,7 @@ def setup(client: Client, root: Path, instance_reference: str, key: str | None =
     pages = {(kind, pid): row["id"] for kind in ("tasks", "assumptions")
              for pid, row in _existing(client, databases[kind]["data_source_id"], key).items()}
     present = {(r.kind, r.pid) for r in records(root, project)}
-    _refresh_hub(client, root, config, summary(project, key), pages, present)
+    _refresh_hub(client, root, config, summary(project, key, pending_requests(root, project)), pages, present)
     return config
 
 
@@ -798,7 +798,26 @@ def revision_of(record: Record) -> str:
 # --------------------------------------------------------------------------
 
 
-def summary(project: dict, key: str) -> dict:
+def pending_requests(root: Path, project: dict) -> list[tuple[str, str, str]]:
+    """The Acceptance Change Requests awaiting the owner, as (ACR id, task id,
+    proposed text): each holds its task's criterion until the owner decides."""
+    from .parse import parse_change_requests
+
+    path = root / layout.AUTHORITY_DIR / "ACCEPTANCE.md"
+    if not path.is_file():
+        return []
+    by_contract = {t.get("ac"): t["id"] for t in project["tasks"] if t.get("ac")}
+    found = []
+    for request in parse_change_requests(path):
+        if not request.decision.upper().startswith("PENDING"):
+            continue
+        contract_id = re.sub(r"-[0-9]+$", "", request.criterion)
+        proposed = re.sub(r"\s*`[A-Z_]+`$", "", request.proposed or "")   # without its evidence class
+        found.append((request.id, by_contract.get(contract_id, ""), proposed))
+    return found
+
+
+def summary(project: dict, key: str, requests: list[tuple[str, str, str]] | None = None) -> dict:
     tasks = project["tasks"]
     execution = [t for t in tasks if t.get("domain") == "execution"]
     done = sum(t["status"] == "DONE" for t in execution)
@@ -814,7 +833,8 @@ def summary(project: dict, key: str) -> dict:
     owner_open = [t for t in tasks if (t.get("authority") or "") == "owner" and t["status"] != "DONE"]
     waiting = sorted((t for t in owner_open if t.get("ready")), key=lambda t: (-downstream.get(t["id"], 0), t["id"]))
     main = (project.get("execution") or {}).get("mainBlocker")
-    attention = len(open_assumptions) + len(waiting)
+    requests = requests or []
+    attention = len(open_assumptions) + len(waiting) + len(requests)
     thesis = project.get("thesis") or {}
     return {
         "key": key, "name": project["project"]["name"],
@@ -830,7 +850,9 @@ def summary(project: dict, key: str) -> dict:
         "mainBlocker": (main.get("detail") or main.get("id") or "") if isinstance(main, dict) else str(main or ""),
         "assumptions": [(a["id"], a["title"], a.get("impact") or "") for a in open_assumptions],
         "ownerTasks": [(t["id"], t["title"], downstream.get(t["id"], 0)) for t in waiting],
-        "ownerLater": [t["id"] for t in owner_open if not t.get("ready")],
+        # A pending ACR holds its task, and so everything behind it (T-NOTION-HUB-OWNER-01).
+        "requests": [(rid, tid, proposed, downstream.get(tid, 0) + 1 if tid else 0)
+                     for rid, tid, proposed in requests],
     }
 
 
@@ -952,11 +974,20 @@ def hub_content(s: dict, config: dict,
             children.append(_para([_mention(pages.get(("tasks", tid)), tid)] + text_parts(f" · {name} — ")
                                   + text_parts(f"{behind} task phía sau", bold=behind >= 5),
                                   "bulleted_list_item"))
-    if s["ownerLater"]:
-        more = "…" if len(s["ownerLater"]) > 3 else ""
-        children.append(_para(text_parts(f"Chưa cần làm: {len(s['ownerLater'])} task owner khác "
-                                         f"({', '.join(s['ownerLater'][:3])}{more}) đang chờ phụ thuộc.")))
-    if not (s["assumptions"] or s["ownerTasks"]):
+    if s["requests"]:
+        children.append(_para(text_parts(f"③ Duyệt {len(s['requests'])} ACR (đổi tiêu chí)", bold=True)
+                              + text_parts(" — tạo instruction trong Outbox, gắn task, Intent GUIDE, ghi "
+                                           "\"duyệt ACR-…\" hoặc lý do từ chối, tick Submit")))
+        for rid, tid, proposed, behind in s["requests"]:
+            short = proposed if len(proposed) <= 140 else proposed[:139] + "…"
+            children.append(_para(text_parts(rid, bold=True) + text_parts(" · ")
+                                  + ([_mention(pages.get(("tasks", tid)), tid)] if tid else [])
+                                  + text_parts(f" — {short} — ")
+                                  + text_parts(f"gỡ {behind} task", bold=behind >= 5),
+                                  "bulleted_list_item"))
+    # Owner tasks still waiting on others are not listed: the callout names only
+    # what the owner can act on now, each with the tasks it unblocks.
+    if not (s["assumptions"] or s["ownerTasks"] or s["requests"]):
         children.append(_para(text_parts("Không có việc chờ bạn.")))
     return {
         "header": (header, header_lines),
@@ -1145,7 +1176,7 @@ def push(client: Client, root: Path, config: dict | None = None,
     key = config["projectKey"]
     dbs = config["databases"]
     result = PushResult()
-    s = summary(project, key)
+    s = summary(project, key, pending_requests(root, project))
 
     wanted = records(root, project)
     present = {(r.kind, r.pid) for r in wanted}
