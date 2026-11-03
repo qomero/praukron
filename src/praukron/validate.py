@@ -25,6 +25,7 @@ from .model import (
     RESPONSE_ACTIONS,
     RESPONSE_STATUS,
     GITHUB_LOGIN,
+    NOTION_OWNER,
     TASK_AUTHORITIES,
     VERIFY,
     DEBT_STATUSES,
@@ -440,6 +441,15 @@ def assumption_findings(project: Project) -> list[Finding]:
         if invalid:
             findings.append(Finding("error", "invalid-owners",
                                     f"Owners contains invalid GitHub login(s): {', '.join(invalid)}", where))
+    for decision in project.decisions:
+        if decision.notion_owners is None:
+            continue
+        where = f"{decision.source.file}#{decision.id}"
+        malformed = [entry for entry in decision.notion_owners if not NOTION_OWNER.fullmatch(entry)]
+        if not decision.notion_owners or malformed:
+            findings.append(Finding("error", "invalid-notion-owners",
+                                    "Notion owners must list <notion-user-id>=<github-login>"
+                                    + (f"; malformed: {', '.join(malformed)}" if malformed else ""), where))
     if (any(task.owner_held for task in project.tasks) or any(response.action == VERIFY for response in project.responses)) \
             and not project.owners_decision:
         findings.append(Finding("warning", "owners-missing",
