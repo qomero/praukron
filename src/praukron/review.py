@@ -45,7 +45,9 @@ details.acard > summary:hover { background: var(--panel-raised); }
 .review-result { font-size: 13px; flex: 1 0 100%; }
 .review-result:empty { display: none; }
 .approval-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-block: 8px; }
-summary .approval-controls { flex: 1 0 100%; grid-column: 1 / -1; }
+.tickable > .approval-controls { padding: 0 14px 10px; margin-block: 0; }
+#needs-you .tickable > .approval-controls { padding-inline: 0; }
+.tickable:has(> details[hidden], > details.xf-out, > details.is-offpage) > .approval-controls { display: none; }
 .approval-select { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; cursor: pointer; }
 .approval-select input { accent-color: var(--accent); width: 18px; height: 18px; margin: 0; }
 .approve-one, .approve-selected { display: inline-flex; align-items: center; gap: 8px; min-height: 44px;
@@ -141,15 +143,11 @@ if (reviewBars.length) {
     if (countLabel) countLabel.textContent = count + ' selected';
   }
   selections.forEach(input => input.addEventListener('change', updateSelection));
-  document.querySelectorAll('.approval-controls').forEach(control => {
-    control.addEventListener('click', event => event.stopPropagation());
-    control.addEventListener('keydown', event => event.stopPropagation());
-  });
   function approvalItem(control) {
     return {target: control.dataset.target, action: control.dataset.action,
       text: control.dataset.action === 'VERIFY' ? 'Verified.' : 'OK'};
   }
-  async function approve(controls, out) {
+  async function approve(controls, out, starter) {
     if (approving || !controls.length) return;
     approving = true;
     const writers = [...document.querySelectorAll('.approve-one, .approve-selected, .review-bar button, .approval-select input')];
@@ -162,22 +160,26 @@ if (reviewBars.length) {
         body: JSON.stringify({items: controls.map(approvalItem), approveOnly: true})});
       const result = await response.json();
       if (!result.ok) throw new Error(result.error);
-      const message = 'Recorded ' + result.ids.join(', ') + '. Reloading…';
-      out.textContent = message;
-      try { sessionStorage.setItem('praukron-approval-' + token, message.replace(' Reloading…', '')); } catch (_) {}
+      const message = 'Recorded ' + result.ids.join(', ') + '.';
+      // Announce once, after the reload, in a single region; only without
+      // sessionStorage is it announced here instead.
+      out.textContent = '';
+      try { sessionStorage.setItem('praukron-approval-' + token, message); } catch (_) { out.textContent = message; }
       location.reload();
     } catch (error) {
       out.textContent = error.message;
       approving = false;
       writers.forEach((control, index) => { control.disabled = disabled[index]; });
       updateSelection();
+      // Disabling the control dropped focus; give it back to the one that asked.
+      if (starter) starter.focus();
     }
   }
   document.querySelectorAll('.approve-one').forEach(button => button.addEventListener('click', () => {
-    approve([button], button.closest('.approval-controls').querySelector('.approval-result'));
+    approve([button], button.closest('.approval-controls').querySelector('.approval-result'), button);
   }));
   if (batchButton) batchButton.addEventListener('click', () => {
-    approve(selections.filter(input => input.checked), document.getElementById('approval-result'));
+    approve(selections.filter(input => input.checked), document.getElementById('approval-result'), batchButton);
   });
   let recorded = '';
   try {
@@ -186,7 +188,10 @@ if (reviewBars.length) {
   } catch (_) {}
   if (recorded) {
     // Announce after the refreshed document's live regions have mounted.
-    setTimeout(() => document.querySelectorAll('.approval-result').forEach(out => { out.textContent = recorded; }), 100);
+    setTimeout(() => {
+      const out = document.getElementById('approval-result') || document.querySelector('.approval-result');
+      if (out) out.textContent = recorded;
+    }, 100);
   }
   updateSelection();
   document.querySelectorAll('details.acard').forEach(card => card.addEventListener('toggle', () => { if (card.open) card.dataset.seen = '1'; }));
@@ -439,10 +444,10 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
                        f'<span class="review-why">{why}</span>'
                        f'<span class="review-target">Affects: {esc(affected)} · {downstream} downstream</span>'
                        f'<span class="review-action">{primary}</span>')
-        if a["id"] in approval_actions(compiled):
-            summary += approval_control(a["id"], "CONFIRM", interactive)
+        tick = approval_control(a["id"], "CONFIRM", interactive) if a["id"] in approval_actions(compiled) else ""
         return (
-            '<details class="acard"' + (f' id="assumption-{esc(a["id"])}"' if anchor else "")
+            ('<div class="tickable">' if tick else '')
+            + '<details class="acard"' + (f' id="assumption-{esc(a["id"])}"' if anchor else "")
             + f' data-id="{esc(a["id"])}" data-impact="{esc(a["impact"])}" data-status="{esc(a["status"])}"'
             f' data-phase="{esc(" ".join(a["phases"]))}" data-kind="{kind}" data-text="{esc(text)}">'
             f'<summary>{summary}</summary><div class="abody">'
@@ -464,6 +469,7 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             + f'<p><a href="../chronicle/{quote(a["source"]["file"])}#{quote(a["source"]["anchor"])}">'
               f'{esc(a["source"]["file"])}#{esc(a["source"]["anchor"])}</a></p>'
             + f"<div><strong>Responses</strong>{said}</div>" + ('' if mission else action) + '</div></details>'
+            + (tick + '</div>' if tick else '')
         )
 
     def form(a: dict) -> str:
@@ -511,13 +517,15 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             }[group]
             primary = item["action"] if group == "now" else (
                 "Inspect prerequisites" if group == "upcoming" else "Inspect reconciliation")
-            return (f'<details class="review-item" id="review-{esc(tid)}"' + (' data-actionable' if group == "now" else '') + '><summary>'
+            tick = approval_control(tid, "VERIFY", interactive) if group == "now" and verifying else ''
+            return (('<div class="tickable">' if tick else '')
+                    + f'<details class="review-item" id="review-{esc(tid)}"' + (' data-actionable' if group == "now" else '') + '><summary>'
                     f'<strong class="review-title">{esc(task["title"])}</strong>'
                     f'<span class="review-why">{esc(why)}</span>'
                     f'<span class="review-target">Affects: {esc(tid)} · {len(item["affected"])} downstream</span>'
                     f'<span class="review-action">{primary}</span>'
-                    + (approval_control(tid, "VERIFY", interactive) if group == "now" and verifying else '') +
-                    f'</summary><div class="review-body">{body}</div></details>')
+                    f'</summary><div class="review-body">{body}</div></details>'
+                    + (tick + '</div>' if tick else ''))
 
         def validation_card(item: dict) -> str:
             finding = item["finding"]

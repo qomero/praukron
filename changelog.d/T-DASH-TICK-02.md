@@ -1,0 +1,1 @@
+- The dashboard's one-tick Verify/Confirm controls no longer sit inside a review item's summary, a refused approval returns keyboard focus to the control that started it, and a recorded approval is announced once.

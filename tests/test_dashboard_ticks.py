@@ -134,3 +134,22 @@ class TestDashboardTicks(ServeCase):
             self.assertIn('button:focus-visible', page)
         self.assertIn('controls.map(approvalItem)', review.SERVE_SCRIPT)
         self.assertIn("selections.filter(input => input.checked)", review.SERVE_SCRIPT)
+
+    def test_no_interactive_control_inside_summary_and_focus_and_single_announcement(self):
+        page = serve.page(self.dir, 'en')
+        summaries = re.findall(r'<summary>.*?</summary>', page, re.S)
+        self.assertTrue(summaries)
+        for summary in summaries:
+            self.assertNotRegex(summary, r'<(?:button|input|select|textarea|a)')
+            self.assertNotIn('approval-controls', summary)
+        for target in ('T-TWO', 'A-2'):
+            self.assertRegex(page, r'</details><span class="approval-controls">.*?data-target="%s"' % target)
+        script = review.SERVE_SCRIPT
+        # A refused request returns focus to the control that started it.
+        self.assertIn('if (starter) starter.focus();', script)
+        self.assertIn("approve([button], button.closest('.approval-controls').querySelector('.approval-result'), button)", script)
+        self.assertIn("document.getElementById('approval-result'), batchButton)", script)
+        # Success is announced once, after the reload, in a single live region.
+        self.assertNotIn("querySelectorAll('.approval-result').forEach", script)
+        self.assertIn("document.getElementById('approval-result') || document.querySelector('.approval-result')", script)
+        self.assertNotIn("Recorded ' + result.ids.join(', ') + '. Reloading", script.split('reviewBars.forEach')[0])
