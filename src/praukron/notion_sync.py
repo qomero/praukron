@@ -565,6 +565,8 @@ def setup(client: Client, root: Path, instance_reference: str, key: str | None =
         config["icon"] = icon
     if same and previous.get("watch"):
         config["watch"] = previous["watch"]
+    if same and previous.get("notify"):
+        config["notify"] = previous["notify"]
     save_config(root, config)
     pages = {(kind, pid): row["id"] for kind in ("tasks", "assumptions")
              for pid, row in _existing(client, databases[kind]["data_source_id"], key).items()}
@@ -1048,10 +1050,12 @@ class PushResult:
     unchanged: int = 0
     archived: int = 0
     hub: bool = False
+    notified: int = 0
 
     def line(self) -> str:
         return (f"push created={self.created} updated={self.updated} unchanged={self.unchanged} "
-                f"archived={self.archived} hub={'updated' if self.hub else 'unchanged'}")
+                f"archived={self.archived} hub={'updated' if self.hub else 'unchanged'}"
+                + (f" notified={self.notified}" if self.notified else ""))
 
 
 def _existing(client: Client, source: str, key: str | None) -> dict[str, dict]:
@@ -1272,6 +1276,7 @@ def push(client: Client, root: Path, config: dict | None = None,
 
     if _refresh_hub(client, root, config, s, pages, present):
         result.hub = True
+    result.notified = notify(client, root, config, project, pages)
     return result
 
 
@@ -1663,6 +1668,225 @@ def pull(client: Client, root: Path, config: dict | None = None,
 
 
 # --------------------------------------------------------------------------
+# Notifications: a comment that @mentions the owners, which the Notion mobile
+# app always pushes to their phone (R-79)
+# --------------------------------------------------------------------------
+
+EVENTS_FILE = "notion-events.json"
+KINDS = ("done", "assumption", "owner", "refused", "phase")
+REFUSED = ("CONFLICT", "REJECTED")
+SHORT = 80   # characters of a title a comment quotes
+
+
+def notify_settings(config: dict) -> tuple[bool, list[str]]:
+    """Whether notifications are on (default off) and the kinds that are."""
+    settings = config.get("notify") or {}
+    kinds = settings.get("kinds")
+    return bool(settings.get("enabled")), [k for k in (KINDS if kinds is None else kinds) if k in KINDS]
+
+
+class Events:
+    """`.praukron/notion-events.json` (local, ignored by Git, written whole): the
+    state the last push saw, the events waiting for their comment, and the ids
+    of every event already commented. An event id is recorded only once its
+    comment exists, so a crash between the two sends at most that one again."""
+
+    def __init__(self, root: Path) -> None:
+        self.path = root / layout.HOME_DIR / EVENTS_FILE
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError):
+            data = {}   # a lost or damaged file starts a new baseline, which notifies nothing
+        self.snapshot: dict | None = data.get("snapshot")
+        self.pending: list[dict] = data.get("pending") or []
+        self.sent: list[str] = data.get("sent") or []
+        self.error: dict | None = data.get("lastError")
+
+    def write(self) -> None:
+        write_json(self.path, {"version": 1, "snapshot": self.snapshot, "pending": self.pending,
+                               "sent": self.sent, "lastError": self.error})
+
+
+def snapshot(project: dict, requests: dict[str, dict]) -> dict:
+    """What a notification compares: every state an event is a change of."""
+    tasks = project["tasks"]
+    phases = {p["id"]: p["status"] for p in project["phases"]}
+    phases.update({g["id"]: _gate_state(g.get("status")) for g in project.get("gates") or []})
+    return {
+        "tasks": {t["id"]: t["status"] for t in tasks},
+        "assumptions": {a["id"]: a.get("status") or "" for a in project.get("assumptions") or []},
+        "owner": sorted(t["id"] for t in tasks if (t.get("authority") or "") == "owner"
+                        and t["status"] != "DONE" and t.get("ready")),
+        "phases": phases,
+        "refused": sorted(key for key, e in requests.items()
+                          if e.get("state") == "DONE" and e.get("status") in REFUSED),
+    }
+
+
+def _short(text: Any) -> str:
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    return text if len(text) <= SHORT else text[:SHORT - 1] + "…"
+
+
+def detect(before: dict, after: dict, project: dict, requests: dict[str, dict], name: str) -> list[dict]:
+    """The events between two snapshots, each with its id (kind, record, new
+    state), its comment text and the row it belongs on: [kind, stable ID], or
+    the page id of the owner's own row. Titles only; never evidence."""
+    out: list[dict] = []
+
+    def add(kind: str, record: str, state: str, text: str, row: Any) -> None:
+        out.append({"id": f"{kind}:{record}:{state}", "kind": kind, "text": f"{text} · {name}", "row": row})
+
+    tasks = {t["id"]: t for t in project["tasks"]}
+    acceptance = project.get("acceptance") or {}
+    old_tasks = before.get("tasks") or {}
+    for tid, status in after["tasks"].items():
+        if status == "DONE" and old_tasks.get(tid) != "DONE":
+            criteria = (acceptance.get(tasks[tid].get("ac") or "") or {}).get("criteria") or []
+            passed = sum(c.get("state") == "PASS" for c in criteria)
+            tally = f" ({passed}/{len(criteria)} criteria PASS)" if criteria else ""
+            add("done", tid, "DONE", f"✅ {tid} vừa DONE{tally} — {_short(tasks[tid]['title'])}", ["tasks", tid])
+    assumptions = {a["id"]: a for a in project.get("assumptions") or []}
+    old_assumptions = before.get("assumptions") or {}
+    for aid, status in after["assumptions"].items():
+        if status == "OPEN" and old_assumptions.get(aid) != "OPEN":
+            impact = assumptions[aid].get("impact")
+            add("assumption", aid, "OPEN", f"✏️ Assumption mới cần duyệt: {aid}"
+                + (f" ({impact})" if impact else "") + f" — {_short(assumptions[aid]['title'])}",
+                ["assumptions", aid])
+    old_owner = set(before.get("owner") or [])
+    for tid in after["owner"]:
+        if tid not in old_owner:
+            add("owner", tid, "READY", f"🧑‍⚖️ {tid} đang chờ bạn quyết định — {_short(tasks[tid]['title'])}",
+                ["tasks", tid])
+    old_phases = before.get("phases") or {}
+    for pid, state in after["phases"].items():
+        if pid in old_phases and old_phases[pid] != state:
+            add("phase", pid, state, f"🚦 {pid} chuyển {old_phases[pid]} → {state}", ["phases", pid])
+    old_refused = set(before.get("refused") or [])
+    for key in after["refused"]:
+        if key not in old_refused:
+            entry = requests[key]
+            add("refused", key, entry["status"],
+                f"⚠️ Yêu cầu REQ-{key.rsplit('@', 1)[-1][:8]} về {entry.get('target') or '?'} bị "
+                f"{entry['status']} — xem Apply Evidence trên dòng đã gửi", entry["row"])
+    return out
+
+
+def _mentions(owners: dict[str, str]) -> list[dict]:
+    return [{"type": "mention", "mention": {"type": "user", "user": {"id": page_id(user)}}}
+            for user in sorted(owners)]
+
+
+def notify(client: Client, root: Path, config: dict, project: dict,
+           pages: dict[tuple[str, str], str]) -> int:
+    """Comment once on each new event's row (or the hub), mentioning every user
+    in the ADR's Notion owners. The first run after notifications are turned on
+    records the current state and notifies nothing. A failed comment never fails
+    the push: it is logged, stays pending, and `notion doctor` reports it.
+    Returns the number of comments written."""
+    from . import compile as compiler
+
+    enabled, kinds = notify_settings(config)
+    if not enabled:
+        return 0
+    state = Events(root)
+    try:
+        requests = Requests(root).entries
+    except NotionError:
+        requests = {}
+    after = snapshot(project, requests)
+    if state.snapshot is None:
+        state.snapshot = after
+        state.write()
+        return 0
+    known = set(state.sent) | {e["id"] for e in state.pending}
+    for event in detect(state.snapshot, after, project, requests, config.get("projectName") or ""):
+        if event["kind"] in kinds and event["id"] not in known:
+            state.pending.append(event)
+            known.add(event["id"])
+    state.snapshot = after
+    state.pending = [e for e in state.pending if e["kind"] in kinds]   # a kind turned off since
+    state.write()
+    if not state.pending:
+        return 0
+    mentions = _mentions(compiler.load(root).notion_owners)
+    sent = 0
+    for event in list(state.pending):
+        row = event["row"]
+        target = row if isinstance(row, str) else pages.get((row[0], row[1])) or config["instance"]
+        body = mentions + text_parts(" " + event["text"])
+        try:
+            try:
+                client.create_comment(target, body)
+            except NotionError as error:
+                if error.status != 404 or target == config["instance"]:
+                    raise
+                client.create_comment(config["instance"], body)   # the row is gone: the hub
+        except NotionError as error:
+            state.error = {"at": now(), "event": event["id"], "error": str(error)}
+            state.write()
+            log(root, f"{config['projectKey']} notify failed {event['id']}: {error}")
+            break
+        state.pending.remove(event)
+        state.sent.append(event["id"])
+        state.error = None
+        state.write()
+        sent += 1
+    return sent
+
+
+def notify_set(root: Path, enabled: bool, kinds: list[str] | None = None) -> dict:
+    """Turn notifications on or off. Turning them on starts a new baseline, so
+    nothing that happened while they were off is sent."""
+    config = load_config(root)
+    settings = dict(config.get("notify") or {})
+    settings["enabled"] = enabled
+    if kinds is not None:
+        unknown = [k for k in kinds if k not in KINDS]
+        if unknown:
+            raise NotionError(0, "bad-kind", f"unknown notification kind {', '.join(unknown)}; "
+                              f"choose from {', '.join(KINDS)}")
+        settings["kinds"] = kinds
+    settings.setdefault("kinds", list(KINDS))
+    config["notify"] = settings
+    save_config(root, config)
+    if enabled:
+        state = Events(root)
+        state.snapshot = None
+        state.pending = []
+        state.error = None
+        state.write()
+    return settings
+
+
+def notify_status(root: Path) -> dict:
+    """Whether notifications are on, which kinds, and what waits or failed."""
+    path = config_path(root)
+    config = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    enabled, kinds = notify_settings(config)
+    state = Events(root)
+    return {"linked": bool(config), "enabled": enabled, "kinds": kinds, "pending": len(state.pending),
+            "baseline": state.snapshot is not None, "lastError": state.error}
+
+
+def notify_text(status: dict) -> str:
+    if not status["linked"]:
+        return "not linked"
+    if not status["enabled"]:
+        return "off (`praukron notion notify on`)"
+    text = f"on · {', '.join(status['kinds']) or 'no kinds'} · {status['pending']} pending"
+    if not status["baseline"]:
+        text += " · baseline at the next push"
+    error = status.get("lastError")
+    if error:
+        text += f" · last comment failed {error['at']}: {error['error']}"
+        if " 403 " in error["error"]:
+            text += " (give the integration the Insert comments capability)"
+    return text
+
+
+# --------------------------------------------------------------------------
 # Watchers
 # --------------------------------------------------------------------------
 
@@ -1717,4 +1941,5 @@ def watch(root: Path, action: str, push_minutes: int = 5, pull_minutes: int = 2,
 
 
 __all__ = ["DATABASES", "PORTFOLIO", "PullResult", "PushResult", "Locked", "lock", "log", "provision",
-           "pull", "push", "records", "setup", "shared_board", "summary", "watch"]
+           "notify", "notify_set", "notify_status", "pull", "push", "records", "setup", "shared_board",
+           "summary", "watch"]

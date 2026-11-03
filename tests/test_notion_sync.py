@@ -104,6 +104,7 @@ class FakeNotion(Client):
         self.databases: dict[str, dict] = {}
         self.sources: dict[str, dict] = {}
         self.pages: dict[str, dict] = {}
+        self.comments: list[dict] = []
         self.writes = 0
         self.clock = 0
 
@@ -238,6 +239,13 @@ class FakeNotion(Client):
         page["last_edited_by"] = {"id": BOT}
         page["last_edited_time"] = self._tick()
         return page
+
+    def create_comment(self, page_id, rich_text) -> dict:
+        if page_id not in self.pages or self.pages[page_id]["in_trash"]:
+            raise NotionError(404, "object_not_found", "missing")
+        self.writes += 1
+        self.comments.append({"page": page_id, "rich_text": json.loads(json.dumps(rich_text))})
+        return {"id": self._id()}
 
     def edit(self, page_id: str, editor: str = OWNER_ID, **values) -> None:
         """What the owner does in Notion."""
@@ -1260,6 +1268,220 @@ class PullTest(NotionCase):
         for response in ("R-3", "R-4"):
             self.assertIn(">   indented\n>\n>\n", stored.split(f"## {response}:")[1])
         self.assertEqual(self.state(row), "APPLIED")
+
+
+class NotifyTest(NotionCase):
+    """R-79: a comment that @mentions the owners, once per event (AC-T-NOTION-NOTIFY-01)."""
+
+    MENTION = {"type": "mention", "mention": {"type": "user", "user": {"id": OWNER_ID}}}
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.push()
+
+    def push(self) -> notion_sync.PushResult:
+        # As the CLI does: notion.json read again on every run.
+        return notion_sync.push(self.notion, self.dir, notion_sync.load_config(self.dir))
+
+    def turn_on(self, kinds: list[str] | None = None) -> None:
+        notion_sync.notify_set(self.dir, True, kinds)
+        self.assertEqual(self.push().notified, 0)   # the baseline
+
+    def change(self, name: str, old: str, new: str) -> None:
+        path = self.dir / layout.AUTHORITY_DIR / name
+        text = path.read_text(encoding="utf-8")
+        self.assertIn(old, text)
+        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+    def set_status(self, heading: str, old: str, new: str) -> None:
+        self.change("TASKS.md", f"{heading}\n- Status: {old}", f"{heading}\n- Status: {new}")
+
+    def add_assumption(self, aid: str = "A-3") -> None:
+        path = self.dir / layout.AUTHORITY_DIR / "ASSUMPTIONS.md"
+        path.write_text(path.read_text(encoding="utf-8") + f"""
+## {aid}: Invoices round to whole cents
+- Status: OPEN
+- Tasks: T-THREE
+- Impact: MEDIUM
+- Recorded: 2026-11-03 · claude/primary
+- Assumption: Amounts round half up.
+- Basis: Common practice.
+- Applied in: T-THREE
+- Responses: none
+- Reconciled by: none
+""", encoding="utf-8")
+
+    def texts(self) -> list[str]:
+        return ["".join(p.get("text", {}).get("content", "") for p in c["rich_text"])
+                for c in self.notion.comments]
+
+    def page_of(self, kind: str, pid: str) -> str:
+        return self.notion.row(kind, self.config, pid)["id"]
+
+    def reject_a_submission(self) -> str:
+        row = self.page_of("assumptions", "A-1")
+        self.notion.edit(row, STRANGER, Submit=notion_sync.checkbox(True), Decision=notion_sync.select("CONFIRM"))
+        self.assertEqual(notion_sync.pull(self.notion, self.dir, notion_sync.load_config(self.dir)).rejected, 1)
+        return row
+
+    def test_turning_notifications_on_records_the_state_and_notifies_nothing(self) -> None:
+        self.assertEqual(self.push().notified, 0)
+        self.assertFalse((self.dir / ".praukron" / notion_sync.EVENTS_FILE).exists())   # off by default
+        self.turn_on()   # T-TWO already waits on the owner and A-1 is open: no flood
+        self.assertEqual(self.push().notified, 0)
+        self.assertEqual(self.notion.comments, [])
+        self.assertEqual(notion_sync.load_config(self.dir)["notify"],
+                         {"enabled": True, "kinds": list(notion_sync.KINDS)})
+
+    def test_each_event_kind_comments_once_on_its_row_mentioning_every_owner(self) -> None:
+        self.change("TASKS.md", "- AC: AC-T-THREE\n", "- AC: AC-T-THREE\n- Authority: owner\n")
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")     # done, and T-THREE becomes ready
+        self.add_assumption()                                        # a new OPEN assumption
+        self.change("PHASES.md", "Status: RED", "Status: GREEN")     # a gate changes state
+        self.assertEqual(self.push().notified, 4)
+        name = self.config["projectName"]
+        got = {text.split(" — ")[0]: comment["page"] for text, comment in zip(self.texts(), self.notion.comments)}
+        self.assertEqual(got, {
+            " ✅ T-TWO vừa DONE (0/1 criteria PASS)": self.page_of("tasks", "T-TWO"),
+            " 🧑‍⚖️ T-THREE đang chờ bạn quyết định": self.page_of("tasks", "T-THREE"),
+            " ✏️ Assumption mới cần duyệt: A-3 (MEDIUM)": self.page_of("assumptions", "A-3"),
+            f" 🚦 Gate A chuyển RED → GREEN · {name}": self.page_of("phases", "Gate A"),
+        })
+        for comment, text in zip(self.notion.comments, self.texts()):
+            self.assertEqual(comment["rich_text"][0], self.MENTION)
+            self.assertTrue(text.endswith(f" · {name}"), text)
+            self.assertNotIn(SECRET, json.dumps(comment))
+        self.assertIn("Build on it", self.texts()[0])
+        self.assertNotIn("It holds weight", "".join(self.texts()))   # titles, never evidence
+        self.assertEqual(self.push().notified, 0)
+        self.assertEqual(len(self.notion.comments), 4)
+
+    def test_a_refused_submission_is_notified_once_on_the_submitted_row(self) -> None:
+        self.turn_on()
+        row = self.reject_a_submission()
+        self.assertEqual(self.push().notified, 1)
+        (comment,) = self.notion.comments
+        self.assertEqual(comment["page"], row)
+        self.assertRegex(self.texts()[0], r"REQ-[0-9a-f]{8} về A-1 bị REJECTED")
+        self.push()
+        self.assertEqual(len(self.notion.comments), 1)
+
+    def test_an_event_is_never_notified_twice_across_reruns_restarts_and_flips(self) -> None:
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        self.assertEqual(self.push().notified, 1)
+        self.assertEqual(self.push().notified, 0)
+        # The same task back to TODO (it waits on the owner again: a new event)
+        # and DONE again: its DONE event was already sent.
+        self.set_status("## T-TWO: Build on it", "DONE", "TODO")
+        self.assertEqual(self.push().notified, 1)
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        self.assertEqual(self.push().notified, 0)
+        self.assertEqual([t.split(" — ")[0] for t in self.texts()],
+                         [" ✅ T-TWO vừa DONE (0/1 criteria PASS)", " 🧑‍⚖️ T-TWO đang chờ bạn quyết định"])
+
+    def test_a_crash_between_comment_and_record_resends_at_most_that_event(self) -> None:
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        self.add_assumption()
+        original = notion_sync.Events.write
+        calls = []
+
+        def write(events) -> None:
+            calls.append(1)
+            if len(calls) == 2:   # the record of the first comment
+                raise Crash()
+            original(events)
+
+        with mock.patch.object(notion_sync.Events, "write", write):
+            with self.assertRaises(Crash):
+                self.push()
+        self.assertEqual(len(self.notion.comments), 1)
+        self.assertEqual(self.push().notified, 2)   # the restart: the interrupted one again, then the other
+        self.assertEqual(self.push().notified, 0)
+        texts = self.texts()
+        self.assertEqual(len(texts), 3)
+        self.assertEqual(texts[0], texts[1])
+        self.assertEqual(len(set(texts)), 2)
+
+    def test_notifications_off_or_a_kind_off_write_no_comment(self) -> None:
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        self.add_assumption()
+        self.assertEqual(self.push().notified, 0)   # never turned on
+        self.assertEqual(self.notion.comments, [])
+        self.turn_on(["assumption"])
+        self.set_status("## T-THREE: Finish later", "TODO", "DONE")
+        self.add_assumption("A-4")
+        self.assertEqual(self.push().notified, 1)
+        self.assertIn("A-4", self.texts()[0])            # the done kind is off
+        notion_sync.notify_set(self.dir, False)
+        self.add_assumption("A-5")
+        self.assertEqual(self.push().notified, 0)
+        notion_sync.notify_set(self.dir, True)            # on again: a new baseline, no backlog
+        self.assertEqual(self.push().notified, 0)
+        self.assertEqual(len(self.notion.comments), 1)
+
+    def test_a_failed_comment_keeps_the_push_and_the_event_and_doctor_reports_it(self) -> None:
+        from praukron import notion_config
+
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        refused = NotionError(403, "restricted_resource", "Insufficient permissions for this endpoint.")
+        with mock.patch.object(self.notion, "create_comment", side_effect=refused):
+            self.assertEqual(self.push().notified, 0)
+        self.assertEqual(notion_sync.plain(self.notion.row("tasks", self.config, "T-TWO")["properties"]["Status"]),
+                         "DONE")   # the mirror itself went through
+        status = notion_sync.notify_status(self.dir)
+        self.assertEqual((status["pending"], status["lastError"]["event"]), (1, "done:T-TWO:DONE"))
+        _, report, text = notion_config.doctor(
+            self.dir, environ={"NOTION_TOKEN": SECRET},
+            probe=lambda token: {"state": "VALID", "source": "environment"})
+        self.assertIn("1 pending", text)
+        self.assertIn("Insert comments", text)
+        self.assertEqual(report["notify"]["pending"], 1)
+        self.assertIn("notify failed done:T-TWO:DONE",
+                      (self.dir / ".praukron" / notion_sync.LOG_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(self.push().notified, 1)   # the capability granted: sent once
+        self.assertIsNone(notion_sync.notify_status(self.dir)["lastError"])
+        self.assertEqual(self.push().notified, 0)
+
+    def test_a_comment_whose_row_is_gone_lands_on_the_hub(self) -> None:
+        self.turn_on()
+        row = self.reject_a_submission()
+        self.notion.pages[row]["in_trash"] = True   # the owner deleted the row
+        self.assertEqual(self.push().notified, 1)
+        self.assertEqual(self.notion.comments[-1]["page"], self.config["instance"])
+
+    def test_setup_again_keeps_the_notification_settings(self) -> None:
+        notion_sync.notify_set(self.dir, True, ["done", "phase"])
+        self.setup_notion(key="DEMO")
+        self.assertEqual(notion_sync.load_config(self.dir)["notify"], {"enabled": True, "kinds": ["done", "phase"]})
+
+    def test_cli_turns_notifications_on_and_off_and_reports_them(self) -> None:
+        from praukron import cli
+
+        def run(*args: str) -> tuple[int, str, str]:
+            out, err = io.StringIO(), io.StringIO()
+            with mock.patch("sys.stdout", out), mock.patch("sys.stderr", err):
+                code = cli.main(["-C", str(self.dir), "notion", "notify", *args])
+            return code, out.getvalue(), err.getvalue()
+
+        code, out, _ = run("status")
+        self.assertEqual((code, out.strip()), (0, "Notion notifications: off (`praukron notion notify on`)"))
+        code, out, _ = run("on", "--kinds", "done,owner")
+        self.assertEqual(code, 0)
+        self.assertIn("on · done, owner · 0 pending · baseline at the next push", out)
+        self.assertEqual(notion_sync.load_config(self.dir)["notify"], {"enabled": True, "kinds": ["done", "owner"]})
+        code, _, err = run("on", "--kinds", "done,weather")
+        self.assertEqual(code, 1)
+        self.assertIn("unknown notification kind weather", err)
+        self.assertEqual(run("status", "--kinds", "done")[0], 1)
+        self.assertEqual(run("loud")[0], 1)
+        code, out, _ = run("off")
+        self.assertEqual(code, 0)
+        self.assertIn("off", out)
+        self.assertFalse(notion_sync.load_config(self.dir)["notify"]["enabled"])
 
 
 class WatchTest(NotionCase):

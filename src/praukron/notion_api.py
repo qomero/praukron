@@ -180,3 +180,7 @@ class Client:
         if icon is not None:
             body["icon"] = icon
         return self.request("PATCH", f"pages/{page_id}", body)
+
+    def create_comment(self, page_id: str, rich_text: list[dict]) -> dict:
+        """A comment on a page; a user mention in it reaches that user's phone."""
+        return self.request("POST", "comments", {"parent": {"page_id": page_id}, "rich_text": rich_text})

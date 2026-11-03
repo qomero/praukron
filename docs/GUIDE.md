@@ -673,6 +673,18 @@ rejected. Listed owners may submit `VERIFY` for an `Authority: owner` task.
 every two minutes and push every five minutes; on other systems it prints
 the lines to add with `crontab -e`.
 
+To be told on your phone, give the connection the **Insert comments**
+capability and run `praukron notion notify on`. Each push then adds one
+comment that @mentions every user in `Notion owners:` on the row it concerns
+(or on the hub), and the Notion mobile app pushes the mention. A comment is
+written when a task becomes `DONE`, an assumption opens, an owner task becomes
+ready, a submission ends `CONFLICT` or `REJECTED`, or a phase or gate changes
+state; each event is commented once, even across restarts. The first push after
+`notify on` only records the current state. `--kinds done,owner` keeps only
+some kinds (`done`, `assumption`, `owner`, `refused`, `phase`), `notify off`
+stops them, and `notify status` or `notion doctor` shows what is pending and
+the last failed comment, which never fails the push.
+
 ### Execution and operations
 
 Every task is either **execution** — work that advances the project itself —

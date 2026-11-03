@@ -232,6 +232,12 @@ def doctor(root: Path, environ: dict[str, str] | None = None,
         report["warning"] = "not-ignored"
         lines.append(f"  WARNING:      Git does not ignore {token.source}; add it to .gitignore "
                      "before committing, or the key will be published.")
+    from . import notion_sync   # here: notion_sync imports this module
+
+    notify = notion_sync.notify_status(root)
+    if notify["linked"]:
+        report["notify"] = notify
+        lines.append(f"  notify:       {notion_sync.notify_text(notify)}")
     lines.append("")
     lines.append("  " + NEXT_STEP[str(report["state"])].format(
         project=project_file(root), user=user_file(), source=report.get("source")))
