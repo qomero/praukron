@@ -2706,6 +2706,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     <button type="button" class="linkbtn" data-xf-clear>Clear all</button>
     <span class="xf-count" id="xf-count"></span>
   </div>
+  {review.ANNOUNCE}
   </div>
   <p class="sr" id="xf-status" aria-live="polite"></p>
 {home}

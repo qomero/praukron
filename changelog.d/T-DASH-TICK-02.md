@@ -1,0 +1,1 @@
+- The dashboard's one-tick Verify/Confirm controls no longer sit inside a review item's summary, a refused approval returns keyboard focus to the control that started it, a recorded approval is shown and announced once in a page-level status region, whichever workspace it started from, and each tick sits inside its card's divider.
