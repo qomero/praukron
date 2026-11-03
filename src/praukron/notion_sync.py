@@ -1690,8 +1690,10 @@ class Events:
     state the last push saw, the events waiting for their comment, and the ids
     of every event already commented. A pending event names each page it was
     posted to (`tried`) before the post; its id moves to `sent` once its comment
-    exists. An event with `tried` pages is posted again only when none of their
-    comments carries its marker, so a lost answer or a crash never doubles it."""
+    exists. A post Notion refused for certain (a 4xx answer) is forgotten and may
+    be tried again; any other failure may have written the comment, so if its
+    marker is not found later (an owner may resolve it) the event moves to
+    `uncertain` and is never posted again: one event, at most one comment."""
 
     def __init__(self, root: Path) -> None:
         self.path = root / layout.HOME_DIR / EVENTS_FILE
@@ -1702,11 +1704,12 @@ class Events:
         self.snapshot: dict | None = data.get("snapshot")
         self.pending: list[dict] = data.get("pending") or []
         self.sent: list[str] = data.get("sent") or []
+        self.uncertain: list[dict] = data.get("uncertain") or []
         self.error: dict | None = data.get("lastError")
 
     def write(self) -> None:
         write_json(self.path, {"version": 1, "snapshot": self.snapshot, "pending": self.pending,
-                               "sent": self.sent, "lastError": self.error})
+                               "sent": self.sent, "uncertain": self.uncertain, "lastError": self.error})
 
 
 def snapshot(project: dict, requests: dict[str, dict]) -> dict:
@@ -1775,6 +1778,13 @@ def detect(before: dict, after: dict, project: dict, requests: dict[str, dict], 
     return out
 
 
+def refused(error: NotionError) -> bool:
+    """A failure after which the comment certainly does not exist: a 4xx answer
+    other than a timeout, conflict or rate limit, or a request never sent (the
+    connection refused, the name unresolved)."""
+    return error.code == "not-sent" or (400 <= error.status < 500 and error.status not in (408, 409, 429))
+
+
 def marker(project_key: str, event_id: str) -> str:
     """The tag that ends an event's comment, by which a later push finds it."""
     return "ref " + hashlib.sha256(f"{project_key}/{event_id}".encode("utf-8")).hexdigest()[:10]
@@ -1825,7 +1835,7 @@ def notify(client: Client, root: Path, config: dict, project: dict,
         state.snapshot = after
         state.write()
         return 0
-    known = set(state.sent) | {e["id"] for e in state.pending}
+    known = set(state.sent) | {e["id"] for e in state.pending} | {e["id"] for e in state.uncertain}
     for event in detect(state.snapshot, after, project, requests, config.get("projectName") or ""):
         if event["kind"] in kinds and event["id"] not in known:
             state.pending.append(event)
@@ -1849,10 +1859,24 @@ def notify(client: Client, root: Path, config: dict, project: dict,
             if page not in tried:   # recorded before the post, which may land unanswered
                 tried.append(page)
                 state.write()
-            client.create_comment(page, body)
+            try:
+                client.create_comment(page, body)
+            except NotionError as error:
+                if refused(error):   # Notion answered no: nothing was written there
+                    tried.remove(page)
+                    state.write()
+                raise
 
         try:
-            if not _commented(client, event.get("tried") or [], tag):
+            if event.get("tried"):
+                if not _commented(client, event["tried"], tag):
+                    # The post may have landed and been resolved since; never risk a second.
+                    state.pending.remove(event)
+                    state.uncertain.append(event)
+                    state.write()
+                    log(root, f"{config['projectKey']} notify uncertain {event['id']}: not re-posted")
+                    continue
+            else:
                 try:
                     post(target)
                 except NotionError as error:
@@ -1909,7 +1933,7 @@ def notify_status(root: Path) -> dict:
     enabled, kinds = notify_settings(config)
     state = Events(root)
     return {"linked": bool(config), "enabled": enabled, "kinds": kinds, "pending": len(state.pending),
-            "baseline": state.snapshot is not None, "lastError": state.error}
+            "uncertain": len(state.uncertain), "baseline": state.snapshot is not None, "lastError": state.error}
 
 
 def notify_text(status: dict) -> str:
@@ -1918,6 +1942,9 @@ def notify_text(status: dict) -> str:
     if not status["enabled"]:
         return "off (`praukron notion notify on`)"
     text = f"on · {', '.join(status['kinds']) or 'no kinds'} · {status['pending']} pending"
+    if status.get("uncertain"):
+        text += (f" · {status['uncertain']} not re-posted (a comment that may have landed was not found;"
+                 " see .praukron/notion-events.json)")
     if not status["baseline"]:
         text += " · baseline at the next push"
     error = status.get("lastError")

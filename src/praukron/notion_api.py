@@ -8,6 +8,7 @@ idempotent, so its POST is retried only after a 429, which Notion did not act on
 from __future__ import annotations
 
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -77,7 +78,10 @@ class Client:
                     self.sleep(delay)
                     delay *= 2
                     continue
-                raise NotionError(0, "unreachable", redact(str(error), self._token)) from None
+                # Refused or unresolvable before a byte was sent: Notion never saw it.
+                reason = getattr(error, "reason", error)
+                code = "not-sent" if isinstance(reason, (ConnectionRefusedError, socket.gaierror)) else "unreachable"
+                raise NotionError(0, code, redact(str(error), self._token)) from None
             except Exception as error:
                 # A header or protocol error (http.client's ValueError, HTTPException)
                 # may quote the Authorization header, escaped: name its type only.

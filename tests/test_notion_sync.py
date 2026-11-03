@@ -1512,10 +1512,42 @@ class NotifyTest(NotionCase):
     def test_a_comment_that_never_landed_is_posted_on_the_next_push(self) -> None:
         self.turn_on()
         self.set_status("## T-TWO: Build on it", "TODO", "DONE")
-        unreachable = NotionError(0, "unreachable", "connection refused")
+        unreachable = NotionError(0, "not-sent", "connection refused")
         with mock.patch.object(self.notion, "create_comment", side_effect=unreachable):
             self.assertEqual(self.push().notified, 0)
         self.assertEqual(self.push().notified, 1)
+        self.assertEqual(len(self.notion.comments), 1)
+
+    def test_a_comment_that_may_have_landed_and_was_resolved_is_never_posted_again(self) -> None:
+        """Astra PR 70 round 2: an uncertain post whose comment the owner then
+        resolved is not found by the next push; it must not be posted again."""
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        original = self.notion.create_comment
+
+        def landed_but_lost(page, rich_text):
+            original(page, rich_text)   # Notion wrote it ...
+            raise NotionError(0, "unreachable", "the answer was lost")   # ... the answer never came
+
+        with mock.patch.object(self.notion, "create_comment", side_effect=landed_but_lost):
+            self.assertEqual(self.push().notified, 0)
+        self.assertEqual(len(self.notion.comments), 1)
+        self.notion.comments.clear()   # the owner resolved it: no longer listed
+        for _ in range(3):
+            self.assertEqual(self.push().notified, 0)
+        self.assertEqual(len(self.notion.comments), 0)
+        status = notion_sync.notify_status(self.dir)
+        self.assertEqual((status["pending"], status["uncertain"]), (0, 1))
+        self.assertIn("not re-posted", notion_sync.notify_text(status))
+
+    def test_a_refused_comment_is_posted_once_the_cause_is_fixed(self) -> None:
+        self.turn_on()
+        self.set_status("## T-TWO: Build on it", "TODO", "DONE")
+        refused = NotionError(403, "restricted_resource", "Insufficient permissions for this endpoint.")
+        with mock.patch.object(self.notion, "create_comment", side_effect=refused):
+            self.push()
+        self.assertEqual(self.push().notified, 1)
+        self.assertEqual(self.push().notified, 0)
         self.assertEqual(len(self.notion.comments), 1)
 
     def test_notify_on_again_or_new_kinds_keep_the_baseline_and_pending_events(self) -> None:
