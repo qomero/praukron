@@ -270,7 +270,7 @@ _VI = {
     'Inherited invariants': 'Bất biến kế thừa', 'External blockers · project operations': 'Nguyên nhân chặn bên ngoài · vận hành dự án',
     'Evidence': 'Bằng chứng', 'Operational events': 'Sự kiện vận hành', 'Schedule': 'Lịch trình', 'Source': 'Nguồn',
     'No criteria recorded.': 'Chưa ghi tiêu chí.', 'Nothing downstream': 'Không có công việc phía sau',
-    'None recorded': 'Chưa ghi', 'none recorded': 'chưa ghi', 'Unscheduled': 'Chưa lên lịch',
+    'None recorded': 'Chưa ghi', 'none recorded': 'chưa ghi', 'Unscheduled': 'Chưa lên lịch', 'Start': 'Bắt đầu', 'End': 'Kết thúc', 'Estimate': 'Ước tính',
     'Claimed:': 'Nhận việc:', 'Implementation files:': 'Tệp triển khai:', 'Implementation symbols:': 'Ký hiệu triển khai:',
     'No schedule recorded': 'Chưa ghi lịch trình', 'Assumptions': 'Giả định', 'Contract evidence:': 'Bằng chứng nghiệm thu:',
     'No evidence recorded': 'Chưa ghi bằng chứng', 'Source record missing': 'Thiếu hồ sơ nguồn',

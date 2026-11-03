@@ -505,6 +505,16 @@ const esc = value => String(value == null ? '' : value).replace(
 
 function pill(value) { return `<span class="pill ${esc(value)}">${esc(value)}</span>`; }
 
+// Every schedule field the parser records reads as a label and a value; an
+// absent field shows nothing, and a task with none stays Unscheduled.
+function scheduleHtml(schedule) {
+  const fields = [['Start', 'start'], ['End', 'end'], ['Estimate', 'estimate']]
+    .filter(([, key]) => schedule && schedule[key]);
+  return fields.length
+    ? fields.map(([label, key]) => `<span class="note">${label}</span> ${esc(protectedText(schedule[key]))}`).join(' · ')
+    : '<span class="note">Unscheduled</span>';
+}
+
 function showTask(id) {
   const task = byId[id];
   if (!task) return;
@@ -538,7 +548,7 @@ function showTask(id) {
       <dt>Evidence</dt><dd>${task.evidence ? esc(protectedText(task.evidence)) : '<span class="note">None recorded</span>'}</dd>
       ${task.events.length ? `<dt>Operational events</dt><dd>${task.events.map(e => { const ev = eventById[e]; return ev ? `<code>${esc(e)}</code> ${pill(ev.type)} ${pill(ev.outcome)} ${esc(protectedText(ev.title))}` : `<code>${esc(e)}</code>`; }).join('<br>')}</dd>` : ''}
       ${task.decisions.length ? `<dt>Decisions</dt><dd>${task.decisions.map(d => `<code>${esc(d)}</code>${decisionById[d] && decisionById[d].origin === 'RECONSTRUCTED' ? ' ' + pill('RECONSTRUCTED') : ''}`).join(', ')}</dd>` : ''}
-      <dt>Schedule</dt><dd>${task.schedule ? esc(protectedText(JSON.stringify(task.schedule))) : '<span class="note">Unscheduled</span>'}</dd>
+      <dt>Schedule</dt><dd>${scheduleHtml(task.schedule)}</dd>
       <dt>Source</dt><dd><code>${esc(DATA.project.authority)}/${esc(task.source.file)} → ${esc(task.source.anchor)}</code></dd>
     </dl>`;
   document.getElementById('detail').showModal();
@@ -1173,6 +1183,15 @@ def _signal(count: int, label: str, href: str, tone: str, note: str,
         f'<span class="sig-n" data-agg-key="n">{count}</span><span class="sig-l">{esc(label)}</span>'
         f'<span class="sig-note"{_text(template or note)}>{esc(note if count else "Clear")}</span></a>'
     )
+
+
+def _schedule_text(schedule: dict | None) -> str:
+    """The Audit record's schedule, labelled the way the task dialog reads it."""
+    fields = [(label, schedule[key]) for label, key in (("Start", "start"), ("End", "end"), ("Estimate", "estimate"))
+              if schedule and schedule.get(key)]
+    if not fields:
+        return "No schedule recorded"
+    return " · ".join(f"{label} {esc(i18n.verbatim(value))}" for label, value in fields)
 
 
 def _pill(value: object, extra: str = "") -> str:
@@ -2611,7 +2630,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                     f'<p>Responsible: {esc(task["owner"] or "unassigned")} · Claimed: {esc(task["claimed"] or "not recorded")}</p>'
                     f'<p>Implementation files: {esc(i18n.verbatim(", ".join(task["implementation"]["files"]))) if task["implementation"]["files"] else "none recorded"}</p>'
                     f'<p>Implementation symbols: {esc(i18n.verbatim(", ".join(task["implementation"]["symbols"]))) if task["implementation"]["symbols"] else "none recorded"}</p>'
-                    f'<p>Schedule: {esc(i18n.verbatim(json.dumps(task["schedule"]))) if task["schedule"] else "No schedule recorded"}</p>'
+                    f'<p>Schedule: {_schedule_text(task["schedule"])}</p>'
                     + '<p>Dependencies: ' + (', '.join(ref(d) for d in task["deps"]) or 'none') + '</p>'
                     + '<p>Acceptance: ' + (', '.join(f'<a href="#criterion-{esc(c["id"])}">{esc(c["id"])}</a>' for c in contract.get("criteria", [])) or 'none') + '</p>'
                     + '<p>Assumptions: ' + (', '.join(f'<a href="#assumption-{esc(a)}">{esc(a)}</a>' for a in task["assumptions"]) or 'none') + '</p>'
