@@ -637,8 +637,8 @@ and an inbox. Nothing leaves the repository until `setup` links it.
    `praukron notion env` writes the blank file.
 2. Share the page that holds your projects with the connection. Inside that
    page, duplicate the **PPMP** template (Praukron Project Management Protocol)
-   once per project. PPMP is a copy of **Plautilus · Project Management** with
-   its sample rows removed. Use the project's copy for setup; a page whose
+   once per project. PPMP is a full project-control workspace with no rows of
+   its own. Use the project's copy for setup; a page whose
    title ends with `TEMPLATE` is refused.
 3. Link and fill it:
 

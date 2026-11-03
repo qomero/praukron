@@ -1,5 +1,5 @@
 - `praukron notion setup <copy-url>` binds a project to its own PPMP template
-  copy, based on Plautilus · Project Management with its sample rows removed
+  copy, a full project-control workspace with its sample rows removed
   (ADR-090). Duplicate it once per project inside the page that holds your
   projects. Setup finds the copy's 13 databases by title, adds only missing
   databases, properties and relations, and refuses a page whose title ends

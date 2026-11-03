@@ -1,8 +1,8 @@
 """Notion management: provision, push, pull and watch (ADR-087, ADR-088, ADR-090).
 
 The chronicle is the only authority. Each project mirrors into its own copy of
-the owner's PPMP template, a cleaned duplicate of Plautilus · Project
-Management: `push` upserts the compiled project into the copy's databases,
+the owner's PPMP template, a full project-control workspace with its
+sample rows removed: `push` upserts the compiled project into the copy's databases,
 keyed by the stable ID in each row's title, fills the copy's hub callouts in
 place, and writes the project's row both to the copy's Project Portfolio and to
 the one board every project shares; `pull` turns rows the owner submitted in
@@ -36,7 +36,7 @@ TEXT_LIMIT = 2000          # characters in one rich-text object
 TEXT_PARTS = 50            # rich-text objects kept per property
 
 # --------------------------------------------------------------------------
-# Schema: the PPMP template (Plautilus), one set per project copy; the shared
+# Schema: the PPMP template, one set per project copy; the shared
 # board uses the Project Portfolio schema.
 # --------------------------------------------------------------------------
 
@@ -835,7 +835,7 @@ def hub_blocks_found(client: Client, instance: str) -> dict[str, str]:
         for block in client.children(queue.pop(0)):
             kind = block.get("type")
             if kind == "callout":
-                # Plautilus puts a callout's label lines in child blocks.
+                # The template puts a callout's label lines in child blocks.
                 text = _block_text(block)
                 if block.get("has_children"):
                     text += "\n" + "\n".join(_block_text(child) for child in client.children(block["id"]))
@@ -889,7 +889,7 @@ def _para(parts: list[dict], kind: str = "paragraph") -> dict:
 
 def hub_content(s: dict, config: dict,
                 pages: dict[tuple[str, str], str]) -> dict[str, tuple[list[dict], list[dict], bool]]:
-    """What each hub callout says, laid out as Plautilus does: (first line, child
+    """What each hub callout says, laid out as the template does: (first line, child
     blocks, whether to keep the callout's existing lines that link pages)."""
     def kpi(value: str, label: str) -> tuple[list[dict], list[dict], bool]:
         return text_parts(value, bold=True), [_para(text_parts(label))], False
