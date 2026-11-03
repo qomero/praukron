@@ -1,9 +1,11 @@
-- `praukron notion setup <page-url>` binds a project to its own copy of the
-  PPMP template (Praukron Project Management Protocol, ADR-089): duplicate the
-  template in Notion once per project, then run setup on the copy. It finds
-  the nine PPMP databases below the page by title (Task Registry, Phases &
-  Gates, Acceptance & Evidence, Blockers & Dependencies, Assumption Review
-  Queue, Agent Instructions Outbox, ADR & Technical Debt, Action Ledger,
-  Operations & Sync), creates any that are missing, only ever adds missing
-  properties and relations, and refuses the unduplicated template. It adds a
-  Live Status page under the copy and names the copy after the project.
+- `praukron notion setup <copy-url>` binds a project to its own PPMP template
+  copy, based on Plautilus · Project Management with its sample rows removed
+  (ADR-090). Duplicate it once per project inside the page that holds your
+  projects. Setup finds the copy's 13 databases by title, adds only missing
+  databases, properties and relations, and refuses a page whose title ends
+  with `TEMPLATE`. It finds or creates one shared Project Portfolio directly
+  under the parent page so every linked project appears on the same board.
+- Add the repository tool `python scripts/notion_template.py clean <template-page-url>`
+  to trash every row in the template's nested databases while preserving its
+  layout and schema. It refuses pages whose titles do not end with `TEMPLATE`;
+  `--dry-run` reports per-database counts without writing.
