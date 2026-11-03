@@ -117,6 +117,9 @@ class Client:
     def delete_block(self, block_id: str) -> dict:
         return self.request("DELETE", f"blocks/{block_id}")
 
+    def update_block(self, block_id: str, body: dict) -> dict:
+        return self.request("PATCH", f"blocks/{block_id}", body)
+
     def database(self, database_id: str) -> dict:
         return self.request("GET", f"databases/{database_id}")
 

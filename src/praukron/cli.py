@@ -575,8 +575,8 @@ def cmd_notion(root: Path, args: argparse.Namespace) -> int:
             config = notion_sync.setup(client, root, args.target, args.key, args.name)
             print(f"Linked {config['projectName']} as {config['projectKey']} in {config['workspace']}.")
             print(f"  databases: {', '.join(notion_sync.DATABASES[k]['title'] for k in config['databases'])}")
-            print(f"  instance:  https://www.notion.so/{notion_sync.bare(config['instance'])}")
-            print(f"  status:    https://www.notion.so/{notion_sync.bare(config['hub'])}")
+            print(f"  project:   https://www.notion.so/{notion_sync.bare(config['instance'])}")
+            print(f"  portfolio: https://www.notion.so/{notion_sync.bare(config['shared']['database_id'])}")
             result = notion_sync.push(client, root, config)
             print("  " + result.line())
             notion_sync.log(root, f"{config['projectKey']} setup {result.line()} calls={client.calls}")
@@ -805,11 +805,11 @@ def build_parser() -> argparse.ArgumentParser:
     graph_tool.set_defaults(handler=cmd_codegraph)
 
     notion = subparsers.add_parser(
-        "notion", help="Notion management: doctor, env, setup, push, pull, sync, watch (ADR-087, ADR-089)"
+        "notion", help="Notion management: doctor, env, setup, push, pull, sync, watch (ADR-087, ADR-090)"
     )
     notion.add_argument("action", choices=("doctor", "env", "setup", "push", "pull", "sync", "watch"))
     notion.add_argument("target", nargs="?",
-                        help="setup: the project's PPMP page URL (ADR-089); watch: install, remove or status")
+                        help="setup: the project's PPMP page URL (ADR-090); watch: install, remove or status")
     notion.add_argument("--key", help="setup: the Project Key (default: the project name, upper case)")
     notion.add_argument("--name", help="setup: the project name shown in Notion")
     notion.add_argument("--user", action="store_true",
