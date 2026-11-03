@@ -35,19 +35,19 @@ OWNERS_ADR = f"""# ADR-003: Notion owners
 - Decision: Notion submissions from the owner count.
 - Notion owners: {OWNER_ID}=thien-owner
 """
-# The titles Plautilus gives its databases, by kind.
-PLAUTILUS_TITLES = {
+# The titles the template gives its databases, by kind.
+TEMPLATE_TITLES = {
     "tasks": "Execution Tasks", "decisions": "Human Decisions", "phases": "Phases & Gates",
     "operations": "Operations & Sync", "portfolio": "Project Portfolio",
     "acceptance": "Acceptance & Evidence", "blockers": "Blockers & Dependencies",
     "adrs": "ADR & Technical Debt", "ledger": "Action Ledger",
     "modules": "🧩 Product Modules · Praukron", "assumptions": "✏️ Assumption Review Queue",
-    "outbox": "Agent Instructions Outbox", "responses": "📜 Owner Response History · Plautilus",
+    "outbox": "Agent Instructions Outbox", "responses": "📜 Owner Response History · Sample",
 }
 # The template's hub callouts as the owner's copy holds them before any push:
-# a first line, and the label lines as child blocks (Plautilus layout).
+# a first line, and the label lines as child blocks (the template's layout).
 HUB_TEXTS = {
-    "header": ("PLAUTILUS / PROJECT CONTROL CENTER · Executive view", "A template thesis."),
+    "header": ("SAMPLE / PROJECT CONTROL CENTER · Executive view", "A template thesis."),
     "done": ("0 / 41", "Execution tasks DONE"), "phase": ("0 / 8", "P0 execution · 0% DONE"),
     "reviewed": ("0 / 41", "AI reviewed / human verified"), "gates": ("0 / 5", "GREEN phase gates"),
     "owner": ("VIỆC CỦA BẠN — 0 mục", "Chưa có việc."), "product": ("THE PRODUCT", "A template."),
@@ -322,11 +322,11 @@ class ProvisionTest(Base):
         self.assertEqual(set(saved["databases"]), set(notion_sync.ORDER))
 
     def test_setup_binds_a_duplicated_template_and_adds_only_what_is_missing(self) -> None:
-        copy = self.notion.add_page("PPMP · Plautilus | TEMPLATE (1)", self.portfolio)
+        copy = self.notion.add_page("PPMP · Sample | TEMPLATE (1)", self.portfolio)
         layer = self.notion.add_page("90 · Dữ liệu & Schema", copy)
-        for kind, title in PLAUTILUS_TITLES.items():
+        for kind, title in TEMPLATE_TITLES.items():
             self.notion.seed_database(layer, kind, title, drop=("Evidence",) if kind == "tasks" else ())
-        # the template's callouts sit in columns, as in Plautilus
+        # the template's callouts sit in columns
         row = self.notion.add_block(copy, "column_list", children=True)
         left = self.notion.add_block(row, "column", children=True)
         right = self.notion.add_block(row, "column", children=True)
