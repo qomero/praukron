@@ -540,6 +540,74 @@ def cmd_codegraph(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_notion(root: Path, args: argparse.Namespace) -> int:
+    """Notion management (ADR-087). The token's value is never printed."""
+    from . import notion_config
+
+    if args.action == "env":
+        path = notion_config.user_file() if args.user else notion_config.project_file(root)
+        if notion_config.write_template(path):
+            print(f"Wrote {path}. Put the Notion key in it, then run `praukron notion doctor`.")
+        else:
+            print(f"{path} already exists; left unchanged.")
+        return 0
+    if args.action == "doctor":
+        status, report, text = notion_config.doctor(root)
+        if args.json:
+            print(json.dumps(report, indent=2))
+        else:
+            print(text)
+        return status
+    from . import notion_sync
+    from .notion_api import Client, NotionError
+
+    token = notion_config.resolve(root)
+    try:
+        if args.action == "watch":
+            status, text = notion_sync.watch(root, args.target or "status", args.push_minutes, args.pull_minutes)
+            print(text)
+            return status
+        client = Client(token)
+        if args.action == "setup":
+            if not args.target:
+                return _fail("setup needs the project's PPMP page (a duplicate of the template): "
+                             "praukron notion setup <page-url>")
+            config = notion_sync.setup(client, root, args.target, args.key, args.name, args.icon)
+            print(f"Linked {config['projectName']} as {config['projectKey']} in {config['workspace']}.")
+            print(f"  databases: {', '.join(notion_sync.DATABASES[k]['title'] for k in config['databases'])}")
+            print(f"  project:   https://www.notion.so/{notion_sync.bare(config['instance'])}")
+            print(f"  portfolio: https://www.notion.so/{notion_sync.bare(config['shared']['database_id'])}")
+            result = notion_sync.push(client, root, config)
+            print("  " + result.line())
+            notion_sync.log(root, f"{config['projectKey']} setup {result.line()} calls={client.calls}")
+            print("Next: `praukron notion watch install` keeps it in sync.")
+            return 0
+        with notion_sync.lock(root):
+            config = notion_sync.load_config(root)
+            lines = []
+            if args.action in ("pull", "sync"):
+                pulled = notion_sync.pull(client, root, config)
+                lines.append(pulled.line() + (f" ids={','.join(pulled.applied)}" if pulled.applied else ""))
+            if args.action in ("push", "sync") or (args.action == "pull" and lines and "applied=0" not in lines[0]):
+                lines.append(notion_sync.push(client, root, config).line())
+            line = " · ".join(lines)
+            notion_sync.log(root, f"{config['projectKey']} {line} calls={client.calls}")
+            if not args.quiet:
+                print(line)
+            return 0
+    except notion_sync.Locked as error:
+        if not args.quiet:
+            print(str(error))
+        return 0
+    except NotionError as error:
+        message = notion_config.redact(str(error), token)
+        try:
+            notion_sync.log(root, f"error {args.action}: {message}")
+        except OSError:
+            pass
+        return _fail(message)
+
+
 def domain_report(project: Project) -> dict[str, object]:
     """How every task's domain was decided, and what operational history
     exists. Reads only; classifying a task is an edit to TASKS.md."""
@@ -735,6 +803,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     graph_tool.add_argument("--json", action="store_true")
     graph_tool.set_defaults(handler=cmd_codegraph)
+
+    notion = subparsers.add_parser(
+        "notion", help="Notion management: doctor, env, setup, push, pull, sync, watch (ADR-087, ADR-090)"
+    )
+    notion.add_argument("action", choices=("doctor", "env", "setup", "push", "pull", "sync", "watch"))
+    notion.add_argument("target", nargs="?",
+                        help="setup: the project's PPMP page URL (ADR-090); watch: install, remove or status")
+    notion.add_argument("--key", help="setup: the Project Key (default: the project name, upper case)")
+    notion.add_argument("--name", help="setup: the project name shown in Notion")
+    notion.add_argument("--icon", help="setup: the emoji icon of the project's Notion page (kept on later setups)")
+    notion.add_argument("--user", action="store_true",
+                        help="env: write ~/.praukron/notion.env, shared by every project")
+    notion.add_argument("--push-minutes", type=int, default=5)
+    notion.add_argument("--pull-minutes", type=int, default=2)
+    notion.add_argument("--quiet", action="store_true", help="push/pull: print nothing; the log keeps the line")
+    notion.add_argument("--json", action="store_true")
+    notion.set_defaults(handler=cmd_notion)
 
     journal = subparsers.add_parser("journal", help="append governed journal entries")
     journal_commands = journal.add_subparsers(dest="journal_command", required=True)

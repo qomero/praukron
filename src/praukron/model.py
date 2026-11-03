@@ -49,6 +49,8 @@ RESPONSE_ACTIONS = ("CONFIRM", "REVISE", "REJECT", "GUIDE", "VERIFY")
 VERIFY = "VERIFY"
 # A GitHub login: what `Owners:` names and what `By:` records (ADR-060).
 GITHUB_LOGIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
+# A Notion owner mapping: `<notion-user-id>=<github-login>` (ADR-088).
+NOTION_OWNER = re.compile(r"([0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12})=@?([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))")
 # The status a decisive response asks for. GUIDE asks for none.
 RESPONSE_STATUS = {"CONFIRM": "CONFIRMED", "REVISE": "REVISED", "REJECT": "REJECTED"}
 # A task only a named person can finish.
@@ -266,6 +268,8 @@ class Decision:
     notify: str | None = None
     # The project's owners by GitHub login (ADR-060); None when not stated.
     owners: list[str] | None = None
+    # `<notion-user-id>=<github-login>` entries (ADR-088); None when not stated.
+    notion_owners: list[str] | None = None
 
     @property
     def reconstructed(self) -> bool:
@@ -558,6 +562,21 @@ class Project:
     def owners(self) -> list[str]:
         decision = self.owners_decision
         return [owner for owner in decision.owners if GITHUB_LOGIN.match(owner)] if decision else []
+
+    @property
+    def notion_owners(self) -> dict[str, str]:
+        """Notion user id (no dashes, lower case) to GitHub login, from the
+        newest ACCEPTED ADR naming `Notion owners:` (ADR-088)."""
+        found = [d for d in self.decisions if d.status == "ACCEPTED" and d.notion_owners is not None]
+        if not found:
+            return {}
+        latest = max(found, key=lambda d: int(d.id.split("-")[1]))
+        mapping: dict[str, str] = {}
+        for entry in latest.notion_owners or []:
+            match = NOTION_OWNER.fullmatch(entry)
+            if match:
+                mapping[match.group(1).replace("-", "").lower()] = match.group(2)
+        return mapping
 
     def is_owner(self, login: str | None) -> bool:
         """GitHub logins are case-insensitive."""

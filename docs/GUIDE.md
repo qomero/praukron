@@ -624,6 +624,55 @@ An agent reconciles each response on its next turn; only the owner named in
 an ADR's `Owners:` can verify. The ticks are visible but disabled on the
 static page.
 
+### Following the project from Notion (optional)
+
+Praukron can mirror a project into Notion and take the owner's answers back,
+including from a phone. The chronicle stays the authority; Notion is a mirror
+and an inbox. Nothing leaves the repository until `setup` links it.
+
+1. In Notion, add a Developer connection (Internal) and copy its secret. One
+   connection serves every project in the workspace. Put it in
+   `~/.praukron/notion.env` (every project) or `.praukron/notion.env` (this
+   project only) as `NOTION_TOKEN=…`; both are ignored by Git, and
+   `praukron notion env` writes the blank file.
+2. Share the page that holds your projects with the connection. Inside that
+   page, duplicate the **PPMP** template (Praukron Project Management Protocol)
+   once per project. PPMP is a full project-control workspace with no rows of
+   its own. Use the project's copy for setup; a page whose
+   title ends with `TEMPLATE` is refused.
+3. Link and fill it:
+
+```sh
+praukron notion doctor                    # where the key is, and whether it works
+praukron notion setup <url of the copy> --key PROJECT --icon 🦁
+praukron notion watch install             # pull every 2 min, push every 5 min
+```
+
+`setup` binds the copy's 13 databases by title and adds only missing databases,
+properties and relations. It finds or creates one shared **Project Portfolio**
+board directly under the page that holds your projects, then runs the first
+push. The shared board lists every linked project; each copy also has its own
+Project Portfolio row. `push` fills the hub's KPI and **Việc của bạn** callouts
+in place with progress and the decisions waiting for you.
+
+There are two places to answer: the **Assumption Review Queue** (Decision,
+Feedback, Submit) and the **Agent Instructions Outbox** (Target Task Link or
+Target ID, Intent, Instruction Text, Submit). Treat the other tables as views.
+The next `pull` records accepted submissions in `RESPONSES.md`, logs each
+submission in the **Action Ledger**, and writes a receipt back to its row.
+An applied submission reaches `APPLIED`; a stale or invalid one shows
+`CONFLICT` or `REJECTED` with an explanation. Submissions wait until the
+machine next runs a pull. **Owner Response History** mirrors the recorded
+responses on the next push.
+
+Only Notion users named in an ADR's `Notion owners:`
+(`<notion-user-id>=<gh-login>`) count as owners; other users' submissions are
+rejected. Listed owners may submit `VERIFY` for an `Authority: owner` task.
+`praukron notion sync` runs pull then push once.
+`praukron notion watch install` installs Windows Task Scheduler jobs for pull
+every two minutes and push every five minutes; on other systems it prints
+the lines to add with `crontab -e`.
+
 ### Execution and operations
 
 Every task is either **execution** — work that advances the project itself —
