@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Callable, Iterator
 
-from .notion_config import API, NOTION_VERSION, TIMEOUT, Token, redact
+from .notion_config import API, NOTION_VERSION, TIMEOUT, Token, malformed, redact
 
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
@@ -30,6 +30,9 @@ class Client:
                  opener: Callable[..., Any] | None = None) -> None:
         if token.value is None:
             raise NotionError(0, "missing-token", "no Notion key is configured; run `praukron notion doctor`")
+        problem = malformed(token)
+        if problem:   # refused before any header is built, so no library can echo it
+            raise NotionError(0, "malformed-token", problem)
         self._token = token
         self.attempts = attempts
         self.sleep = sleep
@@ -72,6 +75,10 @@ class Client:
                     delay *= 2
                     continue
                 raise NotionError(0, "unreachable", redact(str(error), self._token)) from None
+            except Exception as error:
+                # A header or protocol error (http.client's ValueError, HTTPException)
+                # may quote the Authorization header, escaped: name its type only.
+                raise NotionError(0, "transport", f"the request failed ({type(error).__name__})") from None
         raise AssertionError("unreachable")  # pragma: no cover
 
     def paginate(self, method: str, path: str, body: dict | None = None) -> Iterator[dict]:
@@ -107,12 +114,19 @@ class Client:
     def children(self, block_id: str) -> list[dict]:
         return list(self.paginate("GET", f"blocks/{block_id}/children?page_size=100"))
 
-    def append(self, block_id: str, blocks: list[dict]) -> dict:
-        result: dict = {}
+    def append(self, block_id: str, blocks: list[dict], after: str | None = None) -> dict:
+        """Add children at the end, or right after the child `after`; the
+        result's `results` hold every block each call returned."""
+        results: list[dict] = []
         for start in range(0, len(blocks), 100):
-            result = self.request("PATCH", f"blocks/{block_id}/children",
-                                  {"children": blocks[start:start + 100]})
-        return result
+            body: dict = {"children": blocks[start:start + 100]}
+            if after:
+                body["after"] = after
+            chunk = self.request("PATCH", f"blocks/{block_id}/children", body).get("results") or []
+            results.extend(chunk)
+            if after and chunk:
+                after = chunk[-1]["id"]
+        return {"results": results}
 
     def delete_block(self, block_id: str) -> dict:
         return self.request("DELETE", f"blocks/{block_id}")

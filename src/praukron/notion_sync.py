@@ -252,9 +252,18 @@ def load_config(root: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def write_json(path: Path, data: dict) -> None:
+    """Through a temporary file in the same directory, swapped in whole."""
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with open(temporary, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+
+
 def save_config(root: Path, config: dict) -> None:
-    path = config_path(root)
-    path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_json(config_path(root), config)
 
 
 def page_id(reference: str) -> str:
@@ -530,7 +539,8 @@ def setup(client: Client, root: Path, instance_reference: str, key: str | None =
     if "TEMPLATE" in current or not current:
         client.update_page(instance, {"title": title(f"{name} · Project Management")})
     previous = json.loads(config_path(root).read_text(encoding="utf-8")) if config_path(root).is_file() else {}
-    hub = previous.get("hubBlocks") if previous.get("instance") == instance else None
+    same = previous.get("instance") == instance
+    hub = previous.get("hubBlocks") if same else None
     config = {
         "version": 3,
         "template": "PPMP",
@@ -543,6 +553,8 @@ def setup(client: Client, root: Path, instance_reference: str, key: str | None =
         "shared": shared,
         "hubBlocks": hub or hub_blocks_found(client, instance) or add_hub_skeleton(client, instance),
     }
+    if same and hub and previous.get("hubGenerated"):
+        config["hubGenerated"] = previous["hubGenerated"]   # the lines push wrote stay push's
     save_config(root, config)
     return config
 
@@ -759,8 +771,9 @@ def records(root: Path, project: dict) -> list[Record]:
 
 
 def revision_of(record: Record) -> str:
-    """The Source Revision push writes for an assumption row, without relations
-    (they depend on page ids), so pull can compare it."""
+    """The Source Revision push writes on a record's row: its values without
+    relations (they depend on page ids), so pull can compute it from the chronicle
+    alone and tell a submission about what is current from a stale one."""
     return revision(record.props)
 
 
@@ -888,11 +901,11 @@ def _para(parts: list[dict], kind: str = "paragraph") -> dict:
 
 
 def hub_content(s: dict, config: dict,
-                pages: dict[tuple[str, str], str]) -> dict[str, tuple[list[dict], list[dict], bool]]:
-    """What each hub callout says, laid out as the template does: (first line, child
-    blocks, whether to keep the callout's existing lines that link pages)."""
-    def kpi(value: str, label: str) -> tuple[list[dict], list[dict], bool]:
-        return text_parts(value, bold=True), [_para(text_parts(label))], False
+                pages: dict[tuple[str, str], str]) -> dict[str, tuple[list[dict], list[dict]]]:
+    """What each hub callout says, laid out as the template does: (first line, the
+    child lines push writes)."""
+    def kpi(value: str, label: str) -> tuple[list[dict], list[dict]]:
+        return text_parts(value, bold=True), [_para(text_parts(label))]
 
     pct = round(100 * s["phaseDone"] / s["phaseTotal"]) if s["phaseTotal"] else 0
     dbs = config["databases"]
@@ -930,50 +943,83 @@ def hub_content(s: dict, config: dict,
     if not (s["assumptions"] or s["ownerTasks"]):
         children.append(_para(text_parts("Không có việc chờ bạn.")))
     return {
-        "header": (header, header_lines, True),
+        "header": (header, header_lines),
         "done": kpi(f"{s['done']} / {s['total']}", "Execution tasks DONE"),
         "phase": kpi(f"{s['phaseDone']} / {s['phaseTotal']}", f"{s['phaseId']} execution · {pct}% DONE"),
         "reviewed": kpi(f"{s['reviewed']} / {s['total']}", "AI reviewed / human verified"),
         "gates": kpi(f"{s['gatesGreen']} / {s['gates']}", "GREEN phase gates"),
         "owner": (text_parts(f"VIỆC CỦA BẠN — {s['attention']} mục cần nhập / duyệt thủ công", bold=True),
-                  children, False),
-        "product": (text_parts("THE PRODUCT", bold=True), [_para(text_parts(s["thesis"]))], True),
+                  children),
+        "product": (text_parts("THE PRODUCT", bold=True), [_para(text_parts(s["thesis"]))]),
     }
 
 
-def _reusable(block: dict) -> dict | None:
-    """A child line that links pages (the template's navigation), rebuilt so it
-    can be written back; None for anything else."""
+TEXT_LINES = ("paragraph", "bulleted_list_item", "numbered_list_item")
+
+
+def _template_line(block: dict) -> bool:
+    """A plain line of the template's sample text, which push takes over: text
+    only, no links or mentions, nothing nested. Views, pages, link blocks,
+    navigation lines and anything else are not push's and stay as they are."""
     kind = block.get("type")
+    if kind not in TEXT_LINES or block.get("has_children"):
+        return False
     parts = (block.get(kind) or {}).get("rich_text") or []
-    if kind not in ("paragraph", "bulleted_list_item") or not any(p.get("type") == "mention" for p in parts):
-        return None
-    clean = []
-    for part in parts:
-        if part.get("type") == "mention":
-            clean.append({"type": "mention", "mention": part["mention"]})
-        else:
-            text = part.get("text") or {"content": part.get("plain_text", "")}
-            clean.append({"type": "text", "text": {"content": text.get("content", ""), "link": text.get("link")}})
-        if part.get("annotations"):
-            clean[-1]["annotations"] = part["annotations"]
-    return _para(clean, kind)
+    return all(p.get("type", "text") == "text" and not (p.get("text") or {}).get("link") and not p.get("href")
+               for p in parts)
 
 
 def write_hub(client: Client, config: dict, content: dict) -> None:
+    """Fill each callout in place. Push rewrites only the child lines it wrote
+    before (their ids are kept in notion.json), or, the first time, the
+    template's plain sample lines; it updates them where they are, inserts any
+    extra line after them, and leaves every other child, with its id and
+    nesting, alone (ADR-090)."""
     blocks = config.get("hubBlocks") or {}
-    for name, (parts, children, keep_links) in content.items():
+    written = config.setdefault("hubGenerated", {})
+    for name, (parts, lines) in content.items():
         block = blocks.get(name)
         if not block:
             continue
         client.update_block(block, {"callout": {"rich_text": parts}})
-        kept = []
-        for child in client.children(block):
-            again = _reusable(child) if keep_links else None
-            if again is not None:
-                kept.append(again)
-            client.delete_block(child["id"])
-        client.append(block, children + kept)
+        children = client.children(block)
+        if name in written:
+            mine = set(written[name])
+            old = [c for c in children if c["id"] in mine]
+        else:
+            old = [c for c in children if _template_line(c)]
+        known = {c["id"] for c in children}
+        ids: list[str] = []
+        pending: list[dict] = []
+        after: str | None = None
+
+        def flush() -> None:
+            nonlocal after
+            if not pending:
+                return
+            made = client.append(block, list(pending), after=after).get("results") or []
+            new = [b["id"] for b in made if b.get("id") and b["id"] not in known]
+            known.update(new)
+            ids.extend(new)
+            after = new[-1] if new else after
+            pending.clear()
+
+        for index in range(max(len(old), len(lines))):
+            have = old[index] if index < len(old) else None
+            want = lines[index] if index < len(lines) else None
+            if have and want and have["type"] == want["type"]:
+                flush()
+                kind = want["type"]
+                client.update_block(have["id"], {kind: {"rich_text": want[kind]["rich_text"]}})
+                ids.append(have["id"])
+                after = have["id"]
+                continue
+            if have:
+                client.delete_block(have["id"])
+            if want:
+                pending.append(want)
+        flush()
+        written[name] = ids
 
 
 # --------------------------------------------------------------------------
@@ -1006,10 +1052,51 @@ def _existing(client: Client, source: str, key: str | None) -> dict[str, dict]:
     return found
 
 
+def _norm(value: dict | None) -> Any:
+    """A property value compared by meaning, whether push wrote it or Notion
+    returned it; empty is None."""
+    if not value:
+        return None
+    for kind in ("title", "rich_text"):
+        if kind in value:
+            text = "".join(p["plain_text"] if "plain_text" in p else (p.get("text") or {}).get("content", "")
+                           for p in value[kind] or [])
+            return text or None
+    if "select" in value:
+        return (value["select"] or {}).get("name") or None
+    if "checkbox" in value:
+        return bool(value["checkbox"])
+    if "number" in value:
+        return value["number"]
+    if "url" in value:
+        return value["url"] or None
+    if "date" in value:
+        return (value["date"] or {}).get("start") or None
+    if "relation" in value:
+        return sorted(bare(r.get("id")) for r in value["relation"] or []) or None
+    return None
+
+
+def _same(want: dict, have: dict | None) -> bool:
+    a, b = _norm(want), _norm(have)
+    if "relation" in want and (have or {}).get("has_more"):
+        # Notion returns at most 25 related ids on a page; the rest are not shown.
+        return set(b or []) <= set(a or [])
+    return a == b
+
+
+def drifted(row: dict, props: dict) -> list[str]:
+    """The properties push owns whose value in Notion is not the one it wants."""
+    have = row.get("properties") or {}
+    return [name for name, value in props.items() if not _same(value, have.get(name))]
+
+
 def _upsert(client: Client, source: str, row: dict | None, props: dict, rev: str, result: PushResult,
             extra: dict | None = None) -> None:
-    """Write a row only when its revision moved; `extra` (a timestamp) rides along."""
-    if row is not None and plain(row["properties"].get("Source Revision")) == rev:
+    """Write a row when its revision moved or a value push owns was changed in
+    Notion; `extra` (a timestamp) rides along and is not compared."""
+    if (row is not None and plain(row["properties"].get("Source Revision")) == rev
+            and not drifted(row, props)):
         result.unchanged += 1
         return
     body = {**props, **(extra or {}), "Source Revision": rich(rev)}
@@ -1043,10 +1130,15 @@ def push(client: Client, root: Path, config: dict | None = None,
     s = summary(project, key)
 
     wanted = records(root, project)
+    present = {(r.kind, r.pid) for r in wanted}
     rows: dict[str, dict[str, dict]] = {kind: _existing(client, dbs[kind]["data_source_id"], key)
                                         for kind in MIRRORED}
     pages: dict[tuple[str, str], str] = {(kind, pid): row["id"] for kind, found in rows.items()
                                          for pid, row in found.items()}
+
+    # A new copy shows its numbers first; a large project's rows take minutes.
+    if config.get("hubBlocks") and "hubRevision" not in config:
+        result.hub = _refresh_hub(client, root, config, s, pages, present)
 
     # Pass 1: every record has a page, so relations can point at it.
     fresh: set[tuple[str, str]] = set()
@@ -1062,19 +1154,23 @@ def push(client: Client, root: Path, config: dict | None = None,
             fresh.add((record.kind, record.pid))
             result.created += 1
 
-    # Pass 2: full properties, written only when the revision moved.
+    # Pass 2: full properties, written when the revision moved or a value push
+    # owns was changed in Notion. A submitted assumption is the owner's until
+    # pull has handled it: its revision and last editor are what pull checks.
     revisions: list[str] = []
+    current: dict[tuple[str, str], str] = {}
     for record in wanted:
         props = dict(record.props)
         props[TITLE] = title(record.pid)
         for name, targets in record.links.items():
             props[name] = relation(sorted({pages[t] for t in targets if t in pages}))
-        # An assumption row's revision covers only its text, which pull compares.
-        rev = revision_of(record) if record.kind == "assumptions" else revision(props)
+        rev = revision_of(record)
+        current[(record.kind, record.pid)] = rev
         revisions.append(f"{record.kind}:{record.pid}:{rev}")
         ident = (record.kind, record.pid)
         row = rows[record.kind][record.pid]
-        if ident not in fresh and plain(row.get("properties", {}).get("Source Revision")) == rev:
+        if ident not in fresh and (held(record.kind, row) or (
+                plain(row.get("properties", {}).get("Source Revision")) == rev and not drifted(row, props))):
             result.unchanged += 1
             continue
         client.update_page(pages[ident], {**props, "Source Revision": rich(rev)})
@@ -1082,10 +1178,9 @@ def push(client: Client, root: Path, config: dict | None = None,
             result.updated += 1
 
     # Rows whose record is gone: blockers resolve, everything else goes to the trash.
-    present = {(r.kind, r.pid) for r in wanted}
     for kind, found in rows.items():
         for pid, row in found.items():
-            if (kind, pid) in present:
+            if (kind, pid) in present or held(kind, row):
                 continue
             if kind == "blockers":
                 if plain(row["properties"].get("Status")) != "RESOLVED":
@@ -1095,6 +1190,21 @@ def push(client: Client, root: Path, config: dict | None = None,
             else:
                 client.update_page(row["id"], archived=True)
                 result.archived += 1
+
+    # An instruction not yet submitted carries its target's revision, so pull can
+    # tell an approval of what the owner saw from one of something since changed.
+    by_page = {bare(page): pid for (kind, pid), page in pages.items() if kind == "tasks"}
+    for row in client.query(dbs["outbox"]["data_source_id"]):
+        props = row["properties"]
+        row_key = plain(props.get("Project Key")).strip()
+        if (row_key and row_key != key) or plain(props.get("Submit")) \
+                or plain(props.get("Delivery State")) not in OPEN_OUTBOX:
+            continue
+        target = _target(props, by_page)
+        rev = current.get((_kind_of(target), target))
+        if rev and plain(props.get("Source Revision")) != rev:
+            client.update_page(row["id"], {"Source Revision": rich(rev)})
+            result.updated += 1
 
     stamp = now()
 
@@ -1124,29 +1234,67 @@ def push(client: Client, root: Path, config: dict | None = None,
             _upsert(client, source, _existing(client, source, key).get(s["name"]), board, revision(board),
                     result, {"Last Synced": date(stamp)})
 
-    # The hub callouts: rewritten only when what they show changed.
-    hub_rev = revision({"summary": s, "pages": sorted(f"{k}:{p}:{v}" for (k, p), v in pages.items()
-                                                       if k in ("assumptions", "tasks") and (k, p) in present)})
-    if config.get("hubBlocks") and config.get("hubRevision") != hub_rev:
-        try:
-            write_hub(client, config, hub_content(s, config, pages))
-        except NotionError as error:
-            if error.status != 404:
-                raise
-            config["hubBlocks"] = hub_blocks_found(client, config["instance"]) or add_hub_skeleton(
-                client, config["instance"])
-            write_hub(client, config, hub_content(s, config, pages))
-        config["hubRevision"] = hub_rev
-        save_config(root, config)
+    if _refresh_hub(client, root, config, s, pages, present):
         result.hub = True
     return result
+
+
+def _refresh_hub(client: Client, root: Path, config: dict, s: dict, pages: dict[tuple[str, str], str],
+                 present: set[tuple[str, str]]) -> bool:
+    """The hub callouts, rewritten only when what they show changed."""
+    hub_rev = revision({"summary": s, "pages": sorted(f"{k}:{p}:{v}" for (k, p), v in pages.items()
+                                                       if k in ("assumptions", "tasks") and (k, p) in present)})
+    if not config.get("hubBlocks") or config.get("hubRevision") == hub_rev:
+        return False
+    try:
+        write_hub(client, config, hub_content(s, config, pages))
+    except NotionError as error:
+        if error.status != 404:
+            raise
+        before = config.get("hubBlocks") or {}
+        config["hubBlocks"] = hub_blocks_found(client, config["instance"]) or add_hub_skeleton(
+            client, config["instance"])
+        # A callout found again under a new id holds none of push's lines yet.
+        config["hubGenerated"] = {name: ids for name, ids in (config.get("hubGenerated") or {}).items()
+                                  if before.get(name) == config["hubBlocks"].get(name)}
+        write_hub(client, config, hub_content(s, config, pages))
+    config["hubRevision"] = hub_rev
+    save_config(root, config)
+    return True
+
+
+# --------------------------------------------------------------------------
+# What pull and push agree on about the owner's rows
+# --------------------------------------------------------------------------
+
+# Outbox rows the owner may still submit; push keeps their base revision current.
+OPEN_OUTBOX = {"", "DRAFT", "NOT_SUBMITTED", "CONFLICT", "REJECTED"}
+
+
+def held(kind: str, row: dict) -> bool:
+    """An assumption the owner submitted that pull has not finished: push neither
+    rewrites nor trashes it, so its base revision and submitter survive."""
+    return kind == "assumptions" and bool(plain((row.get("properties") or {}).get("Submit")))
+
+
+def _kind_of(target: str) -> str:
+    return "assumptions" if target.startswith("A-") else "tasks"
+
+
+def _target(props: dict, task_pages: dict[str, str]) -> str:
+    """An outbox row's target: its linked task (`task_pages` maps bare page ids to
+    task ids), else the id in Target ID."""
+    linked = [task_pages[bare(i)] for i in plain(props.get("Target Task Link")).split(",")
+              if bare(i) in task_pages]
+    return linked[0] if linked else plain(props.get("Target ID")).strip()
 
 
 # --------------------------------------------------------------------------
 # Pull: owner submissions in Notion → RESPONSES.md (worker contract v1.0)
 # --------------------------------------------------------------------------
 
-PENDING_STATES = {"", "NOT_SUBMITTED", "DRAFT", "QUEUED", "CONFLICT"}
+REQUESTS_FILE = "notion-requests.json"
+IN_FLIGHT = {"QUEUED", "LOCAL_RECORDED", "COMPILED"}
 
 
 @dataclass
@@ -1161,19 +1309,75 @@ class PullResult:
                 f"conflicts={self.conflicts} skipped={self.skipped}")
 
 
-def _mark(client: Client, row_id: str, state: str, evidence: str | None = None,
+def _mark(client: Client, row_id: str, state: str, request: str, evidence: str | None = None,
           untick: bool = False) -> None:
-    """Move a submitted row along; `evidence` is the receipt text."""
-    props: dict = {"Delivery State": select(state), "Request ID": rich(row_id)}
+    """Move a submitted row along; `evidence` is the receipt text. A row the owner
+    has since deleted takes no receipt."""
+    props: dict = {"Delivery State": select(state), "Request ID": rich(request)}
     if evidence is not None:
         props["Apply Evidence"] = rich(evidence)
     if untick:
         props["Submit"] = checkbox(False)
-    client.update_page(row_id, props)
+    try:
+        client.update_page(row_id, props)
+    except NotionError as error:
+        if error.status != 404:
+            raise
+
+
+class Requests:
+    """The worker's own journal of submissions, `.praukron/notion-requests.json`
+    (local, ignored by Git, written whole each time).
+
+    A submission is keyed by its row and a hash of what was submitted, and its
+    submitter and payload are kept here before the worker writes anything to
+    Notion, where every write makes the integration the row's last editor. An
+    interrupted request resumes from here; a new edit of the same row is a new
+    key, so a refused row can be corrected and sent again, and an applied one can
+    carry a second decision."""
+
+    def __init__(self, root: Path) -> None:
+        self.path = root / layout.HOME_DIR / REQUESTS_FILE
+        try:
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            data = {}
+        except ValueError:
+            raise NotionError(0, "bad-request-journal", f"{self.path} is not valid JSON; move it aside and "
+                              "pull again (RESPONSES.md still keeps every recorded request)") from None
+        self.entries: dict[str, dict] = data.get("requests") or {}
+
+    def save(self, entry: dict) -> None:
+        self.entries[entry["key"]] = entry
+        write_json(self.path, {"version": 1, "requests": self.entries})
+
+
+def submission(kind: str, row: dict, task_pages: dict[str, str], mirrored: Callable[[str], str]) -> dict:
+    """What the owner submitted, read once, before the worker writes to the row."""
+    props = row["properties"]
+    if kind == "outbox":
+        target = _target(props, task_pages)
+        payload = {"target": target, "intent": plain(props.get("Intent")) or "GUIDE",
+                   "priority": plain(props.get("Priority")), "title": plain(props.get("Instruction Title")),
+                   "text": plain(props.get("Instruction Text"))}
+        # The revision push stamped on the row, else the one its target's row shows.
+        base = plain(props.get("Source Revision")) or mirrored(target)
+    else:
+        target = plain(props.get("Assumption ID")).strip() or plain(props.get(TITLE)).strip()
+        payload = {"target": target, "decision": plain(props.get("Decision")),
+                   "feedback": plain(props.get("Feedback"))}
+        base = plain(props.get("Source Revision"))
+    digest = revision({"kind": kind, "row": bare(row["id"]), "payload": payload, "base": base})
+    return {
+        "key": f"{row['id']}@{digest[:12]}", "kind": kind, "row": row["id"], "target": target,
+        "payload": payload, "base": base, "editor": bare((row.get("last_edited_by") or {}).get("id")),
+        "edited": row.get("last_edited_time", ""), "seen": now(), "state": "NEW",
+    }
 
 
 class Ledger:
-    """One Action Ledger row per submission, found again by its Source Page ID."""
+    """One Action Ledger row per request, found again by the request key in its
+    Source Page ID."""
 
     def __init__(self, client: Client, config: dict) -> None:
         self.client = client
@@ -1185,15 +1389,17 @@ class Ledger:
             if request:
                 self.rows.setdefault(request, row["id"])
 
-    def record(self, request: str, status: str, *, kind: str, label: str, action: str, source: str,
-               target: str = "", task_page: str | None = None, base: str = "", applied: str = "",
+    def record(self, entry: dict, status: str, label: str, task_page: str | None, applied: str = "",
                error: str = "") -> str:
+        request, action = entry["key"], entry["action"]
         props = {
             TITLE: title(label), "Action Title": rich(f"{action} · {applied or status}"),
-            "Requested Action": rich(action), "Source Page ID": rich(request), "Source Database": select(source),
-            "Status": select(status), "Base Revision": rich(base), "Target ID": rich(target),
+            "Requested Action": rich(action), "Source Page ID": rich(request),
+            "Source Database": select(entry["source"]), "Status": select(status),
+            "Base Revision": rich(entry["base"]), "Target ID": rich(entry["target"]),
             "Error": rich(error), "Project Key": rich(self.key),
-            "Source Assumption" if kind == "assumptions" else "Source Instruction": relation([request]),
+            "Source Assumption" if entry["kind"] == "assumptions" else "Source Instruction":
+                relation([entry["row"]]),
         }
         if task_page:
             props["Target Task Link"] = relation([task_page])
@@ -1206,142 +1412,178 @@ class Ledger:
 
 
 def _already(project, request: str) -> str | None:
+    """The response a request was recorded as, from its `Via: … request <key>`."""
     for response in project.responses:
-        if response.via and f"request {request}" in response.via:
+        found = re.search(r"\brequest (\S+)", response.via or "")
+        if found and found.group(1) == request:
             return response.id
     return None
+
+
+def _decide(entry: dict, login: str | None, current: dict[tuple[str, str], str]) -> dict:
+    """A refusal ({status, error}) or the response to append ({action, text,
+    verify, via}). Text is the owner's, verbatim; stripped copies only test for
+    emptiness, and the worker's notes go in the Via line."""
+    target, payload, base = entry["target"], entry["payload"], entry["base"]
+    if not login:
+        return {"status": "REJECTED",
+                "error": f"Submitted by Notion user {entry['editor'] or 'unknown'}, who is not listed in an "
+                         "ADR's Notion owners (ADR-088). Nothing was written."}
+    via = f"notion {entry['editor']} request {entry['key']}"
+    stale = (f"{target} changed in the chronicle after this row was shown; the row is now current. "
+             "Read it again and tick Submit to resend.")
+    if entry["kind"] == "assumptions":
+        decision, feedback = payload["decision"], payload["feedback"]
+        if base != current.get(("assumptions", target)):
+            return {"status": "CONFLICT", "error": stale}
+        if decision in ("REVISE", "REJECT") and not feedback.strip():
+            return {"status": "REJECTED", "error": f"{decision} needs Feedback saying what to change; write it, "
+                                                   "then Submit."}
+        if decision in ("CONFIRM", "REVISE", "REJECT"):
+            return {"action": decision, "text": feedback if feedback.strip() else
+                    "CONFIRM (from Notion, no feedback)", "verify": False, "via": via}
+        if decision == "WITHDRAW":
+            return {"action": "GUIDE", "text": feedback if feedback.strip() else "WITHDRAW", "verify": False,
+                    "via": f"{via} · decision WITHDRAW"}
+        if feedback.strip():
+            return {"action": "GUIDE", "text": feedback, "verify": False, "via": via}
+        return {"status": "REJECTED", "error": "Choose a Decision or write Feedback, then Submit."}
+    intent, body = payload["intent"], payload["text"]
+    if not target or target[:2] not in ("T-", "A-"):
+        return {"status": "REJECTED",
+                "error": "Link a task (Target Task Link) or name a T-/A- id in Target ID, then Submit."}
+    if (_kind_of(target), target) not in current:
+        return {"status": "REJECTED", "error": f"{target} is not a task or an assumption in the chronicle."}
+    if not body.strip():
+        return {"status": "REJECTED", "error": "Write the Instruction Text, then Submit."}
+    if base != current[(_kind_of(target), target)]:
+        return {"status": "CONFLICT", "error": stale}
+    text = "\n\n".join(part for part in (payload["title"], body) if part.strip())
+    note = f" · intent {intent}" + (f" · priority {payload['priority']}" if payload["priority"] else "")
+    verify = intent in ("VERIFY", "APPROVE")
+    return {"action": "VERIFY" if verify else "GUIDE", "text": text, "verify": verify, "via": via + note}
 
 
 def pull(client: Client, root: Path, config: dict | None = None,
          append: Callable | None = None) -> PullResult:
     from . import compile as compiler, respond
+    from .respond import Item, RespondError
 
     config = config or load_config(root)
     append = append or respond.append
     key = config["projectKey"]
     dbs = config["databases"]
     result = PullResult()
-    project = compiler.load(root)
-    owners = project.notion_owners
-    data = compiler.as_json(project)
-    current = {r.pid: revision_of(r) for r in records(root, data) if r.kind == "assumptions"}
-    tasks = _existing(client, dbs["tasks"]["data_source_id"], key)
-    task_pages = {row["id"]: pid for pid, row in tasks.items()}
-    ledger = Ledger(client, config)
+    journal = Requests(root)
 
-    submitted = {"property": "Submit", "checkbox": {"equals": True}}
-    queue: list[tuple[str, dict]] = []
-    for row in client.query(dbs["assumptions"]["data_source_id"],
-                            {"and": [submitted, {"property": "Project Key", "rich_text": {"equals": key}}]}):
-        queue.append(("assumptions", row))
-    for row in client.query(dbs["outbox"]["data_source_id"], submitted):
-        queue.append(("outbox", row))
-    queue.sort(key=lambda item: item[1].get("last_edited_time", ""))
-
-    for kind, row in queue:
-        props = row["properties"]
-        state = plain(props.get("Delivery State"))
-        if state not in PENDING_STATES:
-            continue
-        request = row["id"]
-        editor = bare((row.get("last_edited_by") or {}).get("id"))
-        base = plain(props.get("Source Revision"))
-        if kind == "outbox":
-            row_key = plain(props.get("Project Key")).strip()
-            if row_key and row_key != key:   # a copy serves one project; skip strays
-                result.skipped += 1
-                continue
-            linked = [task_pages[i] for i in plain(props.get("Target Task Link")).split(",") if i in task_pages]
-            target = linked[0] if linked else plain(props.get("Target ID")).strip()
-            intent = plain(props.get("Intent")) or "GUIDE"
-            source = "APPROVAL" if intent in ("VERIFY", "APPROVE") else "INSTRUCTION"
-            asked = f"{target or '?'} {intent}"
-        else:
-            target = plain(props.get("Assumption ID")).strip() or plain(props.get(TITLE)).strip()
-            decision = plain(props.get("Decision"))
-            feedback = plain(props.get("Feedback")).strip()
-            source = "ASSUMPTION" if decision not in ("", "PENDING") else "FEEDBACK"
-            asked = f"{target} {decision or 'FEEDBACK'}"
-        task_page = tasks[target]["id"] if target in tasks else None
-        receipt = dict(kind=kind, action=asked, source=source, target=target, task_page=task_page, base=base)
-        short = f"REQ-{bare(request)[:8]}"
-
-        login = owners.get(editor)
-        if not login:
-            error = (f"Submitted by Notion user {editor or 'unknown'}, who is not listed in an ADR's "
-                     "Notion owners (ADR-088). Nothing was written.")
-            link = ledger.record(request, "REJECTED", label=short, **receipt, error=error)
-            _mark(client, row["id"], "REJECTED", f"{error} Ledger: {link}", untick=True)
-            result.rejected += 1
-            continue
-        if state != "QUEUED":
-            _mark(client, row["id"], "QUEUED")
-        done = _already(project, request)
-        if done:
-            link = ledger.record(request, "APPLIED", label=done, **receipt, applied=done)
-            _mark(client, row["id"], "APPLIED", f"{done} in RESPONSES.md · ledger {link}")
-            result.applied.append(done)
-            continue
-
-        def refuse(status: str, error: str) -> None:
-            link = ledger.record(request, status, label=short, **receipt, error=error)
-            _mark(client, row["id"], status, f"{error} Ledger: {link}", untick=True)
-
-        verify = False
-        if kind == "assumptions":
-            if base != current.get(target):
-                refuse("CONFLICT", f"{target} changed in the chronicle after this row was shown; the row is "
-                                   "now current. Read it again and tick Submit to resend.")
-                result.conflicts += 1
-                continue
-            if decision in ("REVISE", "REJECT") and not feedback:
-                refuse("REJECTED", f"{decision} needs Feedback saying what to change; write it, then Submit.")
-                result.rejected += 1
-                continue
-            if decision in ("CONFIRM", "REVISE", "REJECT"):
-                action, text = decision, feedback or "CONFIRM (from Notion, no feedback)"
-            elif decision == "WITHDRAW":
-                action, text = "GUIDE", "WITHDRAW" + (f": {feedback}" if feedback else "")
-            elif feedback:
-                action, text = "GUIDE", feedback
-            else:
-                refuse("REJECTED", "Choose a Decision or write Feedback, then Submit.")
-                result.rejected += 1
-                continue
-        else:
-            heading = plain(props.get("Instruction Title")).strip()
-            body = plain(props.get("Instruction Text")).strip()
-            text = "\n\n".join(p for p in (heading, body) if p)
-            if not target or target[:2] not in ("T-", "A-"):
-                refuse("REJECTED", "Link a task (Target Task Link) or name a T-/A- id in Target ID, then Submit.")
-                result.rejected += 1
-                continue
-            if not body:
-                refuse("REJECTED", "Write the Instruction Text, then Submit.")
-                result.rejected += 1
-                continue
-            priority = plain(props.get("Priority"))
-            text += f"\n\n(Notion · intent {intent}" + (f" · priority {priority}" if priority else "") + ")"
-            if intent in ("VERIFY", "APPROVE"):
-                action, verify = "VERIFY", True
-            else:
-                action = "GUIDE"
-        from .respond import Item, RespondError
-
-        try:
-            ids = append(root, [Item(target, action, text)],
-                         via=f"notion {editor} request {request}", verify=verify, by=login)
-        except RespondError as error:
-            refuse("REJECTED", str(error))
-            result.rejected += 1
-            continue
-        _mark(client, row["id"], "LOCAL_RECORDED")
-        if kind == "outbox":
-            _mark(client, row["id"], "COMPILED")
-        link = ledger.record(request, "APPLIED", label=ids[0], **receipt, applied=ids[0])
-        _mark(client, row["id"], "APPLIED", f"{ids[0]} in RESPONSES.md; views compiled · ledger {link}")
-        result.applied.extend(ids)
+    def load() -> tuple[Any, dict[tuple[str, str], str]]:
         project = compiler.load(root)
+        return project, {(r.kind, r.pid): revision_of(r) for r in records(root, compiler.as_json(project))
+                         if r.kind in ("assumptions", "tasks")}
+
+    project, current = load()
+    owners = project.notion_owners
+    tasks = _existing(client, dbs["tasks"]["data_source_id"], key)
+    task_pages = {bare(row["id"]): pid for pid, row in tasks.items()}
+    shown: dict[str, dict[str, dict]] = {"tasks": tasks}
+
+    def mirrored(target: str) -> str:
+        kind = _kind_of(target)
+        if kind not in shown:
+            shown[kind] = _existing(client, dbs[kind]["data_source_id"], key)
+        row = shown[kind].get(target)
+        return plain(row["properties"].get("Source Revision")) if row else ""
+
+    # 1. Read every submitted row and keep what is new before writing anything.
+    submitted = {"property": "Submit", "checkbox": {"equals": True}}
+    rows: list[tuple[str, dict]] = [
+        ("assumptions", row) for row in client.query(
+            dbs["assumptions"]["data_source_id"],
+            {"and": [submitted, {"property": "Project Key", "rich_text": {"equals": key}}]})]
+    rows += [("outbox", row) for row in client.query(dbs["outbox"]["data_source_id"], submitted)]
+    latest: dict[str, str] = {}
+    again: list[dict] = []
+    for kind, row in rows:
+        row_key = plain(row["properties"].get("Project Key")).strip()
+        if kind == "outbox" and row_key and row_key != key:   # a copy serves one project; skip strays
+            result.skipped += 1
+            continue
+        entry = submission(kind, row, task_pages, mirrored)
+        latest[row["id"]] = entry["key"]
+        known = journal.entries.get(entry["key"])
+        if known:
+            if known["state"] == "DONE":
+                again.append(known)
+            continue
+        # The journal lost, a request in flight still names itself on the row.
+        named = plain(row["properties"].get("Request ID")).strip()
+        state = plain(row["properties"].get("Delivery State"))
+        if (state in IN_FLIGHT and named.startswith(f"{row['id']}@") and named not in journal.entries
+                and _already(project, named)):
+            entry["key"] = latest[row["id"]] = named
+        journal.save(entry)
+
+    # 2. Carry every unfinished request to its receipt, oldest edit first.
+    ledger = Ledger(client, config)
+    for entry in sorted((e for e in journal.entries.values() if e["state"] != "DONE"),
+                        key=lambda e: (e.get("edited", ""), e.get("seen", ""))):
+        request, row_id = entry["key"], entry["row"]
+        untick = latest.get(row_id) == request   # a newer submission of the row stays ticked
+        payload = entry["payload"]
+        entry.setdefault("source", "ASSUMPTION" if entry["kind"] == "assumptions" and payload["decision"]
+                         not in ("", "PENDING") else "FEEDBACK" if entry["kind"] == "assumptions" else
+                         "APPROVAL" if payload["intent"] in ("VERIFY", "APPROVE") else "INSTRUCTION")
+        entry.setdefault("action", f"{entry['target'] or '?'} " + (
+            payload.get("decision") or "FEEDBACK" if entry["kind"] == "assumptions" else payload["intent"]))
+        task_page = tasks[entry["target"]]["id"] if entry["target"] in tasks else None
+        short = f"REQ-{request.rsplit('@', 1)[-1][:8]}"
+
+        if entry["state"] == "NEW":
+            done = _already(project, request)
+            if done:
+                entry.update(state="LOCAL_RECORDED", response=done)
+            else:
+                decided = _decide(entry, owners.get(entry["editor"]), current)
+                if "status" not in decided:
+                    _mark(client, row_id, "QUEUED", request)
+                    try:
+                        ids = append(root, [Item(entry["target"], decided["action"], decided["text"])],
+                                     via=decided["via"], verify=decided["verify"], by=owners[entry["editor"]])
+                    except RespondError as error:
+                        decided = {"status": "REJECTED", "error": str(error)}
+                    else:
+                        entry.update(state="LOCAL_RECORDED", response=ids[0])
+                        project, current = load()
+                if "status" in decided:
+                    entry.update(state="DECIDED", status=decided["status"], error=decided["error"])
+            journal.save(entry)
+
+        if entry["state"] == "LOCAL_RECORDED":
+            response = entry["response"]
+            _mark(client, row_id, "LOCAL_RECORDED", request)
+            if entry["kind"] == "outbox":
+                _mark(client, row_id, "COMPILED", request)
+            link = ledger.record(entry, "APPLIED", response, task_page, applied=response)
+            evidence = f"{response} in RESPONSES.md; views compiled · ledger {link}"
+            _mark(client, row_id, "APPLIED", request, evidence, untick=untick)
+            entry.update(state="DONE", status="APPLIED", evidence=evidence)
+            journal.save(entry)
+            result.applied.append(response)
+        elif entry["state"] == "DECIDED":
+            link = ledger.record(entry, entry["status"], short, task_page, error=entry["error"])
+            evidence = f"{entry['error']} Ledger: {link}"
+            _mark(client, row_id, entry["status"], request, evidence, untick=untick)
+            entry.update(state="DONE", evidence=evidence)
+            journal.save(entry)
+            if entry["status"] == "CONFLICT":
+                result.conflicts += 1
+            else:
+                result.rejected += 1
+
+    # 3. A finished request ticked again unchanged gets its receipt again, once.
+    for entry in again:
+        _mark(client, entry["row"], entry["status"], entry["key"], entry["evidence"], untick=True)
+        result.skipped += 1
     return result
 
 

@@ -13,6 +13,7 @@ import unittest
 import urllib.error
 import uuid
 from pathlib import Path
+from typing import Callable
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -27,6 +28,7 @@ from test_praukron import build_fixture  # noqa: E402
 
 OWNER_ID = "40cd872b-594c-8191-98f7-000272497c99"
 STRANGER = "11111111-2222-3333-4444-555555555555"
+BOT = "99999999-8888-7777-6666-555555555555"   # the integration, as Notion names it
 SECRET = "ntn_fake_secret_for_tests_0000"
 OWNERS_ADR = f"""# ADR-003: Notion owners
 - Date: 2026-11-03
@@ -65,6 +67,21 @@ def _read(value: dict) -> dict:
     raise AssertionError(value)
 
 
+# Owner text whose every edge matters: indentation, blank lines, trailing spaces, Unicode.
+VERBATIM = "  preserve leading spaces\n\n\tindented line\nsecond line  \n  ✓ Mặc định — 14 ngày 🙂  "
+
+
+class Crash(Exception):
+    """The process dies here."""
+
+
+def marks(state: str) -> Callable[..., bool]:
+    """Matches the worker's write of one Delivery State."""
+    def match(page_id, properties=None, archived=None) -> bool:
+        return ((properties or {}).get("Delivery State") or {}).get("select", {}).get("name") == state
+    return match
+
+
 def lines(notion: "FakeNotion", callout: str) -> list[str]:
     """A hub callout as the reader sees it: its first line, then its child blocks."""
     return [notion_sync._block_text(notion.block(callout))] + [
@@ -76,7 +93,9 @@ def _ids(page: dict, name: str) -> set[str]:
 
 
 class FakeNotion(Client):
-    """The endpoints the sync uses, in memory. `writes` counts mutating calls."""
+    """The endpoints the sync uses, in memory. `writes` counts mutating calls.
+    As in Notion, every page the integration writes names it as the last editor
+    and moves the edit time; `edit` is the owner's hand."""
 
     def __init__(self) -> None:
         super().__init__(Token(SECRET, "environment"))
@@ -85,7 +104,6 @@ class FakeNotion(Client):
         self.sources: dict[str, dict] = {}
         self.pages: dict[str, dict] = {}
         self.writes = 0
-        self.editor = OWNER_ID
         self.clock = 0
 
     def _id(self) -> str:
@@ -137,17 +155,23 @@ class FakeNotion(Client):
     def children(self, block_id: str) -> list[dict]:
         return list(self.blocks.get(block_id, []))
 
-    def append(self, block_id: str, blocks: list[dict]) -> dict:
+    def append(self, block_id: str, blocks: list[dict], after: str | None = None) -> dict:
         self.writes += 1
+        siblings = self.blocks.setdefault(block_id, [])
+        at = next(i + 1 for i, b in enumerate(siblings) if b["id"] == after) if after else len(siblings)
+        made = []
         for block in blocks:
+            block = json.loads(json.dumps(block))
             body = block.get(block["type"]) or {}
             nested = body.pop("children", None)
             new = {"id": self._id(), "has_children": bool(nested), **block}
-            self.blocks.setdefault(block_id, []).append(new)
+            siblings.insert(at, new)
+            at += 1
+            made.append(new)
             if nested:
                 self.append(new["id"], nested)
                 self.writes -= 1   # one request in Notion
-        return {}
+        return {"results": made}
 
     def update_block(self, block_id: str, body: dict) -> dict:
         self.writes += 1
@@ -194,7 +218,7 @@ class FakeNotion(Client):
         page_id = self._id()
         page = {"id": page_id, "parent": parent, "in_trash": False,
                 "properties": {k: _read(v) for k, v in properties.items()},
-                "last_edited_by": {"id": self.editor}, "last_edited_time": self._tick()}
+                "last_edited_by": {"id": BOT}, "last_edited_time": self._tick()}
         self.pages[page_id] = page
         if parent.get("type") == "page_id":
             self.blocks.setdefault(parent["page_id"], []).append(
@@ -208,6 +232,8 @@ class FakeNotion(Client):
             page["properties"][name] = _read(value)
         if archived is not None:
             page["in_trash"] = archived
+        page["last_edited_by"] = {"id": BOT}
+        page["last_edited_time"] = self._tick()
         return page
 
     def edit(self, page_id: str, editor: str = OWNER_ID, **values) -> None:
@@ -541,6 +567,97 @@ class PushTest(NotionCase):
         self.assertNotIn("Sales may read their own clients only", texts)
         self.assertEqual(self.saved()["hubBlocks"], self.config["hubBlocks"])
 
+    def test_push_repairs_mirrored_values_changed_in_notion_and_leaves_owner_input(self) -> None:
+        notion_sync.push(self.notion, self.dir, self.config)
+        summary = notion_sync.summary(self.project(), "DEMO")
+        task = self.notion.row("tasks", self.config, "T-TWO")["id"]
+        shared = self.notion.shared_rows(self.config)[0]["id"]
+        own = self.notion.rows("portfolio", self.config)[0]["id"]
+        assumption = self.notion.row("assumptions", self.config, "A-1")["id"]
+        statement = notion_sync.plain(self.notion.pages[assumption]["properties"]["Statement"])
+        critical = self.notion.pages[task]["properties"]["Critical Path"]["checkbox"]
+        # someone edits mirrored values in Notion; every Source Revision stays as push wrote it
+        self.notion.edit(task, Status=notion_sync.select("DONE"), **{"Critical Path": notion_sync.checkbox(not critical)})
+        self.notion.edit(shared, Health=notion_sync.select("ON_TRACK"), **{"Execution Done": notion_sync.number(99)})
+        self.notion.edit(own, **{"Red Gates": notion_sync.number(0)})
+        self.notion.edit(assumption, Statement=notion_sync.rich("tampered"), Feedback=notion_sync.rich("draft"),
+                         Decision=notion_sync.select("REVISE"))
+        result = notion_sync.push(self.notion, self.dir, self.config)
+        self.assertEqual(result.updated, 4)
+        props = {row: self.notion.pages[row]["properties"] for row in (task, shared, own, assumption)}
+        self.assertEqual(notion_sync.plain(props[task]["Status"]), "TODO")
+        self.assertEqual(props[task]["Critical Path"]["checkbox"], critical)
+        self.assertEqual(notion_sync.plain(props[shared]["Health"]), "NEEDS_OWNER")
+        self.assertEqual(props[shared]["Execution Done"]["number"], summary["done"])
+        self.assertEqual(props[own]["Red Gates"]["number"], 1)
+        self.assertEqual(notion_sync.plain(props[assumption]["Statement"]), statement)
+        self.assertEqual(notion_sync.plain(props[assumption]["Feedback"]), "draft")
+        self.assertEqual(notion_sync.plain(props[assumption]["Decision"]), "REVISE")
+        writes = self.notion.writes
+        again = notion_sync.push(self.notion, self.dir, self.config)
+        self.assertEqual((self.notion.writes, again.updated), (writes, 0))
+
+    def test_a_hub_refresh_leaves_views_pages_and_links_under_a_callout_in_place(self) -> None:
+        hub = self.config["hubBlocks"]
+        header, owner = hub["header"], hub["owner"]
+        view = self.notion.add_block(header, "child_database")
+        page = self.notion.add_block(header, "child_page")
+        link = self.notion.add_block(header, "link_to_page")
+        toggle = self.notion.add_block(header, "toggle", "More views", children=True)
+        nested = self.notion.add_block(toggle, "child_database")
+        nav = self.notion.add_block(header, "paragraph")
+        self.notion.block(nav)["paragraph"] = {"rich_text": [
+            {"type": "mention", "plain_text": "Roadmap", "mention": {"type": "page", "page": {"id": page}}}]}
+        board = self.notion.add_block(owner, "child_database")
+        theirs = {header: [view, page, link, toggle, nav], owner: [board]}
+        deleted: list[str] = []
+        original = self.notion.delete_block
+
+        def spy(block_id):
+            deleted.append(block_id)
+            return original(block_id)
+
+        def kept() -> None:
+            for callout, ids in theirs.items():
+                present = [c["id"] for c in self.notion.children(callout)]
+                self.assertEqual([i for i in present if i in ids], ids)   # same blocks, same order
+            self.assertEqual([c["id"] for c in self.notion.children(toggle)], [nested])
+            self.assertFalse(set(deleted) & ({i for ids in theirs.values() for i in ids} | {nested}))
+
+        with mock.patch.object(self.notion, "delete_block", spy):
+            self.assertTrue(notion_sync.push(self.notion, self.dir, self.config).hub)
+            kept()
+            self.assertIn("Project Key DEMO", self.hub_text("header"))
+            generated = {name: list(ids) for name, ids in self.saved()["hubGenerated"].items()}
+            self.assertFalse(set(generated["header"]) & set(theirs[header]))
+            (self.dir / layout.AUTHORITY_DIR / "ASSUMPTIONS.md").write_text(
+                ASSUMPTIONS.split("## A-2")[0], encoding="utf-8")
+            self.assertTrue(notion_sync.push(self.notion, self.dir, self.config).hub)
+            kept()
+            self.assertIn("2 mục", self.hub_lines("owner")[0])
+            # the lines push wrote are updated where they are, not deleted and rebuilt
+            self.assertEqual(self.saved()["hubGenerated"]["header"], generated["header"])
+            self.assertEqual(self.saved()["hubGenerated"]["done"], generated["done"])
+
+    def test_a_first_push_fills_the_hub_before_it_writes_any_row(self) -> None:
+        self.assertEqual(self.hub_lines("done")[0], "— / —")
+        tasks = self.config["databases"]["tasks"]["data_source_id"]
+        seen: list[list[str]] = []
+        original = self.notion.create_page
+
+        def spy(parent, properties, *a, **k):
+            if parent.get("data_source_id") == tasks and not seen:
+                seen.append(self.hub_lines("done"))
+            return original(parent, properties, *a, **k)
+
+        with mock.patch.object(self.notion, "create_page", spy):
+            self.assertTrue(notion_sync.push(self.notion, self.dir, self.config).hub)
+        self.assertEqual(seen, [["1 / 3", "Execution tasks DONE"]])
+        # the end of the same push links the rows the hub names
+        children = self.notion.children(self.config["hubBlocks"]["owner"])
+        self.assertTrue(any(p["type"] == "mention" for c in children
+                            for p in c[c["type"]].get("rich_text", [])))
+
 
 class RetryTest(unittest.TestCase):
     def test_rate_limits_and_server_errors_are_retried(self) -> None:
@@ -601,17 +718,26 @@ class PullTest(NotionCase):
     def state(self, row_id: str) -> str:
         return notion_sync.plain(self.notion.pages[row_id]["properties"]["Delivery State"])
 
+    def ledgers(self, row_id: str) -> list[dict]:
+        """The ledger rows of every request made from one Notion row."""
+        return [p["properties"] for p in self.notion.rows("ledger", self.config)
+                if notion_sync.plain(p["properties"]["Source Page ID"]).startswith(f"{row_id}@")]
+
     def ledger(self, row_id: str) -> dict:
-        (found,) = [p["properties"] for p in self.notion.rows("ledger", self.config)
-                    if notion_sync.plain(p["properties"]["Source Page ID"]) == row_id]
+        (found,) = self.ledgers(row_id)
         return found
 
     def ledger_count(self, row_id: str) -> int:
-        return len([p for p in self.notion.rows("ledger", self.config)
-                    if notion_sync.plain(p["properties"]["Source Page ID"]) == row_id])
+        return len(self.ledgers(row_id))
 
     def responses(self) -> str:
         return (self.dir / layout.AUTHORITY_DIR / "RESPONSES.md").read_text(encoding="utf-8")
+
+    def recorded(self) -> list:
+        return compiler.load(self.dir).responses
+
+    def pull(self, **kw) -> notion_sync.PullResult:
+        return notion_sync.pull(self.notion, self.dir, self.config, **kw)
 
     def pull_with_states(self) -> tuple[notion_sync.PullResult, list[str]]:
         states: list[str] = []
@@ -633,28 +759,39 @@ class PullTest(NotionCase):
         self.assertEqual(states, ["QUEUED", "LOCAL_RECORDED", "APPLIED"])
         text = self.responses()
         self.assertIn("## R-3: A-1 REVISE\n- By: thien-owner", text)
-        self.assertIn(f"- Via: notion {OWNER_ID.replace('-', '')} request {row}", text)
-        self.assertIn("> Mặc định 14 ngày.", text)
         props = self.notion.pages[row]["properties"]
-        self.assertEqual(notion_sync.plain(props["Request ID"]), row)
+        request = notion_sync.plain(props["Request ID"])
+        self.assertRegex(request, rf"^{row}@[0-9a-f]{{12}}$")
+        self.assertIn(f"- Via: notion {OWNER_ID.replace('-', '')} request {request}\n", text)
+        self.assertIn("> Mặc định 14 ngày.", text)
         self.assertEqual(props["Apply Evidence"]["type"], "rich_text")
         self.assertIn("R-3", notion_sync.plain(props["Apply Evidence"]))
+        self.assertFalse(props["Submit"]["checkbox"])   # handled: a new tick is a new submission
         ledger = self.ledger(row)
-        self.assertEqual([notion_sync.plain(ledger[k]) for k in ("ID", "Status", "Source Database", "Target ID")],
-                         ["R-3", "APPLIED", "ASSUMPTION", "A-1"])
+        self.assertEqual([notion_sync.plain(ledger[k]) for k in ("ID", "Status", "Source Database", "Target ID",
+                                                                  "Source Page ID")],
+                         ["R-3", "APPLIED", "ASSUMPTION", "A-1", request])
         self.assertIn("R-3", notion_sync.plain(ledger["Action Title"]))
         self.assertEqual(_ids({"properties": ledger}, "Source Assumption"), {row})
+        journal = json.loads((self.dir / ".praukron" / notion_sync.REQUESTS_FILE).read_text(encoding="utf-8"))
+        entry = journal["requests"][request]
+        self.assertEqual((entry["state"], entry["status"], entry["response"], entry["editor"]),
+                         ("DONE", "APPLIED", "R-3", OWNER_ID.replace("-", "")))
 
-    def test_a_submission_seen_twice_is_written_once_with_one_ledger_row(self) -> None:
+    def test_a_submission_ticked_again_unchanged_is_written_once_with_one_ledger_row(self) -> None:
         row = self.submit_assumption()
-        notion_sync.pull(self.notion, self.dir, self.config)
-        self.notion.pages[row]["properties"]["Delivery State"] = {"type": "select", "select": {"name": "QUEUED"}}
-        again = notion_sync.pull(self.notion, self.dir, self.config)
-        self.assertEqual(again.applied, ["R-3"])
+        self.assertEqual(self.pull().applied, ["R-3"])
+        writes = self.notion.writes
+        self.assertEqual(self.pull().line(), "pull applied=0 rejected=0 conflicts=0 skipped=0")
+        self.assertEqual(self.notion.writes, writes)   # an untouched re-poll writes nothing
+        self.notion.edit(row, Submit=notion_sync.checkbox(True))
+        again = self.pull()
+        self.assertEqual((again.applied, again.skipped), ([], 1))
         self.assertEqual(self.responses().count("## R-3"), 1)
         self.assertNotIn("## R-4", self.responses())
         self.assertEqual(self.ledger_count(row), 1)
         self.assertEqual(self.state(row), "APPLIED")
+        self.assertFalse(self.notion.pages[row]["properties"]["Submit"]["checkbox"])
 
     def test_a_stale_row_conflicts_and_writes_nothing(self) -> None:
         row = self.submit_assumption()
@@ -694,18 +831,20 @@ class PullTest(NotionCase):
                 self.assertIn("Feedback", notion_sync.plain(self.ledger(row)["Error"]))
                 self.assertFalse(self.notion.pages[row]["properties"]["Submit"]["checkbox"])
 
-    def outbox(self, intent: str, target: str = "T-TWO", editor: str = OWNER_ID, heading: str = "") -> str:
+    def outbox(self, intent: str, target: str = "T-TWO", editor: str = OWNER_ID, heading: str = "",
+               text: str = "Chạy trên staging trước.", submit: bool = True) -> str:
+        """A row the owner writes in the Outbox (created blank, then filled in)."""
         source = self.config["databases"]["outbox"]["data_source_id"]
         task = self.notion.row("tasks", self.config, target)["id"] if target.startswith("T-") else None
-        page = self.notion.create_page({"type": "data_source_id", "data_source_id": source}, {
-            "ID": notion_sync.title("Use staging"),
-            "Instruction Title": notion_sync.rich(heading),
-            "Instruction Text": notion_sync.rich("Chạy trên staging trước."),
+        page = self.notion.create_page({"type": "data_source_id", "data_source_id": source},
+                                       {"ID": notion_sync.title("Use staging")})
+        self.notion.edit(page["id"], editor, **{
+            "Instruction Title": notion_sync.rich(heading), "Instruction Text": notion_sync.rich(text),
             "Intent": notion_sync.select(intent), "Delivery State": notion_sync.select("DRAFT"),
             **({"Target Task Link": notion_sync.relation([task])} if task else
                {"Target ID": notion_sync.rich(target)}),
+            **({"Submit": notion_sync.checkbox(True)} if submit else {}),
         })
-        self.notion.edit(page["id"], editor, Submit=notion_sync.checkbox(True))
         return page["id"]
 
     def test_instructions_become_guide_responses_on_their_target(self) -> None:
@@ -722,9 +861,11 @@ class PullTest(NotionCase):
                 self.assertEqual(_ids({"properties": ledger}, "Source Instruction"), {row})
         text = self.responses()
         self.assertIn("T-TWO GUIDE\n- By: thien-owner", text)
-        self.assertIn("> Dùng staging", text)
-        self.assertIn("> Chạy trên staging trước.", text)
-        self.assertIn("(Notion · intent PAUSE)", text)
+        self.assertIn("> Dùng staging\n>\n> Chạy trên staging trước.\n", text)
+        # the worker's notes ride in the Via line, never inside the owner's words
+        self.assertNotIn("(Notion", text)
+        pause = [r for r in self.recorded() if r.via and r.via.endswith(" · intent PAUSE")]
+        self.assertEqual([r.text for r in pause], ["Dùng staging\n\nChạy trên staging trước."])
         project = compiler.as_json(compiler.load(self.dir))
         self.assertTrue(any(r["target"] == "T-TWO" and "notion" in (r["via"] or "") for r in project["responses"]))
 
@@ -763,6 +904,188 @@ class PullTest(NotionCase):
         self.assertEqual(result.applied, ["R-3", "R-4"])
         self.assertTrue(self.responses().index("T-TWO GUIDE") < self.responses().index("A-2 CONFIRM"))
         self.assertEqual({self.state(first), self.state(second)}, {"APPLIED"})
+
+    # --- an interrupted request finishes exactly once (F2) -------------------
+
+    def crash_after(self, method: str, when: Callable[..., bool] = lambda *a, **k: True):
+        """The first call of `method` that matches takes effect in Notion, then the run dies."""
+        original = getattr(self.notion, method)
+        fired: list[bool] = []
+
+        def wrapper(*args, **kw):
+            out = original(*args, **kw)
+            if not fired and when(*args, **kw):
+                fired.append(True)
+                raise Crash(method)
+            return out
+
+        return mock.patch.object(self.notion, method, wrapper)
+
+    def interrupted(self, crash, kind: str = "assumptions", lose_journal: bool = False) -> str:
+        row = self.outbox("FIX") if kind == "outbox" else self.submit_assumption(
+            Decision=notion_sync.select("REVISE"), Feedback=notion_sync.rich("Dùng 14 ngày."))
+        with crash, self.assertRaises(Crash):
+            self.pull()
+        if lose_journal:
+            (self.dir / ".praukron" / notion_sync.REQUESTS_FILE).unlink()
+        result = self.pull()
+        self.assertEqual(result.applied, ["R-3"])
+        text = self.responses()
+        self.assertEqual(text.count("## R-3:"), 1)
+        self.assertNotIn("## R-4", text)
+        self.assertIn("- By: thien-owner", text.split("## R-3:")[1])
+        self.assertEqual(self.ledger_count(row), 1)
+        self.assertEqual(notion_sync.plain(self.ledger(row)["Status"]), "APPLIED")
+        self.assertEqual(self.state(row), "APPLIED")
+        self.assertFalse(self.notion.pages[row]["properties"]["Submit"]["checkbox"])
+        writes = self.notion.writes
+        self.assertEqual(self.pull().line(), "pull applied=0 rejected=0 conflicts=0 skipped=0")
+        self.assertEqual(self.notion.writes, writes)
+        return row
+
+    def test_restart_after_the_queued_marker_keeps_the_owner_as_submitter(self) -> None:
+        # the marker made the integration the row's last editor; the journal still knows the owner
+        self.interrupted(self.crash_after("update_page", marks("QUEUED")))
+
+    def test_restart_after_the_response_is_written_does_not_append_again(self) -> None:
+        def append_then_die(*args, **kw):
+            from praukron import respond
+            respond.append(*args, **kw)
+            raise Crash("append")
+
+        row = self.submit_assumption(Decision=notion_sync.select("REVISE"), Feedback=notion_sync.rich("x"))
+        with self.assertRaises(Crash):
+            self.pull(append=append_then_die)
+        self.assertEqual(self.state(row), "QUEUED")
+        self.assertEqual(self.pull().applied, ["R-3"])
+        self.assertNotIn("## R-4", self.responses())
+        self.assertEqual(self.ledger_count(row), 1)
+        self.assertEqual(self.state(row), "APPLIED")
+
+    def test_restart_after_the_local_recorded_marker(self) -> None:
+        self.interrupted(self.crash_after("update_page", marks("LOCAL_RECORDED")))
+
+    def test_restart_after_the_ledger_row_is_created(self) -> None:
+        ledger = self.config["databases"]["ledger"]["data_source_id"]
+        self.interrupted(self.crash_after("create_page", lambda parent, *a, **k:
+                                          parent.get("data_source_id") == ledger))
+
+    def test_restart_after_the_compiled_marker_of_an_instruction(self) -> None:
+        self.interrupted(self.crash_after("update_page", marks("COMPILED")), kind="outbox")
+
+    def test_restart_after_the_applied_marker(self) -> None:
+        self.interrupted(self.crash_after("update_page", marks("APPLIED")))
+
+    def test_restart_without_the_journal_resumes_from_responses(self) -> None:
+        ledger = self.config["databases"]["ledger"]["data_source_id"]
+        self.interrupted(self.crash_after("create_page", lambda parent, *a, **k:
+                                          parent.get("data_source_id") == ledger), lose_journal=True)
+
+    # --- push and pull agree on a submitted row (F3) --------------------------
+
+    def test_push_keeps_a_submitted_assumption_and_pull_finds_it_stale(self) -> None:
+        row = self.submit_assumption()
+        shown = notion_sync.plain(self.notion.pages[row]["properties"]["Source Revision"])
+        (self.dir / layout.AUTHORITY_DIR / "ASSUMPTIONS.md").write_text(
+            ASSUMPTIONS.replace("default 30.", "default 45."), encoding="utf-8")
+        notion_sync.push(self.notion, self.dir, self.config)
+        page = self.notion.pages[row]
+        self.assertEqual(notion_sync.plain(page["properties"]["Source Revision"]), shown)
+        self.assertEqual(page["last_edited_by"]["id"], OWNER_ID)
+        self.assertEqual(notion_sync.plain(page["properties"]["Decision"]), "CONFIRM")
+        before = self.responses()
+        result = self.pull()
+        self.assertEqual((result.conflicts, result.rejected, result.applied), (1, 0, []))
+        self.assertEqual(self.state(row), "CONFLICT")
+        self.assertEqual(self.responses(), before)
+        # once handled, the next push brings the row up to date and a new tick applies
+        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertNotEqual(notion_sync.plain(self.notion.pages[row]["properties"]["Source Revision"]), shown)
+        self.assertIn("45", notion_sync.plain(self.notion.pages[row]["properties"]["Statement"]))
+        self.notion.edit(row, Submit=notion_sync.checkbox(True))
+        self.assertEqual(self.pull().applied, ["R-3"])
+
+    def test_push_does_not_trash_a_submitted_assumption_whose_record_is_gone(self) -> None:
+        row = self.submit_assumption("A-2")
+        (self.dir / layout.AUTHORITY_DIR / "ASSUMPTIONS.md").write_text(
+            ASSUMPTIONS.split("## A-2")[0], encoding="utf-8")
+        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertFalse(self.notion.pages[row]["in_trash"])
+        self.assertEqual(self.pull().conflicts, 1)
+        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertTrue(self.notion.pages[row]["in_trash"])
+
+    # --- instructions and approvals carry their target's revision (F4) -------
+
+    def test_a_stale_approval_or_instruction_conflicts_with_the_real_append(self) -> None:
+        for intent in ("APPROVE", "VERIFY", "FIX"):
+            with self.subTest(intent=intent):
+                row = self.outbox(intent)
+                self.notion.edit(row, **{"Source Revision": notion_sync.rich("stale-revision")})
+                before = self.responses()
+                result = self.pull()
+                self.assertEqual((result.conflicts, result.applied), (1, []))
+                self.assertEqual(self.state(row), "CONFLICT")
+                self.assertEqual(self.responses(), before)
+                self.assertEqual(notion_sync.plain(self.ledger(row)["Status"]), "CONFLICT")
+
+    def test_a_current_approval_is_recorded_as_verify_with_the_real_append(self) -> None:
+        row = self.outbox("APPROVE")   # not yet stamped: the task row it links shows the revision
+        self.assertEqual(self.pull().applied, ["R-3"])
+        self.assertIn("## R-3: T-TWO VERIFY\n- By: thien-owner", self.responses())
+        self.assertEqual(self.state(row), "APPLIED")
+
+    def test_push_stamps_an_open_instruction_and_a_later_change_makes_it_stale(self) -> None:
+        row = self.outbox("APPROVE", submit=False)
+        notion_sync.push(self.notion, self.dir, self.config)
+        task = self.notion.row("tasks", self.config, "T-TWO")
+        self.assertEqual(notion_sync.plain(self.notion.pages[row]["properties"]["Source Revision"]),
+                         notion_sync.plain(task["properties"]["Source Revision"]))
+        tasks = self.dir / layout.AUTHORITY_DIR / "TASKS.md"
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace(
+            "## T-TWO: Build on it", "## T-TWO: Build on it, carefully"), encoding="utf-8")
+        self.notion.edit(row, Submit=notion_sync.checkbox(True))   # approved before the mirror caught up
+        before = self.responses()
+        self.assertEqual(self.pull().conflicts, 1)
+        self.assertEqual(self.responses(), before)
+        notion_sync.push(self.notion, self.dir, self.config)   # restamped, so the owner can resend
+        self.notion.edit(row, Submit=notion_sync.checkbox(True))
+        self.assertEqual(self.pull().applied, ["R-3"])
+        self.assertIn("T-TWO VERIFY", self.responses())
+
+    # --- every owner edit is its own submission (F5) --------------------------
+
+    def test_a_rejected_row_can_be_corrected_and_sent_again(self) -> None:
+        row = self.submit_assumption(Decision=notion_sync.select("REVISE"))
+        self.assertEqual(self.pull().rejected, 1)
+        self.assertFalse(self.notion.pages[row]["properties"]["Submit"]["checkbox"])
+        self.notion.edit(row, Feedback=notion_sync.rich("Dùng 14 ngày."), Submit=notion_sync.checkbox(True))
+        self.assertEqual(self.pull().applied, ["R-3"])
+        self.assertEqual(self.state(row), "APPLIED")
+        self.assertIn("## R-3: A-1 REVISE", self.responses())
+        self.assertEqual(sorted(notion_sync.plain(p["Status"]) for p in self.ledgers(row)), ["APPLIED", "REJECTED"])
+
+    def test_one_assumption_row_can_carry_a_second_decision(self) -> None:
+        row = self.submit_assumption(Decision=notion_sync.select("REVISE"), Feedback=notion_sync.rich("14 ngày."))
+        self.assertEqual(self.pull().applied, ["R-3"])
+        self.notion.edit(row, Decision=notion_sync.select("CONFIRM"), Feedback=notion_sync.rich("Giữ 30 ngày."),
+                         Submit=notion_sync.checkbox(True))
+        self.assertEqual(self.pull().applied, ["R-4"])
+        (r4,) = [r for r in self.recorded() if r.id == "R-4"]
+        self.assertEqual((r4.target, r4.action, r4.text), ("A-1", "CONFIRM", "Giữ 30 ngày."))
+        self.assertEqual(self.ledger_count(row), 2)
+        self.assertEqual(self.pull().line(), "pull applied=0 rejected=0 conflicts=0 skipped=0")
+
+    # --- the owner's words, exactly (F8) ---------------------------------------
+
+    def test_feedback_and_instruction_text_land_exactly_as_written(self) -> None:
+        row = self.submit_assumption(Decision=notion_sync.select("REVISE"), Feedback=notion_sync.rich(VERBATIM))
+        self.outbox("FIX", text=VERBATIM)
+        self.assertEqual(self.pull().applied, ["R-3", "R-4"])
+        texts = {r.id: r.text for r in self.recorded()}
+        self.assertEqual(texts["R-3"], VERBATIM)
+        self.assertEqual(texts["R-4"], VERBATIM)
+        self.assertEqual(self.state(row), "APPLIED")
 
 
 class WatchTest(NotionCase):

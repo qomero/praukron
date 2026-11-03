@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import urllib.error
 import urllib.request
@@ -125,14 +126,38 @@ def write_template(path: Path) -> bool:
     return True
 
 
+def malformed(token: Token) -> str | None:
+    """Why the key cannot be sent in a header, naming only where it came from;
+    None when it is one run of visible ASCII characters, as Notion issues it."""
+    if token.value is None or re.fullmatch(r"[\x21-\x7e]+", token.value):
+        return None
+    return (f"the Notion key from {token.source} contains spaces, line breaks, control or non-ASCII "
+            "characters; copy the connection's secret again, whole")
+
+
+def _forms(secret: str) -> list[str]:
+    """Every way a message may spell the secret: as is, escaped as a str or as
+    bytes, and each visible run of it when control characters split it."""
+    forms = {secret, repr(secret)[1:-1], repr(secret.encode("utf-8", "backslashreplace"))[2:-1]}
+    forms.update(part for part in re.split(r"[\x00-\x20\x7f-\x9f]+", secret) if len(part) >= 6)
+    return sorted(forms, key=len, reverse=True)
+
+
 def redact(text: str, token: Token) -> str:
-    return text.replace(token.value, "***") if token.value else text
+    if not token.value:
+        return text
+    for form in _forms(token.value):
+        text = text.replace(form, "***")
+    return text
 
 
 def check(token: Token) -> dict[str, object]:
     """Ask Notion who the token is. Never raises; never returns the token."""
     if token.value is None:
         return {"state": "MISSING", "source": None}
+    problem = malformed(token)
+    if problem:
+        return {"state": "MALFORMED", "source": token.source, "detail": problem}
     request = urllib.request.Request(
         f"{API}/users/me",
         headers={
@@ -146,9 +171,11 @@ def check(token: Token) -> dict[str, object]:
     except urllib.error.HTTPError as error:
         state = "INVALID" if error.code in (401, 403) else "UNREACHABLE"
         return {"state": state, "source": token.source, "detail": f"HTTP {error.code}"}
-    except (urllib.error.URLError, OSError, ValueError) as error:
+    except (urllib.error.URLError, OSError) as error:
         return {"state": "UNREACHABLE", "source": token.source,
                 "detail": redact(type(error).__name__ + ": " + str(error), token)}
+    except Exception as error:   # a header or protocol error may quote the header: name its type only
+        return {"state": "UNREACHABLE", "source": token.source, "detail": type(error).__name__}
     bot = body.get("bot") or {}
     return {
         "state": "VALID",
@@ -163,6 +190,8 @@ NEXT_STEP = {
                "or set NOTION_TOKEN. The file explains where the key comes from.",
     "INVALID": "Notion refused the key from {source}. Create a new secret for the "
                "connection, or check that it was copied whole.",
+    "MALFORMED": "Nothing was sent to Notion. Put the key from {source} on one line, with "
+                 "nothing around it, then run `praukron notion doctor` again.",
     "UNREACHABLE": "Could not reach api.notion.com. Check the network, then run "
                    "`praukron notion doctor` again.",
     "VALID": "Share the page above the PPMP template with this connection, duplicate the "

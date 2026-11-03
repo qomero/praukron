@@ -373,6 +373,7 @@ cat > "$ignore_block" <<'IGNORE'
 # praukron:start — Notion key and local sync state stay on this machine (ADR-087)
 notion.env
 notion.json
+notion-requests.json
 notion.log
 notion.lock
 # praukron:end
