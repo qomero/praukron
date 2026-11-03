@@ -1,12 +1,14 @@
 """A small Notion API client on the standard library (ADR-087).
 
 It retries rate limits and server errors with backoff, pages through lists,
-and never puts the token in an exception or a log line.
+and never puts the token in an exception or a log line. A comment is not
+idempotent, so its POST is retried only after a 429, which Notion did not act on.
 """
 
 from __future__ import annotations
 
 import json
+import socket
 import time
 import urllib.error
 import urllib.request
@@ -15,6 +17,18 @@ from typing import Any, Callable, Iterator
 from .notion_config import API, NOTION_VERSION, TIMEOUT, Token, malformed, redact
 
 RETRY_STATUS = {429, 500, 502, 503, 504}
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The Notion API does not redirect. Following one would send a request to a
+    second address, and a failure there could no longer prove the first was
+    never received; a redirect is answered as the error it is instead."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
+        return None
+
+
+_OPEN = urllib.request.build_opener(_NoRedirect).open
 
 
 class NotionError(Exception):
@@ -36,10 +50,12 @@ class Client:
         self._token = token
         self.attempts = attempts
         self.sleep = sleep
-        self.opener = opener or urllib.request.urlopen
+        self.opener = opener or _OPEN
         self.calls = 0
 
-    def request(self, method: str, path: str, body: dict | None = None) -> dict:
+    def request(self, method: str, path: str, body: dict | None = None, *, retry: bool = True) -> dict:
+        """`retry=False` is for a request Notion may have acted on although no
+        answer came back: only a 429 is tried again; every other failure raises."""
         data = None if body is None else json.dumps(body).encode("utf-8")
         delay = 1.0
         for attempt in range(1, self.attempts + 1):
@@ -62,7 +78,7 @@ class Client:
                     payload = {}
                 finally:
                     error.close()
-                if error.code in RETRY_STATUS and attempt < self.attempts:
+                if error.code in (RETRY_STATUS if retry else {429}) and attempt < self.attempts:
                     retry_after = error.headers.get("Retry-After") if error.headers else None
                     self.sleep(float(retry_after) if retry_after and retry_after.isdigit() else delay)
                     delay *= 2
@@ -70,11 +86,15 @@ class Client:
                 raise NotionError(error.code, str(payload.get("code", "http-error")),
                                   redact(str(payload.get("message", error.reason)), self._token)) from None
             except (urllib.error.URLError, OSError) as error:
-                if attempt < self.attempts:
+                if retry and attempt < self.attempts:
                     self.sleep(delay)
                     delay *= 2
                     continue
-                raise NotionError(0, "unreachable", redact(str(error), self._token)) from None
+                # Refused or unresolvable on the only connection (redirects are not
+                # followed): no byte was sent, so Notion never saw it.
+                reason = getattr(error, "reason", error)
+                code = "not-sent" if isinstance(reason, (ConnectionRefusedError, socket.gaierror)) else "unreachable"
+                raise NotionError(0, code, redact(str(error), self._token)) from None
             except Exception as error:
                 # A header or protocol error (http.client's ValueError, HTTPException)
                 # may quote the Authorization header, escaped: name its type only.
@@ -180,3 +200,14 @@ class Client:
         if icon is not None:
             body["icon"] = icon
         return self.request("PATCH", f"pages/{page_id}", body)
+
+    def create_comment(self, page_id: str, rich_text: list[dict]) -> dict:
+        """A comment on a page; a user mention in it reaches that user's phone.
+        Never retried after an uncertain failure: the caller reconciles with
+        `list_comments` before it posts again."""
+        return self.request("POST", "comments", {"parent": {"page_id": page_id}, "rich_text": rich_text},
+                            retry=False)
+
+    def list_comments(self, page_id: str) -> list[dict]:
+        """The unresolved comments on a page."""
+        return list(self.paginate("GET", f"comments?block_id={page_id}&page_size=100"))

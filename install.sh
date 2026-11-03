@@ -374,6 +374,7 @@ cat > "$ignore_block" <<'IGNORE'
 notion.env
 notion.json
 notion-requests.json
+notion-events.json
 notion.log
 notion.lock
 # praukron:end

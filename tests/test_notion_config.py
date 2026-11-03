@@ -230,7 +230,7 @@ class InstallerTest(unittest.TestCase):
         env = self.target / ".praukron" / "notion.env"
         self.assertEqual(env.read_text(encoding="utf-8"), notion_config.TEMPLATE)
         self.assertIn("NOTION_TOKEN=\n", env.read_text(encoding="utf-8"))
-        for name in ("notion.env", "notion.json", "notion-requests.json", "notion.log"):
+        for name in ("notion.env", "notion.json", "notion-requests.json", "notion-events.json", "notion.log"):
             ignored = subprocess.run(["git", "-C", str(self.target), "check-ignore", "-q",
                                       f".praukron/{name}"])
             self.assertEqual(ignored.returncode, 0, name)

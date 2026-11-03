@@ -567,6 +567,27 @@ def cmd_notion(root: Path, args: argparse.Namespace) -> int:
             status, text = notion_sync.watch(root, args.target or "status", args.push_minutes, args.pull_minutes)
             print(text)
             return status
+        if args.action == "notify":
+            mode = args.target or "status"
+            if mode not in ("on", "off", "status"):
+                return _fail("usage: praukron notion notify on|off|status [--kinds done,assumption,owner,refused,phase]")
+            if mode != "status":
+                kinds = [k.strip() for k in args.kinds.split(",") if k.strip()] if args.kinds is not None else None
+                try:
+                    with notion_sync.lock(root):   # push saves notion.json too
+                        notion_sync.notify_set(root, mode == "on", kinds)
+                except notion_sync.Locked as error:
+                    return _fail(f"{error}; run it again when the sync ends")
+            elif args.kinds is not None:
+                return _fail("--kinds goes with `notify on` or `notify off`")
+            status = notion_sync.notify_status(root)
+            if not status["linked"]:
+                return _fail("this project is not linked to Notion; run `praukron notion setup <page-url>`")
+            if args.json:
+                print(json.dumps(status, indent=2, ensure_ascii=False))
+            else:
+                print(f"Notion notifications: {notion_sync.notify_text(status)}")
+            return 0
         client = Client(token)
         if args.action == "setup":
             if not args.target:
@@ -805,11 +826,12 @@ def build_parser() -> argparse.ArgumentParser:
     graph_tool.set_defaults(handler=cmd_codegraph)
 
     notion = subparsers.add_parser(
-        "notion", help="Notion management: doctor, env, setup, push, pull, sync, watch (ADR-087, ADR-090)"
+        "notion", help="Notion management: doctor, env, setup, push, pull, sync, watch, notify (ADR-087, ADR-090)"
     )
-    notion.add_argument("action", choices=("doctor", "env", "setup", "push", "pull", "sync", "watch"))
+    notion.add_argument("action", choices=("doctor", "env", "setup", "push", "pull", "sync", "watch", "notify"))
     notion.add_argument("target", nargs="?",
-                        help="setup: the project's PPMP page URL (ADR-090); watch: install, remove or status")
+                        help="setup: the project's PPMP page URL (ADR-090); watch: install, remove or status; "
+                             "notify: on, off or status")
     notion.add_argument("--key", help="setup: the Project Key (default: the project name, upper case)")
     notion.add_argument("--name", help="setup: the project name shown in Notion")
     notion.add_argument("--icon", help="setup: the emoji icon of the project's Notion page (kept on later setups)")
@@ -818,6 +840,8 @@ def build_parser() -> argparse.ArgumentParser:
     notion.add_argument("--push-minutes", type=int, default=5)
     notion.add_argument("--pull-minutes", type=int, default=2)
     notion.add_argument("--quiet", action="store_true", help="push/pull: print nothing; the log keeps the line")
+    notion.add_argument("--kinds", help="notify on|off: the comma-separated kinds that notify "
+                        "(done, assumption, owner, refused, phase; default all)")
     notion.add_argument("--json", action="store_true")
     notion.set_defaults(handler=cmd_notion)
 
