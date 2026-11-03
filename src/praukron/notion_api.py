@@ -19,6 +19,18 @@ from .notion_config import API, NOTION_VERSION, TIMEOUT, Token, malformed, redac
 RETRY_STATUS = {429, 500, 502, 503, 504}
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """The Notion API does not redirect. Following one would send a request to a
+    second address, and a failure there could no longer prove the first was
+    never received; a redirect is answered as the error it is instead."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102
+        return None
+
+
+_OPEN = urllib.request.build_opener(_NoRedirect).open
+
+
 class NotionError(Exception):
     def __init__(self, status: int, code: str, message: str) -> None:
         super().__init__(f"Notion {status} {code}: {message}")
@@ -38,7 +50,7 @@ class Client:
         self._token = token
         self.attempts = attempts
         self.sleep = sleep
-        self.opener = opener or urllib.request.urlopen
+        self.opener = opener or _OPEN
         self.calls = 0
 
     def request(self, method: str, path: str, body: dict | None = None, *, retry: bool = True) -> dict:
@@ -78,7 +90,8 @@ class Client:
                     self.sleep(delay)
                     delay *= 2
                     continue
-                # Refused or unresolvable before a byte was sent: Notion never saw it.
+                # Refused or unresolvable on the only connection (redirects are not
+                # followed): no byte was sent, so Notion never saw it.
                 reason = getattr(error, "reason", error)
                 code = "not-sent" if isinstance(reason, (ConnectionRefusedError, socket.gaierror)) else "unreachable"
                 raise NotionError(0, code, redact(str(error), self._token)) from None

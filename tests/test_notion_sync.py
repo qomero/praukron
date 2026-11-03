@@ -1540,6 +1540,38 @@ class NotifyTest(NotionCase):
         self.assertEqual((status["pending"], status["uncertain"]), (0, 1))
         self.assertIn("not re-posted", notion_sync.notify_text(status))
 
+    def test_the_client_never_follows_a_redirect(self) -> None:
+        """Astra PR 70 round 3: a followed redirect could turn an accepted POST
+        into a 'not-sent' failure at the second address."""
+        import http.server
+        import threading
+
+        class Redirect(http.server.BaseHTTPRequestHandler):
+            hits: list[str] = []
+
+            def do_POST(self):  # noqa: N802
+                Redirect.hits.append(self.path)
+                self.send_response(307)
+                self.send_header("Location", "http://127.0.0.1:1/refused")
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        client = Client(Token(SECRET, "environment"), sleep=lambda s: None)
+        with mock.patch("praukron.notion_api.API", f"http://127.0.0.1:{server.server_port}/v1"):
+            with self.assertRaises(NotionError) as caught:
+                client.create_comment(str(uuid.uuid4()), notion_sync.text_parts("hi"))
+        self.assertEqual(caught.exception.status, 307)
+        self.assertNotEqual(caught.exception.code, "not-sent")
+        self.assertFalse(notion_sync.refused(caught.exception) and caught.exception.status == 0)
+        self.assertEqual(len(Redirect.hits), 1)
+
     def test_a_refused_comment_is_posted_once_the_cause_is_fixed(self) -> None:
         self.turn_on()
         self.set_status("## T-TWO: Build on it", "TODO", "DONE")
