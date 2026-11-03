@@ -225,13 +225,15 @@ class FakeNotion(Client):
                 {"id": page_id, "type": "child_page", "has_children": True, "child_page": {}})
         return page
 
-    def update_page(self, page_id, properties=None, archived=None) -> dict:
+    def update_page(self, page_id, properties=None, archived=None, icon=None) -> dict:
         self.writes += 1
         page = self.pages[page_id]
         for name, value in (properties or {}).items():
             page["properties"][name] = _read(value)
         if archived is not None:
             page["in_trash"] = archived
+        if icon is not None:
+            page["icon"] = icon
         page["last_edited_by"] = {"id": BOT}
         page["last_edited_time"] = self._tick()
         return page
@@ -402,6 +404,29 @@ class ProvisionTest(Base):
         self.assertEqual(len(self.notion.databases), databases)
         self.assertEqual({k: [b["id"] for b in v] for k, v in self.notion.blocks.items()}, blocks)
         self.assertEqual(again, first)
+
+    def test_setup_fills_the_hub_before_it_returns(self) -> None:
+        """T-NOTION-CLONE-01: a cloned copy never shows the template's placeholders."""
+        config = self.setup_notion(key="DEMO")
+        project = compiler.as_json(compiler.load(self.dir))
+        s = notion_sync.summary(project, "DEMO")
+        done = " ".join(lines(self.notion, config["hubBlocks"]["done"]))
+        self.assertIn(f"{s['done']} / {s['total']}", done)
+        header = " ".join(lines(self.notion, config["hubBlocks"]["header"]))
+        self.assertIn("Project Key DEMO", header)
+        for name in ("header", "done", "phase", "reviewed", "gates", "owner"):
+            self.assertNotIn("— / —", " ".join(lines(self.notion, config["hubBlocks"][name])), name)
+            self.assertNotIn("[PROJECT NAME]", " ".join(lines(self.notion, config["hubBlocks"][name])), name)
+        self.assertIn("hubRevision", self.saved())
+
+    def test_setup_sets_the_project_icon_and_keeps_it(self) -> None:
+        """T-NOTION-CLONE-01: the copy carries the project's own icon."""
+        self.setup_notion(key="DEMO", icon="🦁")
+        self.assertEqual(self.notion.pages[self.instance]["icon"], {"type": "emoji", "emoji": "🦁"})
+        self.assertEqual(self.saved()["icon"], "🦁")
+        self.notion.pages[self.instance]["icon"] = None
+        self.setup_notion(key="DEMO")
+        self.assertEqual(self.notion.pages[self.instance]["icon"], {"type": "emoji", "emoji": "🦁"})
 
     def test_setup_refuses_the_template_itself_and_writes_nothing(self) -> None:
         template = self.notion.add_page("PPMP · Praukron Project Management Protocol| TEMPLATE", self.portfolio)
@@ -640,7 +665,8 @@ class PushTest(NotionCase):
             self.assertEqual(self.saved()["hubGenerated"]["done"], generated["done"])
 
     def test_a_first_push_fills_the_hub_before_it_writes_any_row(self) -> None:
-        self.assertEqual(self.hub_lines("done")[0], "— / —")
+        # setup already filled it (T-NOTION-CLONE-01); push keeps it filled while rows load
+        self.assertEqual(self.hub_lines("done")[0], "1 / 3")
         tasks = self.config["databases"]["tasks"]["data_source_id"]
         seen: list[list[str]] = []
         original = self.notion.create_page

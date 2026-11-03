@@ -644,7 +644,7 @@ and an inbox. Nothing leaves the repository until `setup` links it.
 
 ```sh
 praukron notion doctor                    # where the key is, and whether it works
-praukron notion setup <url of the copy> --key PROJECT
+praukron notion setup <url of the copy> --key PROJECT --icon 🦁
 praukron notion watch install             # pull every 2 min, push every 5 min
 ```
 

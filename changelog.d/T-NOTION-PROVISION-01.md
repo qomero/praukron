@@ -5,6 +5,9 @@
   databases, properties and relations, and refuses a page whose title ends
   with `TEMPLATE`. It finds or creates one shared Project Portfolio directly
   under the parent page so every linked project appears on the same board.
+  Setup also finishes the copy: its hub shows the project's numbers before
+  setup returns, and `--icon <emoji>` gives the page the project's own icon,
+  kept on later setups.
 - Add the repository tool `python scripts/notion_template.py clean <template-page-url>`
   to trash every row in the template's nested databases while preserving its
   layout and schema. It refuses pages whose titles do not end with `TEMPLATE`;

@@ -572,7 +572,7 @@ def cmd_notion(root: Path, args: argparse.Namespace) -> int:
             if not args.target:
                 return _fail("setup needs the project's PPMP page (a duplicate of the template): "
                              "praukron notion setup <page-url>")
-            config = notion_sync.setup(client, root, args.target, args.key, args.name)
+            config = notion_sync.setup(client, root, args.target, args.key, args.name, args.icon)
             print(f"Linked {config['projectName']} as {config['projectKey']} in {config['workspace']}.")
             print(f"  databases: {', '.join(notion_sync.DATABASES[k]['title'] for k in config['databases'])}")
             print(f"  project:   https://www.notion.so/{notion_sync.bare(config['instance'])}")
@@ -812,6 +812,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="setup: the project's PPMP page URL (ADR-090); watch: install, remove or status")
     notion.add_argument("--key", help="setup: the Project Key (default: the project name, upper case)")
     notion.add_argument("--name", help="setup: the project name shown in Notion")
+    notion.add_argument("--icon", help="setup: the emoji icon of the project's Notion page (kept on later setups)")
     notion.add_argument("--user", action="store_true",
                         help="env: write ~/.praukron/notion.env, shared by every project")
     notion.add_argument("--push-minutes", type=int, default=5)

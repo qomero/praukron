@@ -515,7 +515,7 @@ def page_title(page: dict) -> str:
 
 
 def setup(client: Client, root: Path, instance_reference: str, key: str | None = None,
-          name: str | None = None) -> dict:
+          name: str | None = None, icon: str | None = None) -> dict:
     from . import compile as compiler
 
     project = compiler.as_json(compiler.load(root))
@@ -555,7 +555,21 @@ def setup(client: Client, root: Path, instance_reference: str, key: str | None =
     }
     if same and hub and previous.get("hubGenerated"):
         config["hubGenerated"] = previous["hubGenerated"]   # the lines push wrote stay push's
+    if same and hub and previous.get("hubRevision"):
+        config["hubRevision"] = previous["hubRevision"]     # an unchanged hub is not rewritten
+    # The cloned copy is finished here: the project's own icon, and a hub that
+    # shows the project's numbers before any row is written (owner R-80).
+    icon = icon or (previous.get("icon") if same else None)
+    if icon:
+        client.update_page(instance, icon={"type": "emoji", "emoji": icon})
+        config["icon"] = icon
+    if same and previous.get("watch"):
+        config["watch"] = previous["watch"]
     save_config(root, config)
+    pages = {(kind, pid): row["id"] for kind in ("tasks", "assumptions")
+             for pid, row in _existing(client, databases[kind]["data_source_id"], key).items()}
+    present = {(r.kind, r.pid) for r in records(root, project)}
+    _refresh_hub(client, root, config, summary(project, key), pages, present)
     return config
 
 

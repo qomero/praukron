@@ -171,10 +171,12 @@ class Client:
         return page
 
     def update_page(self, page_id: str, properties: dict | None = None,
-                    archived: bool | None = None) -> dict:
+                    archived: bool | None = None, icon: dict | None = None) -> dict:
         body: dict = {}
         if properties is not None:
             body["properties"] = properties
         if archived is not None:
             body["in_trash"] = archived
+        if icon is not None:
+            body["icon"] = icon
         return self.request("PATCH", f"pages/{page_id}", body)
