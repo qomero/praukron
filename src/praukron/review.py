@@ -47,7 +47,14 @@ details.acard > summary:hover { background: var(--panel-raised); }
 .approval-controls { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; margin-block: 8px; }
 .tickable > .approval-controls { padding: 0 14px 10px; margin-block: 0; }
 #needs-you .tickable > .approval-controls { padding-inline: 0; }
-.tickable:has(> details[hidden], > details.xf-out, > details.is-offpage) > .approval-controls { display: none; }
+.tickable:has(> details[hidden], > details.xf-out) > .approval-controls { display: none; }
+/* The divider closes the card after its tick, so the tick reads as the card's own. */
+.tickable > .review-item, #needs-you .tickable > .acard { border-block-end: 0; }
+.tickable:has(> .review-item), #needs-you .tickable { border-block-end: 1px solid var(--line); }
+.tickable:has(> details[hidden], > details.xf-out) { border-block-end: 0; }
+.approval-announce { margin: 0 0 8px; padding: 8px 12px; border-radius: var(--radius-s); font-size: 14px;
+  color: var(--ink); background: color-mix(in srgb, var(--good) 12%, var(--panel)); }
+.approval-announce:empty { display: none; }
 .approval-select { display: inline-flex; gap: 8px; align-items: center; min-height: 44px; cursor: pointer; }
 .approval-select input { accent-color: var(--accent); width: 18px; height: 18px; margin: 0; }
 .approve-one, .approve-selected { display: inline-flex; align-items: center; gap: 8px; min-height: 44px;
@@ -187,9 +194,11 @@ if (reviewBars.length) {
     sessionStorage.removeItem('praukron-approval-' + token);
   } catch (_) {}
   if (recorded) {
-    // Announce after the refreshed document's live regions have mounted.
+    // Announce after the refreshed document's live regions have mounted, in
+    // the page-level region: the one that started the request may sit in a
+    // workspace that is not shown.
     setTimeout(() => {
-      const out = document.getElementById('approval-result') || document.querySelector('.approval-result');
+      const out = document.getElementById('approval-announce');
       if (out) out.textContent = recorded;
     }, 100);
   }
@@ -298,6 +307,11 @@ def approval_control(target: str, action: str, interactive: bool, selectable: bo
             f'{label} {esc(target)}</button>'
             + ('' if interactive else '<span class="respond-hint">To approve, run <code>praukron dashboard --serve</code>.</span>')
             + '<span class="approval-result" role="status" aria-live="polite"></span></span>')
+
+
+# In the sticky header, outside every workspace panel, so a success is shown and
+# announced wherever it started.
+ANNOUNCE = '<p class="approval-announce" id="approval-announce" role="status" aria-live="polite"></p>'
 
 
 def approval_bar(interactive: bool) -> str:

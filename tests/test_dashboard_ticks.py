@@ -1,6 +1,12 @@
 """One-click and atomic batch approvals through the served response pathway."""
 
+import json
 import re
+import shutil
+import subprocess
+import unittest
+from html.parser import HTMLParser
+from pathlib import Path
 from unittest import mock
 
 from test_owner_verify import OWNERS_ADR, owner_task
@@ -15,6 +21,44 @@ def tick_fixture(case):
     acceptance.write_text(acceptance.read_text(encoding='utf-8').replace(
         '`TEST` · `NOT_RUN`', '`TEST` · `PASS`\n  - Evidence: Synthetic wall test passed.', 1), encoding='utf-8')
     case.load()
+
+
+NODE = shutil.which('node')
+HARNESS = Path(__file__).with_name('dom_harness.js')
+STARTS = [('home', 'one'), ('review', 'one'), ('review', 'batch')]
+VOID = {'area', 'br', 'col', 'hr', 'img', 'input', 'link', 'meta', 'source', 'wbr'}
+
+
+class _Tree(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = ['html', {}, []]
+        self.stack = [self.root]
+
+    def handle_starttag(self, tag, attrs):
+        if tag == 'html':
+            self.root[1].update({k: v or '' for k, v in attrs})
+            return
+        node = [tag, {k: v or '' for k, v in attrs}, []]
+        self.stack[-1][2].append(node)
+        if tag not in VOID:
+            self.stack.append(node)
+
+    def handle_endtag(self, tag):
+        for i in range(len(self.stack) - 1, 0, -1):
+            if self.stack[i][0] == tag:
+                del self.stack[i:]
+                return
+
+    def handle_data(self, data):
+        if self.stack[-1][0] not in ('script', 'style'):
+            self.stack[-1][2].append(data)
+
+
+def page_tree(page):
+    parser = _Tree()
+    parser.feed(page)
+    return parser.root
 
 
 class TestDashboardTicks(ServeCase):
@@ -135,21 +179,50 @@ class TestDashboardTicks(ServeCase):
         self.assertIn('controls.map(approvalItem)', review.SERVE_SCRIPT)
         self.assertIn("selections.filter(input => input.checked)", review.SERVE_SCRIPT)
 
-    def test_no_interactive_control_inside_summary_and_focus_and_single_announcement(self):
+    def test_no_interactive_control_inside_summary(self):
         page = serve.page(self.dir, 'en')
         summaries = re.findall(r'<summary>.*?</summary>', page, re.S)
         self.assertTrue(summaries)
         for summary in summaries:
-            self.assertNotRegex(summary, r'<(?:button|input|select|textarea|a)')
+            self.assertNotRegex(summary, r'<(?:button|input|select|textarea|a)')
             self.assertNotIn('approval-controls', summary)
         for target in ('T-TWO', 'A-2'):
             self.assertRegex(page, r'</details><span class="approval-controls">.*?data-target="%s"' % target)
-        script = review.SERVE_SCRIPT
-        # A refused request returns focus to the control that started it.
-        self.assertIn('if (starter) starter.focus();', script)
-        self.assertIn("approve([button], button.closest('.approval-controls').querySelector('.approval-result'), button)", script)
-        self.assertIn("document.getElementById('approval-result'), batchButton)", script)
-        # Success is announced once, after the reload, in a single live region.
-        self.assertNotIn("querySelectorAll('.approval-result').forEach", script)
-        self.assertIn("document.getElementById('approval-result') || document.querySelector('.approval-result')", script)
-        self.assertNotIn("Recorded ' + result.ids.join(', ') + '. Reloading", script.split('reviewBars.forEach')[0])
+
+    def test_tick_sits_inside_its_card_and_stays_on_visible_offpage_cards(self):
+        rule = re.search(r'\.tickable:has\(([^)]*)\) > \.approval-controls \{ display: none; \}', review.STYLE)
+        self.assertTrue(rule)
+        self.assertNotIn('is-offpage', rule.group(1))  # an off-page card is still shown
+        # The divider closes the wrapper, after the tick, not the card above it.
+        self.assertIn('.tickable > .review-item, #needs-you .tickable > .acard { border-block-end: 0; }', review.STYLE)
+        self.assertIn('.tickable:has(> .review-item), #needs-you .tickable { border-block-end: 1px solid', review.STYLE)
+
+    def run_page(self, tab, kind, outcome):
+        """Run the served script on the rendered page in a minimal DOM (tests/dom_harness.js)."""
+        payload = {'tree': page_tree(serve.page(self.dir, 'en')), 'script': review.script(True),
+                   'token': self.token, 'scenario': {'tab': tab, 'kind': kind, 'outcome': outcome}}
+        done = subprocess.run([NODE, str(HARNESS)], input=json.dumps(payload), capture_output=True,
+                              text=True, encoding='utf-8', timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    @unittest.skipUnless(NODE, 'needs node to run the page script')
+    def test_success_is_announced_once_where_the_tick_started(self):
+        for tab, kind in STARTS:
+            with self.subTest(tab=tab, kind=kind):
+                seen = self.run_page(tab, kind, 'ok')
+                self.assertTrue(seen['starterExposed'])
+                self.assertTrue(seen['reloaded'])
+                self.assertEqual(len(seen['regions']), 1, seen['regions'])
+                self.assertTrue(seen['regions'][0]['exposed'], seen['regions'][0])
+
+    @unittest.skipUnless(NODE, 'needs node to run the page script')
+    def test_refusal_returns_focus_to_the_control_that_started_it(self):
+        for tab, kind in STARTS:
+            with self.subTest(tab=tab, kind=kind):
+                seen = self.run_page(tab, kind, 'refused')
+                self.assertFalse(seen['reloaded'])
+                self.assertTrue(seen['activeIsStarter'], seen['active'])
+                self.assertFalse(seen['active']['disabled'])
+                self.assertEqual(len(seen['refusals']), 1, seen['refusals'])
+                self.assertEqual(seen['regions'], [])
