@@ -4,6 +4,69 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 3.0.0 — 2026-11-03
+
+- The task dialog and the Audit task record show a schedule as labelled Start, End and Estimate values (Bắt đầu, Kết thúc, Ước tính in Vietnamese) instead of raw JSON. Fields a task does not record are hidden, and a task with no schedule still reads Unscheduled (T-DASH-SCHED-01).
+- The dashboard's one-tick Verify/Confirm controls no longer sit inside a review item's summary, a refused approval returns keyboard focus to the control that started it, a recorded approval is shown and announced once in a page-level status region, whichever workspace it started from, and each tick sits inside its card's divider.
+- Praukron v3 begins Notion management (ADR-087). `praukron notion doctor` says
+  where the Notion key was found (never its value) and whether it works;
+  `praukron notion env [--user]` writes the key file. The key is read from
+  `NOTION_TOKEN`, `.praukron/notion.env`, the project's `.env.local` or `.env`,
+  then `~/.praukron/notion.env`, so one key serves every project in a
+  workspace. The installer leaves a blank, Git-ignored `.praukron/notion.env`
+  and never overwrites it.
+- `praukron notion setup <copy-url>` binds a project to its own PPMP template
+  copy, a full project-control workspace with its sample rows removed
+  (ADR-090). Duplicate it once per project inside the page that holds your
+  projects. Setup finds the copy's 13 databases by title, adds only missing
+  databases, properties and relations, and refuses a page whose title ends
+  with `TEMPLATE`. It finds or creates one shared Project Portfolio directly
+  under the parent page so every linked project appears on the same board.
+  Setup also finishes the copy: its hub shows the project's numbers before
+  setup returns, and `--icon <emoji>` gives the page the project's own icon,
+  kept on later setups.
+- Add the repository tool `python scripts/notion_template.py clean <template-page-url>`
+  to trash every row in the template's nested databases while preserving its
+  layout and schema. It refuses pages whose titles do not end with `TEMPLATE`;
+  `--dry-run` reports per-database counts without writing.
+- Two-way sync for each PPMP copy. `praukron notion push` mirrors the
+  chronicle by stable row ID and Source Revision, fills the hub's KPI and
+  "Việc của bạn" callouts in place, and updates the project's row in both the
+  copy's Project Portfolio and the shared board (ADR-090). Operations & Sync
+  records sync status; Owner Response History mirrors recorded responses.
+- Answer in the Assumption Review Queue or Agent Instructions Outbox, then
+  tick Submit. `praukron notion pull` records accepted submissions as owner
+  responses, logs each submission in the Action Ledger, and writes a receipt
+  back to the row (APPLIED, CONFLICT or REJECTED). Only Notion users listed in
+  an ADR's `Notion owners:` are accepted; listed owners may submit VERIFY for
+  an `Authority: owner` task (ADR-088).
+- Each submission is one request: its submitter and text are kept in
+  `.praukron/notion-requests.json` (ignored by Git) before anything is written
+  back, so an interrupted pull finishes it once, with one response, one ledger
+  row and one receipt. A handled row is unticked; correcting a rejected row or
+  changing an applied one and ticking Submit again sends a new request. The
+  owner's Feedback and Instruction Text are recorded exactly as written; the
+  intent and priority go in the response's `Via:` line.
+- An instruction or approval is checked against its target's revision, as an
+  assumption is: one about a task that has changed since is a CONFLICT and
+  records nothing. Push stamps that revision on Outbox rows not yet submitted.
+- Push leaves a submitted assumption alone until pull has handled it, repairs
+  mirrored values edited in Notion, and fills the hub on a new copy before its
+  rows. In the hub it rewrites only the lines it wrote, in place; views, pages,
+  links and other blocks under a callout stay as they are.
+- `praukron notion doctor` and every sync command refuse a key containing
+  spaces, line breaks or control characters before sending anything, naming
+  only where the key came from.
+  `praukron notion sync` runs pull then push once. `praukron notion watch install`
+  schedules both with Windows Task Scheduler, or prints crontab lines to add
+  on other systems.
+- Structured writes (journal append, task add/update, criterion set, batch apply, respond) now work when
+  `.praukron/chronicle` is a directory symlink or Windows junction to a folder outside the repository,
+  instead of failing with `write-failed` (T-WRITE-LINK-01).
+- `archive apply` in backup mode, `contract add` and `acr add` now work when `.praukron/chronicle` is a directory
+  symlink or Windows junction to a folder outside the repository, naming each backed-up file relative to the
+  chronicle (T-WRITE-LINK-02).
+
 ## 2.3.0 — 2026-10-28
 
 - Writes stay fast on large chronicles. Structured writes, `respond`, `archive`
