@@ -1168,6 +1168,29 @@ def push(client: Client, root: Path, config: dict | None = None,
             fresh.add((record.kind, record.pid))
             result.created += 1
 
+    # An instruction submitted before push ever stamped it was submitted against
+    # what its target showed until now. The row is the owner's until pull has
+    # handled it, so that revision is kept in the local request journal, before
+    # this push changes the target, for pull to check the submission against.
+    by_page = {bare(page): pid for (kind, pid), page in pages.items() if kind == "tasks"}
+    outbox = client.query(dbs["outbox"]["data_source_id"])
+    journal = Requests(root)
+    bases: dict[str, str] = {}
+    for row in outbox:
+        props = row["properties"]
+        row_key = plain(props.get("Project Key")).strip()
+        if (row_key and row_key != key) or not plain(props.get("Submit")):
+            continue
+        if row["id"] in journal.bases:
+            bases[row["id"]] = journal.bases[row["id"]]
+        elif plain(props.get("Delivery State")) in OPEN_OUTBOX and not plain(props.get("Source Revision")):
+            target = _target(props, by_page)
+            shown = rows.get(_kind_of(target), {}).get(target)
+            bases[row["id"]] = plain(shown["properties"].get("Source Revision")) if shown else ""
+    if bases != journal.bases:
+        journal.bases = bases
+        journal.write()
+
     # Pass 2: full properties, written when the revision moved or a value push
     # owns was changed in Notion. A submitted assumption is the owner's until
     # pull has handled it: its revision and last editor are what pull checks.
@@ -1207,8 +1230,7 @@ def push(client: Client, root: Path, config: dict | None = None,
 
     # An instruction not yet submitted carries its target's revision, so pull can
     # tell an approval of what the owner saw from one of something since changed.
-    by_page = {bare(page): pid for (kind, pid), page in pages.items() if kind == "tasks"}
-    for row in client.query(dbs["outbox"]["data_source_id"]):
+    for row in outbox:
         props = row["properties"]
         row_key = plain(props.get("Project Key")).strip()
         if (row_key and row_key != key) or plain(props.get("Submit")) \
@@ -1360,13 +1382,20 @@ class Requests:
             raise NotionError(0, "bad-request-journal", f"{self.path} is not valid JSON; move it aside and "
                               "pull again (RESPONSES.md still keeps every recorded request)") from None
         self.entries: dict[str, dict] = data.get("requests") or {}
+        # Outbox row → the revision it was submitted against, kept by push for a
+        # row it never stamped and dropped by pull once the row is handled.
+        self.bases: dict[str, str] = data.get("bases") or {}
 
     def save(self, entry: dict) -> None:
         self.entries[entry["key"]] = entry
-        write_json(self.path, {"version": 1, "requests": self.entries})
+        self.write()
+
+    def write(self) -> None:
+        write_json(self.path, {"version": 1, "requests": self.entries, "bases": self.bases})
 
 
-def submission(kind: str, row: dict, task_pages: dict[str, str], mirrored: Callable[[str], str]) -> dict:
+def submission(kind: str, row: dict, task_pages: dict[str, str], mirrored: Callable[[str], str],
+               bases: dict[str, str] | None = None) -> dict:
     """What the owner submitted, read once, before the worker writes to the row."""
     props = row["properties"]
     if kind == "outbox":
@@ -1374,8 +1403,12 @@ def submission(kind: str, row: dict, task_pages: dict[str, str], mirrored: Calla
         payload = {"target": target, "intent": plain(props.get("Intent")) or "GUIDE",
                    "priority": plain(props.get("Priority")), "title": plain(props.get("Instruction Title")),
                    "text": plain(props.get("Instruction Text"))}
-        # The revision push stamped on the row, else the one its target's row shows.
-        base = plain(props.get("Source Revision")) or mirrored(target)
+        # The revision push stamped on the row; else the one push kept when it
+        # first found the row submitted; else, no push having run since, the
+        # one its target's row shows.
+        base = plain(props.get("Source Revision"))
+        if not base:
+            base = bases[row["id"]] if bases and row["id"] in bases else mirrored(target)
     else:
         target = plain(props.get("Assumption ID")).strip() or plain(props.get(TITLE)).strip()
         payload = {"target": target, "decision": plain(props.get("Decision")),
@@ -1522,7 +1555,7 @@ def pull(client: Client, root: Path, config: dict | None = None,
         if kind == "outbox" and row_key and row_key != key:   # a copy serves one project; skip strays
             result.skipped += 1
             continue
-        entry = submission(kind, row, task_pages, mirrored)
+        entry = submission(kind, row, task_pages, mirrored, journal.bases)
         latest[row["id"]] = entry["key"]
         known = journal.entries.get(entry["key"])
         if known:
@@ -1562,7 +1595,8 @@ def pull(client: Client, root: Path, config: dict | None = None,
                     _mark(client, row_id, "QUEUED", request)
                     try:
                         ids = append(root, [Item(entry["target"], decided["action"], decided["text"])],
-                                     via=decided["via"], verify=decided["verify"], by=owners[entry["editor"]])
+                                     via=decided["via"], verify=decided["verify"], by=owners[entry["editor"]],
+                                     recompile=False, verbatim=True)
                     except RespondError as error:
                         decided = {"status": "REJECTED", "error": str(error)}
                     else:
@@ -1575,12 +1609,26 @@ def pull(client: Client, root: Path, config: dict | None = None,
         if entry["state"] == "LOCAL_RECORDED":
             response = entry["response"]
             _mark(client, row_id, "LOCAL_RECORDED", request)
+            # The views are compiled after the response is committed, however
+            # that commit was reached; a failed compile stays in the journal and
+            # the next pull compiles again before any receipt says so.
+            if not entry.get("compiled"):
+                try:
+                    respond.refresh(root)
+                except Exception as error:
+                    entry["compileError"] = f"{now()} {type(error).__name__}: {error}"
+                    journal.save(entry)
+                    raise
+                entry.pop("compileError", None)
+                entry["compiled"] = now()
+                journal.save(entry)
             if entry["kind"] == "outbox":
                 _mark(client, row_id, "COMPILED", request)
             link = ledger.record(entry, "APPLIED", response, task_page, applied=response)
             evidence = f"{response} in RESPONSES.md; views compiled · ledger {link}"
             _mark(client, row_id, "APPLIED", request, evidence, untick=untick)
             entry.update(state="DONE", status="APPLIED", evidence=evidence)
+            journal.bases.pop(row_id, None)
             journal.save(entry)
             result.applied.append(response)
         elif entry["state"] == "DECIDED":
@@ -1588,6 +1636,7 @@ def pull(client: Client, root: Path, config: dict | None = None,
             evidence = f"{entry['error']} Ledger: {link}"
             _mark(client, row_id, entry["status"], request, evidence, untick=untick)
             entry.update(state="DONE", evidence=evidence)
+            journal.bases.pop(row_id, None)
             journal.save(entry)
             if entry["status"] == "CONFLICT":
                 result.conflicts += 1

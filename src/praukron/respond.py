@@ -238,15 +238,17 @@ def refresh(root: Path) -> None:
 
 def append(root: Path, items: list[Item], via: str = "cli", date: str | None = None,
            recompile: bool = True, verify: bool = False, approve_only: bool = False,
-           by: str | None = None) -> list[str]:
+           by: str | None = None, verbatim: bool = False) -> list[str]:
     """Append every item as one batch, or none of them. Returns the new ids.
 
     `by` is set only by the Notion pull, to the GitHub login an ACCEPTED ADR's
     `Notion owners:` maps the submitter to (ADR-088); otherwise it is the
-    active `gh` login."""
+    active `gh` login. `verbatim` keeps a text's final newlines, which a
+    terminal or form adds and the Notion owner may have typed."""
     if not items:
         raise RespondError("nothing to record")
-    items = [Item(i.target.strip(), i.action.strip().upper(), i.text.rstrip("\n")) for i in items]
+    items = [Item(i.target.strip(), i.action.strip().upper(), i.text if verbatim else i.text.rstrip("\n"))
+             for i in items]
     date = date or _dt.date.today().isoformat()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise RespondError(f"{date} is not a YYYY-MM-DD date")

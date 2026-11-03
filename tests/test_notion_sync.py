@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from praukron import compile as compiler, layout, notion_sync, validate  # noqa: E402
+from praukron import compile as compiler, layout, notion_sync, respond, validate  # noqa: E402
 from praukron.notion_api import Client, NotionError  # noqa: E402
 from praukron.notion_config import Token  # noqa: E402
 from test_assumptions import ASSUMPTIONS, POLICY_ADR, RESPONSES  # noqa: E402
@@ -30,6 +30,7 @@ OWNER_ID = "40cd872b-594c-8191-98f7-000272497c99"
 STRANGER = "11111111-2222-3333-4444-555555555555"
 BOT = "99999999-8888-7777-6666-555555555555"   # the integration, as Notion names it
 SECRET = "ntn_fake_secret_for_tests_0000"
+REAL_REFRESH = respond.refresh   # every case patches it; a few compile for real
 OWNERS_ADR = f"""# ADR-003: Notion owners
 - Date: 2026-11-03
 - Status: ACCEPTED
@@ -913,7 +914,7 @@ class PullTest(NotionCase):
     def test_approve_from_an_owner_is_passed_as_verify(self) -> None:
         calls = []
 
-        def fake(root, items, via, verify, by):
+        def fake(root, items, via, verify, by, **kw):
             calls.append((items[0].action, verify, by))
             return ["R-9"]
 
@@ -1007,6 +1008,54 @@ class PullTest(NotionCase):
         self.interrupted(self.crash_after("create_page", lambda parent, *a, **k:
                                           parent.get("data_source_id") == ledger), lose_journal=True)
 
+    def compiled_responses(self) -> list[str]:
+        project = json.loads((self.dir / layout.COMPILED_DIR / "project.json").read_text(encoding="utf-8"))
+        return [r["id"] for r in project["responses"]]
+
+    def assert_compiled_once_on_retry(self, row: str) -> None:
+        """The response is committed but its views are not: the next pull compiles them, then says so."""
+        self.assertIn("## R-3:", self.responses())
+        self.assertNotIn("R-3", self.compiled_responses())
+        self.assertNotEqual(self.state(row), "APPLIED")
+        with mock.patch("praukron.respond.refresh", wraps=REAL_REFRESH) as refresh:
+            self.assertEqual(self.pull().applied, ["R-3"])
+            self.assertEqual(refresh.call_count, 1)
+            self.assertIn("R-3", self.compiled_responses())
+            self.assertEqual(self.state(row), "APPLIED")
+            self.assertIn("views compiled", notion_sync.plain(self.notion.pages[row]["properties"]["Apply Evidence"]))
+            self.assertNotIn("## R-4", self.responses())
+            self.assertEqual(self.ledger_count(row), 1)
+            self.assertEqual(self.pull().line(), "pull applied=0 rejected=0 conflicts=0 skipped=0")
+            self.assertEqual(refresh.call_count, 1)
+        (entry,) = [e for e in notion_sync.Requests(self.dir).entries.values() if e["row"] == row]
+        self.assertTrue(entry["compiled"])
+        self.assertNotIn("compileError", entry)
+
+    def test_a_compile_that_fails_after_the_response_is_committed_runs_again_before_any_receipt(self) -> None:
+        REAL_REFRESH(self.dir)
+        row = self.outbox("FIX")
+        with mock.patch("praukron.respond.refresh", side_effect=RuntimeError("compile interrupted")), \
+                self.assertRaises(RuntimeError):
+            self.pull()
+        (entry,) = notion_sync.Requests(self.dir).entries.values()
+        self.assertEqual(entry["state"], "LOCAL_RECORDED")
+        self.assertIn("compile interrupted", entry["compileError"])
+        self.assertNotIn("compiled", entry)
+        self.assert_compiled_once_on_retry(row)
+
+    def test_a_response_committed_before_the_journal_heard_of_it_is_compiled_on_recovery(self) -> None:
+        def append_then_die(*args, **kw):
+            respond.append(*args, **kw)
+            raise Crash("append")
+
+        REAL_REFRESH(self.dir)
+        row = self.outbox("FIX")
+        with self.assertRaises(Crash):
+            self.pull(append=append_then_die)
+        (entry,) = notion_sync.Requests(self.dir).entries.values()
+        self.assertEqual(entry["state"], "NEW")
+        self.assert_compiled_once_on_retry(row)
+
     # --- push and pull agree on a submitted row (F3) --------------------------
 
     def test_push_keeps_a_submitted_assumption_and_pull_finds_it_stale(self) -> None:
@@ -1079,6 +1128,55 @@ class PullTest(NotionCase):
         self.assertEqual(self.pull().applied, ["R-3"])
         self.assertIn("T-TWO VERIFY", self.responses())
 
+    def change_t_two(self, suffix: str) -> None:
+        tasks = self.dir / layout.AUTHORITY_DIR / "TASKS.md"
+        tasks.write_text(tasks.read_text(encoding="utf-8").replace(
+            "## T-TWO: Build on it", f"## T-TWO: Build on it, {suffix}"), encoding="utf-8")
+
+    def test_an_unstamped_submission_is_bound_to_what_it_was_sent_against(self) -> None:
+        guides = self.responses().count("T-TWO GUIDE")
+        for intent in ("APPROVE", "VERIFY", "FIX"):
+            with self.subTest(intent=intent):
+                row = self.outbox(intent)   # written and submitted between two pushes: never stamped
+                self.assertEqual(notion_sync.plain(self.notion.pages[row]["properties"].get("Source Revision")), "")
+                self.change_t_two(intent.lower())
+                notion_sync.push(self.notion, self.dir, self.config)
+                page = self.notion.pages[row]
+                self.assertEqual(page["last_edited_by"]["id"], OWNER_ID)   # push left the owner's row alone
+                self.assertEqual(notion_sync.plain(page["properties"].get("Source Revision")), "")
+                before = self.responses()
+                result = self.pull()
+                self.assertEqual((result.conflicts, result.applied), (1, []))
+                self.assertEqual(self.state(row), "CONFLICT")
+                self.assertEqual(self.responses(), before)
+                self.assertEqual(notion_sync.plain(self.ledger(row)["Status"]), "CONFLICT")
+                self.assertEqual(notion_sync.Requests(self.dir).bases, {})
+                # the owner reads the row again and resends it: now it is current
+                notion_sync.push(self.notion, self.dir, self.config)
+                self.notion.edit(row, Submit=notion_sync.checkbox(True))
+                self.assertEqual(len(self.pull().applied), 1)
+                self.assertEqual(self.state(row), "APPLIED")
+        self.assertEqual(self.responses().count("T-TWO VERIFY"), 2)
+        self.assertEqual(self.responses().count("T-TWO GUIDE"), guides + 1)
+
+    def test_an_unstamped_submission_survives_a_push_that_does_not_change_its_target(self) -> None:
+        row = self.outbox("APPROVE")
+        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertEqual(self.pull().applied, ["R-3"])
+        self.assertIn("## R-3: T-TWO VERIFY", self.responses())
+        self.assertEqual(self.state(row), "APPLIED")
+
+    def test_a_resubmission_after_a_conflict_is_checked_against_the_current_row(self) -> None:
+        row = self.outbox("APPROVE")
+        self.change_t_two("first")
+        notion_sync.push(self.notion, self.dir, self.config)
+        self.assertEqual(self.pull().conflicts, 1)
+        # ticked again before any push: the row shows the target as it is now
+        self.notion.edit(row, Submit=notion_sync.checkbox(True))
+        self.assertEqual(self.pull().applied, ["R-3"])
+        self.assertEqual(self.state(row), "APPLIED")
+        self.assertEqual(notion_sync.Requests(self.dir).bases, {})
+
     # --- every owner edit is its own submission (F5) --------------------------
 
     def test_a_rejected_row_can_be_corrected_and_sent_again(self) -> None:
@@ -1111,6 +1209,19 @@ class PullTest(NotionCase):
         texts = {r.id: r.text for r in self.recorded()}
         self.assertEqual(texts["R-3"], VERBATIM)
         self.assertEqual(texts["R-4"], VERBATIM)
+        self.assertEqual(self.state(row), "APPLIED")
+
+    def test_text_ending_in_blank_lines_keeps_them_in_both_queues(self) -> None:
+        text = "  indented\n\n"
+        row = self.submit_assumption(Decision=notion_sync.select("REVISE"), Feedback=notion_sync.rich(text))
+        self.outbox("FIX", text=text)
+        self.assertEqual(self.pull().applied, ["R-3", "R-4"])
+        texts = {r.id: r.text for r in self.recorded()}
+        self.assertEqual((texts["R-3"], texts["R-4"]), (text, text))
+        stored = self.responses()
+        self.assertIn("## R-3: A-1 REVISE", stored)
+        for response in ("R-3", "R-4"):
+            self.assertIn(">   indented\n>\n>\n", stored.split(f"## {response}:")[1])
         self.assertEqual(self.state(row), "APPLIED")
 
 
