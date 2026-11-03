@@ -1126,7 +1126,7 @@ def push(client: Client, root: Path, config: dict | None = None,
 
     # The hub callouts: rewritten only when what they show changed.
     hub_rev = revision({"summary": s, "pages": sorted(f"{k}:{p}:{v}" for (k, p), v in pages.items()
-                                                       if k in ("assumptions", "tasks"))})
+                                                       if k in ("assumptions", "tasks") and (k, p) in present)})
     if config.get("hubBlocks") and config.get("hubRevision") != hub_rev:
         try:
             write_hub(client, config, hub_content(s, config, pages))
