@@ -635,26 +635,43 @@ and an inbox. Nothing leaves the repository until `setup` links it.
    `~/.praukron/notion.env` (every project) or `.praukron/notion.env` (this
    project only) as `NOTION_TOKEN=…`; both are ignored by Git, and
    `praukron notion env` writes the blank file.
-2. Share the page that holds your PPMP template (Praukron Project Management
-   Protocol) with the connection, then duplicate the template once for this
-   project.
+2. Share the page that holds your projects with the connection. Inside that
+   page, duplicate the **PPMP** template (Praukron Project Management Protocol)
+   once per project. PPMP is a copy of **Plautilus · Project Management** with
+   its sample rows removed. Use the project's copy for setup; a page whose
+   title ends with `TEMPLATE` is refused.
 3. Link and fill it:
 
 ```sh
 praukron notion doctor                    # where the key is, and whether it works
-praukron notion setup <url of the copy> --key AUXVOL
+praukron notion setup <url of the copy> --key PROJECT
 praukron notion watch install             # pull every 2 min, push every 5 min
 ```
 
-`setup` binds the copy's nine databases by title, creates any that are
-missing, adds a **Live Status** page, and runs the first push. In Notion,
-answer in the **Assumption Review Queue** (Decision, Feedback, Submit) or the
-**Agent Instructions Outbox** (target task, Intent, Instruction Text, Submit).
-The next `pull` writes each one to `RESPONSES.md` verbatim, records it in the
-**Action Ledger**, and moves the row to `APPLIED`; a submission made while
-the machine is off waits as `QUEUED`. Only Notion users named in an ADR's
-`Notion owners:` (`<notion-user-id>=<gh-login>`) are accepted, and only they
-may `VERIFY` from Notion. `praukron notion sync` runs pull then push once.
+`setup` binds the copy's 13 databases by title and adds only missing databases,
+properties and relations. It finds or creates one shared **Project Portfolio**
+board directly under the page that holds your projects, then runs the first
+push. The shared board lists every linked project; each copy also has its own
+Project Portfolio row. `push` fills the hub's KPI and **Việc của bạn** callouts
+in place with progress and the decisions waiting for you.
+
+There are two places to answer: the **Assumption Review Queue** (Decision,
+Feedback, Submit) and the **Agent Instructions Outbox** (Target Task Link or
+Target ID, Intent, Instruction Text, Submit). Treat the other tables as views.
+The next `pull` records accepted submissions in `RESPONSES.md`, logs each
+submission in the **Action Ledger**, and writes a receipt back to its row.
+An applied submission reaches `APPLIED`; a stale or invalid one shows
+`CONFLICT` or `REJECTED` with an explanation. Submissions wait until the
+machine next runs a pull. **Owner Response History** mirrors the recorded
+responses on the next push.
+
+Only Notion users named in an ADR's `Notion owners:`
+(`<notion-user-id>=<gh-login>`) count as owners; other users' submissions are
+rejected. Listed owners may submit `VERIFY` for an `Authority: owner` task.
+`praukron notion sync` runs pull then push once.
+`praukron notion watch install` installs Windows Task Scheduler jobs for pull
+every two minutes and push every five minutes; on other systems it prints
+the lines to add with `crontab -e`.
 
 ### Execution and operations
 
