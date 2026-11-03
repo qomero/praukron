@@ -14,7 +14,7 @@ from typing import Iterable
 
 from . import layout
 from .layout import AUTHORITY_DIR
-from .mutate import _replace
+from .mutate import _relative, _replace
 from .snapshot import Snapshot
 
 
@@ -102,7 +102,7 @@ def backup(root: Path, originals: dict[Path, bytes | None]) -> dict:
     directory.mkdir(parents=True)
     files = []
     for path, data in originals.items():
-        name = path.resolve().relative_to(root.resolve()).as_posix()
+        name = _relative(root, path)
         files.append({"path": name, "absent": data is None})
         if data is not None:
             target = directory / name

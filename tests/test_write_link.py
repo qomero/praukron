@@ -1,4 +1,4 @@
-"""Structured writes through a linked chronicle (AC-T-WRITE-LINK-01-01)."""
+"""Structured writes and archive through a linked chronicle (AC-T-WRITE-LINK-01-01, AC-T-WRITE-LINK-02-01, -02)."""
 
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from praukron import cli, compile as compiler, layout, mutate, task, validate  # noqa: E402
+from praukron import archive, cli, compile as compiler, contract, layout, mutate, task, validate  # noqa: E402
+from test_archive_plan import ArchivePlanCase  # noqa: E402
 from test_assumptions import AssumptionCase  # noqa: E402
 
 
@@ -130,6 +131,25 @@ class LinkedChronicleCase:
         self.assertIn(b"Agreed.", self.read("RESPONSES.md"))
         self.assert_valid()
 
+    def test_contract_add(self):
+        bare = ("## T-BARE: Awaiting contract\n- Status: TODO\n- Module: M-FOUNDATION\n- Domain: execution\n"
+                "- Validation: UNTESTED\n- Dependencies: none\n- Owner: unassigned\n"
+                "- Evidence: —\n- Governed by: ADR-001\n")
+        (self.outside / "TASKS.md").write_bytes(contract.append_section(self.outside / "TASKS.md", "Tasks", bare))
+        payload = copy.deepcopy(contract.EXAMPLE)
+        payload.update(task="T-BARE", expectTaskRevision=self.revision("TASKS.md", "T-BARE"))
+        self.write_ok("contract", "add", "--input", "-", payload=payload)
+        self.assertIn(b"AC-T-NEW", self.read("ACCEPTANCE.md"))
+        self.assert_valid()
+
+    def test_acr_add(self):
+        self.write_ok("acr", "add", "--input", "-", payload={
+            "task": "T-ONE", "criterion": "AC-T-ONE-01",
+            "proposed": "Given a request, When it runs, Then it succeeds within a second.",
+            "reason": "The original wording is not measurable."})
+        self.assertIn(b"within a second", self.read("ACCEPTANCE.md"))
+        self.assert_valid()
+
     def test_interrupted_write_is_rolled_back_through_the_link(self):
         path = self.authority / "JOURNAL.md"
         original = b"# Journal\n"
@@ -146,6 +166,52 @@ class TestSymlinkChronicle(LinkedChronicleCase, AssumptionCase):
 
 
 class TestJunctionChronicle(LinkedChronicleCase, AssumptionCase):
+    kind = "junction"
+
+
+class LinkedArchiveCase:
+    """archive apply in backup mode names each file relative to the chronicle (AC-T-WRITE-LINK-02-01)."""
+    kind = ""
+
+    def setUp(self):
+        super().setUp()
+        self.outside = self.root.parent / (self.root.name + "-outside")
+        self.addCleanup(shutil.rmtree, self.outside, True)
+        shutil.move(str(self.authority), str(self.outside))
+        if not link(self.authority, self.outside, self.kind):
+            shutil.move(str(self.outside), str(self.authority))
+            self.skipTest(f"cannot create a {self.kind} here")
+        self.addCleanup(self.unlink)
+
+    def unlink(self):
+        try:
+            os.rmdir(self.authority)
+        except OSError:
+            try:
+                self.authority.unlink()
+            except OSError:
+                pass
+
+    def test_apply_in_backup_mode_through_the_link(self):
+        plan = archive.preview(self.root, "P1")
+        result = archive.archive(self.root, "P1", digest=plan.digest)
+        self.assertEqual(result.mode, "nogit")
+        directory = Path(result.recovery["backup"])
+        files = json.loads((directory / "manifest.json").read_bytes())["files"]
+        self.assertTrue(files)
+        for entry in files:
+            self.assertTrue(entry["path"].startswith(layout.AUTHORITY_DIR + "/"), entry)
+            if not entry["absent"]:
+                self.assertTrue((directory / entry["path"]).is_file(), entry)
+        self.assertTrue((self.outside / "archive" / "P1").is_dir())
+        self.assertEqual(validate.errors(validate.check(compiler.load(self.root))), [])
+
+
+class TestSymlinkArchive(LinkedArchiveCase, ArchivePlanCase):
+    kind = "symlink"
+
+
+class TestJunctionArchive(LinkedArchiveCase, ArchivePlanCase):
     kind = "junction"
 
 
