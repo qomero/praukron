@@ -381,6 +381,25 @@ def id_exists(project: Project, record_id: str) -> bool:
             or any(c.id == record_id for contract in project.contracts.values() for c in contract.criteria))
 
 
+def _relative(root: Path, path: Path) -> str:
+    """Project-relative POSIX name of `path`, also when the chronicle is a link.
+
+    A chronicle that is a symlink or junction resolves outside the root, so a
+    resolved path under it is named through the link instead (T-WRITE-LINK-01).
+    """
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(root).as_posix()
+    except ValueError:
+        return (PurePosixPath(AUTHORITY_DIR)
+                / resolved.relative_to((root / AUTHORITY_DIR).resolve()).as_posix()).as_posix()
+
+
+def _within(root: Path, path: Path) -> bool:
+    """Whether resolved `path` lies inside the project or its (possibly linked) chronicle."""
+    return root in path.parents or (root / AUTHORITY_DIR).resolve() in path.parents
+
+
 def _recovery_records(root: Path) -> list[Path]:
     directory = root.resolve() / RECOVERY_DIR
     return sorted([*directory.glob("archive-*.json"), *directory.glob("write-*.json")])
@@ -392,7 +411,7 @@ def _replacement_paths(root: Path, payload: dict) -> dict[Path, Path]:
         if "temporary" not in entry:
             continue
         target, temporary = (root / entry["path"]).resolve(), (root / entry["temporary"]).resolve()
-        if (root not in target.parents or temporary.parent != target.parent
+        if (not _within(root, target) or temporary.parent != target.parent
                 or not temporary.name.startswith(".respond-")):
             raise ValueError("invalid recovery staging path")
         paths[target] = temporary
@@ -421,7 +440,7 @@ def recover_write(root: Path) -> bool:
             with _staging_paths(staging):
                 for entry in payload["files"]:
                     path = (root / entry["path"]).resolve()
-                    if root not in path.parents:
+                    if not _within(root, path):
                         raise ValueError("recovery path is outside the project")
                     if entry.get("absent"):
                         path.unlink(missing_ok=True)
@@ -432,7 +451,7 @@ def recover_write(root: Path) -> bool:
                                  reverse=True)
             for name in directories:
                 path = (root / name).resolve()
-                if root not in path.parents:
+                if not _within(root, path):
                     raise ValueError("recovery directory is outside the project")
                 if path.is_dir() and not any(path.iterdir()):
                     path.rmdir()
@@ -482,8 +501,7 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
     files = []
     for number, (path, original) in enumerate(originals.items()):
         temporary = path.parent / f".respond-{record.stem}-{number}"
-        item = {"path": path.resolve().relative_to(root).as_posix(),
-                "temporary": temporary.resolve().relative_to(root).as_posix()}
+        item = {"path": _relative(root, path), "temporary": _relative(root, temporary)}
         if original is None:
             item["absent"] = True
         else:
@@ -493,7 +511,7 @@ def _write_recovery(root: Path, originals: dict[Path, bytes | None], prefix: str
     if created:
         payload["created"] = created
     if directories:
-        payload["directories"] = [path.resolve().relative_to(root).as_posix() for path in directories]
+        payload["directories"] = [_relative(root, path) for path in directories]
     _replace(record, json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     return record
 
