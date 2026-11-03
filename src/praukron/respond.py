@@ -237,8 +237,13 @@ def refresh(root: Path) -> None:
 
 
 def append(root: Path, items: list[Item], via: str = "cli", date: str | None = None,
-           recompile: bool = True, verify: bool = False, approve_only: bool = False) -> list[str]:
-    """Append every item as one batch, or none of them. Returns the new ids."""
+           recompile: bool = True, verify: bool = False, approve_only: bool = False,
+           by: str | None = None) -> list[str]:
+    """Append every item as one batch, or none of them. Returns the new ids.
+
+    `by` is set only by the Notion pull, to the GitHub login an ACCEPTED ADR's
+    `Notion owners:` maps the submitter to (ADR-088); otherwise it is the
+    active `gh` login."""
     if not items:
         raise RespondError("nothing to record")
     items = [Item(i.target.strip(), i.action.strip().upper(), i.text.rstrip("\n")) for i in items]
@@ -260,7 +265,7 @@ def append(root: Path, items: list[Item], via: str = "cli", date: str | None = N
                     raise RespondError(f"{item.target}: no longer available for approval; reload Review. Nothing was recorded.")
                 seen.add(item.target)
         _check(project, items, verify)
-        by = identity()
+        by = by or identity()
         if approve_only and not project.is_owner(by):
             for item in items:
                 if item.action == VERIFY:

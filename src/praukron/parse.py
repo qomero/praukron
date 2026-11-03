@@ -401,6 +401,8 @@ def parse_decisions(directory: Path) -> list[Decision]:
                 notify=(_named(fields.get("Notify")) or "").lower() or None,
                 owners=([owner.lstrip("@") for owner in _list(fields.get("Owners"))]
                         if "Owners" in fields else None),
+                notion_owners=(_list(fields.get("Notion owners"))
+                               if "Notion owners" in fields else None),
             )
         )
     return decisions

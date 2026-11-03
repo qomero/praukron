@@ -624,6 +624,38 @@ An agent reconciles each response on its next turn; only the owner named in
 an ADR's `Owners:` can verify. The ticks are visible but disabled on the
 static page.
 
+### Following the project from Notion (optional)
+
+Praukron can mirror a project into Notion and take the owner's answers back,
+including from a phone. The chronicle stays the authority; Notion is a mirror
+and an inbox. Nothing leaves the repository until `setup` links it.
+
+1. In Notion, add a Developer connection (Internal) and copy its secret. One
+   connection serves every project in the workspace. Put it in
+   `~/.praukron/notion.env` (every project) or `.praukron/notion.env` (this
+   project only) as `NOTION_TOKEN=…`; both are ignored by Git, and
+   `praukron notion env` writes the blank file.
+2. Share the page that holds your PPMP template (Praukron Project Management
+   Protocol) with the connection, then duplicate the template once for this
+   project.
+3. Link and fill it:
+
+```sh
+praukron notion doctor                    # where the key is, and whether it works
+praukron notion setup <url of the copy> --key AUXVOL
+praukron notion watch install             # pull every 2 min, push every 5 min
+```
+
+`setup` binds the copy's nine databases by title, creates any that are
+missing, adds a **Live Status** page, and runs the first push. In Notion,
+answer in the **Assumption Review Queue** (Decision, Feedback, Submit) or the
+**Agent Instructions Outbox** (target task, Intent, Instruction Text, Submit).
+The next `pull` writes each one to `RESPONSES.md` verbatim, records it in the
+**Action Ledger**, and moves the row to `APPLIED`; a submission made while
+the machine is off waits as `QUEUED`. Only Notion users named in an ADR's
+`Notion owners:` (`<notion-user-id>=<gh-login>`) are accepted, and only they
+may `VERIFY` from Notion. `praukron notion sync` runs pull then push once.
+
 ### Execution and operations
 
 Every task is either **execution** — work that advances the project itself —

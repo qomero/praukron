@@ -338,7 +338,7 @@ install_guidance "$source_dir/.agents/skills/praukron/SKILL.md" \
 # never runs a stale compiler against a current chronicle.
 mkdir -p "$target/$runtime/praukron"
 for module in __init__ layout model parse domain freeze validate analytics views index compile snapshot migrate \
-  mermaid drawings mission review i18n dashboard retrieve codegraph respond mutate journal task task_update contract criterion acr batch archive archive_recovery serve cli; do
+  mermaid drawings mission review i18n dashboard retrieve codegraph respond mutate journal task task_update contract criterion acr batch archive archive_recovery serve notion_config notion_api notion_sync cli; do
   cp "$source_dir/src/praukron/$module.py" "$target/$runtime/praukron/$module.py"
 done
 cp "$source_dir/VERSION" "$target/$runtime/VERSION"
@@ -357,6 +357,42 @@ exec "$(dirname "$0")/praukron" "$@"
 COMPAT
   chmod +x "$target/$home/prokron"
 fi
+
+# Notion management (ADR-087). The key file is created blank, once, and never
+# replaced, so a key someone put in it survives every upgrade. Git ignores it
+# and the sync state beside it through .praukron/.gitignore, whose Praukron
+# block is maintained here and whose other lines are the project's.
+copy_new "$source_dir/templates/notion.env" "$target/$home/notion.env"
+ignore="$target/$home/.gitignore"
+if [ -L "$ignore" ] || { [ -e "$ignore" ] && [ ! -f "$ignore" ]; }; then
+  echo "Cannot install: $ignore is not a regular file" >&2
+  exit 1
+fi
+ignore_block="$target/$runtime/gitignore.tmp"
+cat > "$ignore_block" <<'IGNORE'
+# praukron:start — Notion key and local sync state stay on this machine (ADR-087)
+notion.env
+notion.json
+notion.log
+notion.lock
+# praukron:end
+IGNORE
+if [ ! -f "$ignore" ]; then
+  cp "$ignore_block" "$ignore"
+elif ! grep -Fq '# praukron:start' "$ignore"; then
+  [ ! -s "$ignore" ] || [ -z "$(tail -c 1 "$ignore")" ] || printf '
+' >> "$ignore"
+  cat "$ignore_block" >> "$ignore"
+else
+  awk -v src="$ignore_block" '
+    /^# praukron:start/ && !done { while ((getline line < src) > 0) print line; skip = 1; done = 1; next }
+    skip { if (/^# praukron:end/) skip = 0; next }
+    { print }
+  ' "$ignore" > "$ignore.praukron-new"
+  cat "$ignore.praukron-new" > "$ignore"
+  rm -f "$ignore.praukron-new"
+fi
+rm -f "$ignore_block"
 
 # A path is not a command. The launcher below goes on the reader's PATH so the
 # command is `praukron`; it holds no logic of its own, walking up to the nearest
