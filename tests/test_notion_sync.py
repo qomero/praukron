@@ -1159,6 +1159,34 @@ class PullTest(NotionCase):
         self.assertEqual(self.responses().count("T-TWO VERIFY"), 2)
         self.assertEqual(self.responses().count("T-TWO GUIDE"), guides + 1)
 
+    def test_a_lost_journal_never_turns_an_unstamped_approval_into_verify(self) -> None:
+        """R3-1: with its saved revision gone, an approval of a target push has
+        since changed is stale, not an approval of the current version."""
+        for intent in ("APPROVE", "VERIFY", "FIX"):
+            with self.subTest(intent=intent):
+                row = self.outbox(intent)
+                self.change_t_two(f"lost-{intent.lower()}")
+                notion_sync.push(self.notion, self.dir, self.config)
+                (self.dir / layout.HOME_DIR / notion_sync.REQUESTS_FILE).unlink(missing_ok=True)
+                before = self.responses()
+                result = self.pull()
+                self.assertEqual((result.conflicts, result.applied), (1, []))
+                self.assertEqual(self.state(row), "CONFLICT")
+                self.assertEqual(self.responses(), before)
+                # resent after the next push, it is bound to what the row now shows
+                notion_sync.push(self.notion, self.dir, self.config)
+                self.notion.edit(row, Submit=notion_sync.checkbox(True))
+                self.assertEqual(len(self.pull().applied), 1)
+
+    def test_an_unstamped_approval_with_no_push_since_still_applies_without_a_journal(self) -> None:
+        """The narrow R3-1 rule refuses only when the target changed after the
+        submission; an untouched target still applies on the first pull."""
+        (self.dir / layout.HOME_DIR / notion_sync.REQUESTS_FILE).unlink(missing_ok=True)
+        row = self.outbox("APPROVE")
+        result = self.pull()
+        self.assertEqual((result.conflicts, len(result.applied)), (0, 1))
+        self.assertEqual(self.state(row), "APPLIED")
+
     def test_an_unstamped_submission_survives_a_push_that_does_not_change_its_target(self) -> None:
         row = self.outbox("APPROVE")
         notion_sync.push(self.notion, self.dir, self.config)
@@ -1209,6 +1237,15 @@ class PullTest(NotionCase):
         texts = {r.id: r.text for r in self.recorded()}
         self.assertEqual(texts["R-3"], VERBATIM)
         self.assertEqual(texts["R-4"], VERBATIM)
+        self.assertEqual(self.state(row), "APPLIED")
+
+    def test_carriage_returns_keep_every_word_in_both_queues(self) -> None:
+        """R3-2: a bare \\r must not end a quoted line and drop what follows."""
+        row = self.submit_assumption(Decision=notion_sync.select("REVISE"), Feedback=notion_sync.rich("alpha\rbeta"))
+        self.outbox("FIX", text="one\r\ntwo\rthree")
+        self.assertEqual(self.pull().applied, ["R-3", "R-4"])
+        texts = {r.id: r.text for r in self.recorded()}
+        self.assertEqual((texts["R-3"], texts["R-4"]), ("alpha\nbeta", "one\ntwo\nthree"))
         self.assertEqual(self.state(row), "APPLIED")
 
     def test_text_ending_in_blank_lines_keeps_them_in_both_queues(self) -> None:

@@ -1394,25 +1394,32 @@ class Requests:
         write_json(self.path, {"version": 1, "requests": self.entries, "bases": self.bases})
 
 
-def submission(kind: str, row: dict, task_pages: dict[str, str], mirrored: Callable[[str], str],
+def _lines(text: str) -> str:
+    """Owner text with every line break as \n: a bare \r would end a quoted
+    response line in RESPONSES.md and lose the words after it."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def submission(kind: str, row: dict, task_pages: dict[str, str], mirrored: Callable[[str, str], str],
                bases: dict[str, str] | None = None) -> dict:
     """What the owner submitted, read once, before the worker writes to the row."""
     props = row["properties"]
     if kind == "outbox":
         target = _target(props, task_pages)
         payload = {"target": target, "intent": plain(props.get("Intent")) or "GUIDE",
-                   "priority": plain(props.get("Priority")), "title": plain(props.get("Instruction Title")),
-                   "text": plain(props.get("Instruction Text"))}
+                   "priority": plain(props.get("Priority")), "title": _lines(plain(props.get("Instruction Title"))),
+                   "text": _lines(plain(props.get("Instruction Text")))}
         # The revision push stamped on the row; else the one push kept when it
-        # first found the row submitted; else, no push having run since, the
-        # one its target's row shows.
+        # first found the row submitted; else the one its target's row shows,
+        # but only if no push has changed that row since the owner submitted.
         base = plain(props.get("Source Revision"))
         if not base:
-            base = bases[row["id"]] if bases and row["id"] in bases else mirrored(target)
+            base = (bases[row["id"]] if bases and row["id"] in bases
+                    else mirrored(target, row.get("last_edited_time", "")))
     else:
         target = plain(props.get("Assumption ID")).strip() or plain(props.get(TITLE)).strip()
         payload = {"target": target, "decision": plain(props.get("Decision")),
-                   "feedback": plain(props.get("Feedback"))}
+                   "feedback": _lines(plain(props.get("Feedback")))}
         base = plain(props.get("Source Revision"))
     digest = revision({"kind": kind, "row": bare(row["id"]), "payload": payload, "base": base})
     return {
@@ -1534,12 +1541,17 @@ def pull(client: Client, root: Path, config: dict | None = None,
     task_pages = {bare(row["id"]): pid for pid, row in tasks.items()}
     shown: dict[str, dict[str, dict]] = {"tasks": tasks}
 
-    def mirrored(target: str) -> str:
+    def mirrored(target: str, submitted_at: str) -> str:
+        """The revision the target's row shows, if it is the one the owner saw:
+        a row push changed after the submission cannot say what was approved
+        (its journal entry lost), so the request is stale."""
         kind = _kind_of(target)
         if kind not in shown:
             shown[kind] = _existing(client, dbs[kind]["data_source_id"], key)
         row = shown[kind].get(target)
-        return plain(row["properties"].get("Source Revision")) if row else ""
+        if not row or (submitted_at and row.get("last_edited_time", "") > submitted_at):
+            return ""
+        return plain(row["properties"].get("Source Revision"))
 
     # 1. Read every submitted row and keep what is new before writing anything.
     submitted = {"property": "Submit", "checkbox": {"equals": True}}
