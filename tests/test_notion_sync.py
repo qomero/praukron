@@ -1551,7 +1551,7 @@ class NotifyTest(NotionCase):
 
             def do_POST(self):  # noqa: N802
                 Redirect.hits.append(self.path)
-                self.send_response(307)
+                self.send_response(302)
                 self.send_header("Location", "http://127.0.0.1:1/refused")
                 self.end_headers()
 
@@ -1567,7 +1567,7 @@ class NotifyTest(NotionCase):
         with mock.patch("praukron.notion_api.API", f"http://127.0.0.1:{server.server_port}/v1"):
             with self.assertRaises(NotionError) as caught:
                 client.create_comment(str(uuid.uuid4()), notion_sync.text_parts("hi"))
-        self.assertEqual(caught.exception.status, 307)
+        self.assertEqual(caught.exception.status, 302)
         self.assertNotEqual(caught.exception.code, "not-sent")
         self.assertFalse(notion_sync.refused(caught.exception) and caught.exception.status == 0)
         self.assertEqual(len(Redirect.hits), 1)
