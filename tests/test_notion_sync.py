@@ -44,12 +44,13 @@ PLAUTILUS_TITLES = {
     "modules": "🧩 Product Modules · Praukron", "assumptions": "✏️ Assumption Review Queue",
     "outbox": "Agent Instructions Outbox", "responses": "📜 Owner Response History · Plautilus",
 }
-# The template's hub callouts, as the owner's copy holds them before any push.
+# The template's hub callouts as the owner's copy holds them before any push:
+# a first line, and the label lines as child blocks (Plautilus layout).
 HUB_TEXTS = {
-    "header": "PLAUTILUS / PROJECT CONTROL CENTER · Executive view",
-    "done": "0 / 41\n\nExecution tasks DONE", "phase": "0 / 8\n\nP0 execution · 0% DONE",
-    "reviewed": "0 / 41\n\nAI reviewed / human verified", "gates": "0 / 5\n\nGREEN phase gates",
-    "owner": "VIỆC CỦA BẠN — 0 mục", "product": "THE PRODUCT\n\nA template.",
+    "header": ("PLAUTILUS / PROJECT CONTROL CENTER · Executive view", "A template thesis."),
+    "done": ("0 / 41", "Execution tasks DONE"), "phase": ("0 / 8", "P0 execution · 0% DONE"),
+    "reviewed": ("0 / 41", "AI reviewed / human verified"), "gates": ("0 / 5", "GREEN phase gates"),
+    "owner": ("VIỆC CỦA BẠN — 0 mục", "Chưa có việc."), "product": ("THE PRODUCT", "A template."),
 }
 
 
@@ -62,6 +63,12 @@ def _read(value: dict) -> dict:
         if kind in value:
             return {"type": kind, kind: value[kind]}
     raise AssertionError(value)
+
+
+def lines(notion: "FakeNotion", callout: str) -> list[str]:
+    """A hub callout as the reader sees it: its first line, then its child blocks."""
+    return [notion_sync._block_text(notion.block(callout))] + [
+        notion_sync._block_text(c) for c in notion.children(callout)]
 
 
 def _ids(page: dict, name: str) -> set[str]:
@@ -133,7 +140,13 @@ class FakeNotion(Client):
     def append(self, block_id: str, blocks: list[dict]) -> dict:
         self.writes += 1
         for block in blocks:
-            self.blocks.setdefault(block_id, []).append({"id": self._id(), "has_children": False, **block})
+            body = block.get(block["type"]) or {}
+            nested = body.pop("children", None)
+            new = {"id": self._id(), "has_children": bool(nested), **block}
+            self.blocks.setdefault(block_id, []).append(new)
+            if nested:
+                self.append(new["id"], nested)
+                self.writes -= 1   # one request in Notion
         return {}
 
     def update_block(self, block_id: str, body: dict) -> dict:
@@ -317,8 +330,14 @@ class ProvisionTest(Base):
         row = self.notion.add_block(copy, "column_list", children=True)
         left = self.notion.add_block(row, "column", children=True)
         right = self.notion.add_block(row, "column", children=True)
-        callouts = {name: self.notion.add_block(left if i % 2 else right, "callout", text)
-                    for i, (name, text) in enumerate(HUB_TEXTS.items())}
+        callouts = {}
+        for i, (name, (first, label)) in enumerate(HUB_TEXTS.items()):
+            callouts[name] = self.notion.add_block(left if i % 2 else right, "callout", first, children=True)
+            self.notion.add_block(callouts[name], "paragraph", label)
+        # a navigation line in the header, linking a page, is the owner's and must survive
+        nav = self.notion.add_block(callouts["header"], "paragraph")
+        self.notion.block(nav)["paragraph"] = {"rich_text": [
+            {"type": "mention", "plain_text": "Roadmap", "mention": {"type": "page", "page": {"id": left}}}]}
         self.notion.seed_database(self.portfolio, "portfolio", "Project Portfolio", drop=("Health",))
         existing = next(b["id"] for b in self.notion.blocks[self.portfolio] if b["type"] == "child_database")
         before_databases = set(self.notion.databases)
@@ -339,6 +358,14 @@ class ProvisionTest(Base):
         self.assertEqual(config["hubBlocks"], callouts)
         self.assertEqual([b["id"] for b in self.notion.blocks[copy]], top_level)
         self.assertEqual(notion_sync.page_title(self.notion.pages[copy]), "Demo · Project Management")
+        # push fills those callouts in place: first line = value, label in a child, links kept
+        notion_sync.push(self.notion, self.dir, config)
+        self.assertEqual([b["id"] for b in self.notion.blocks[copy]], top_level)
+        self.assertEqual(lines(self.notion, callouts["done"]), ["1 / 3", "Execution tasks DONE"])
+        header = self.notion.children(callouts["header"])
+        self.assertTrue(any(p["type"] == "mention" for c in header for p in c["paragraph"]["rich_text"]))
+        self.assertFalse(any("A template thesis." in notion_sync._block_text(c) for c in header))
+        self.assertIn("Project Key DEMO", " ".join(lines(self.notion, callouts["header"])))
 
     def test_setup_again_changes_nothing(self) -> None:
         first = self.setup_notion(key="DEMO")
@@ -372,8 +399,11 @@ class PushTest(NotionCase):
     def project(self) -> dict:
         return compiler.as_json(compiler.load(self.dir))
 
+    def hub_lines(self, name: str) -> list[str]:
+        return lines(self.notion, self.config["hubBlocks"][name])
+
     def hub_text(self, name: str) -> str:
-        return notion_sync._block_text(self.notion.block(self.config["hubBlocks"][name]))
+        return "\n".join(self.hub_lines(name))
 
     def test_push_mirrors_every_record_kind_with_relations(self) -> None:
         first = notion_sync.push(self.notion, self.dir, self.config)
@@ -464,15 +494,13 @@ class PushTest(NotionCase):
         summary = notion_sync.summary(self.project(), "DEMO")
         self.assertEqual(summary["attention"], 3)
         self.assertTrue(notion_sync.push(self.notion, self.dir, self.config).hub)
-        done = self.hub_text("done")
-        self.assertIn(f"{summary['done']} / {summary['total']}", done)
-        self.assertIn("Execution tasks DONE", done)
-        self.assertIn("GREEN phase gates", self.hub_text("gates"))
+        self.assertEqual(self.hub_lines("done"), [f"{summary['done']} / {summary['total']}", "Execution tasks DONE"])
+        self.assertEqual(self.hub_lines("gates"), ["0 / 1", "GREEN phase gates"])
         self.assertIn("Project Key DEMO", self.hub_text("header"))
         self.assertIn("NEEDS_OWNER", self.hub_text("header"))
         owner = self.config["hubBlocks"]["owner"]
-        self.assertIn("VIỆC CỦA BẠN", self.hub_text("owner"))
-        self.assertIn(f"{summary['attention']} mục", self.hub_text("owner"))
+        self.assertIn("VIỆC CỦA BẠN", self.hub_lines("owner")[0])
+        self.assertIn(f"{summary['attention']} mục", self.hub_lines("owner")[0])
         children = self.notion.children(owner)
         mentioned = {part["mention"]["page"]["id"] for child in children
                      if child["type"] == "bulleted_list_item"
@@ -500,15 +528,15 @@ class PushTest(NotionCase):
 
     def test_a_second_push_leaves_the_hub_untouched_and_a_change_rewrites_it(self) -> None:
         notion_sync.push(self.notion, self.dir, self.config)
-        before = {name: self.hub_text(name) for name in self.config["hubBlocks"]}
+        before = {name: self.hub_lines(name) for name in self.config["hubBlocks"]}
         writes = self.notion.writes
         self.assertFalse(notion_sync.push(self.notion, self.dir, self.config).hub)
         self.assertEqual(self.notion.writes, writes)
-        self.assertEqual({name: self.hub_text(name) for name in self.config["hubBlocks"]}, before)
+        self.assertEqual({name: self.hub_lines(name) for name in self.config["hubBlocks"]}, before)
         (self.dir / layout.AUTHORITY_DIR / "ASSUMPTIONS.md").write_text(
             ASSUMPTIONS.split("## A-2")[0], encoding="utf-8")
         self.assertTrue(notion_sync.push(self.notion, self.dir, self.config).hub)
-        self.assertIn("2 mục", self.hub_text("owner"))
+        self.assertIn("2 mục", self.hub_lines("owner")[0])
         texts = " ".join(notion_sync._block_text(c) for c in self.notion.children(self.config["hubBlocks"]["owner"]))
         self.assertNotIn("Sales may read their own clients only", texts)
         self.assertEqual(self.saved()["hubBlocks"], self.config["hubBlocks"])
