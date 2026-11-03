@@ -384,10 +384,11 @@ def id_exists(project: Project, record_id: str) -> bool:
 def _relative(root: Path, path: Path) -> str:
     """Project-relative POSIX name of `path`, also when the chronicle is a link.
 
-    A chronicle that is a symlink or junction resolves outside the root, so a
-    resolved path under it is named through the link instead (T-WRITE-LINK-01).
+    `root` may be given resolved or not; it is resolved here. A chronicle that is
+    a symlink or junction resolves outside the root, so a resolved path under it
+    is named through the link instead (T-WRITE-LINK-01, T-WRITE-LINK-02).
     """
-    resolved = path.resolve()
+    root, resolved = root.resolve(), path.resolve()
     try:
         return resolved.relative_to(root).as_posix()
     except ValueError:
@@ -396,7 +397,10 @@ def _relative(root: Path, path: Path) -> str:
 
 
 def _within(root: Path, path: Path) -> bool:
-    """Whether resolved `path` lies inside the project or its (possibly linked) chronicle."""
+    """Whether resolved `path` lies inside the project or its (possibly linked) chronicle.
+
+    `root` must already be resolved; `path` must be resolved.
+    """
     return root in path.parents or (root / AUTHORITY_DIR).resolve() in path.parents
 
 
