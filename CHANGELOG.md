@@ -11,6 +11,9 @@ people arriving from a release page.
   terminal and the served dashboard only, as before 3.0.0. A project that used
   Notion keeps its chronicle unchanged; its `.praukron/notion*` files and
   scheduled tasks can be deleted.
+- The guide and the specification say that structured writes, `respond` and
+  `archive apply` work through a chronicle linked from outside the repository,
+  and the dashboard notes describe the labelled schedule fields.
 
 ## 3.0.0 — 2026-11-03
 
