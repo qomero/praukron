@@ -541,6 +541,96 @@ fails (`"written":true,"refreshed":false`), do not repeat it; run
 `praukron compile && praukron graph`. If another writer
 holds the lock (`locked`), wait and retry.
 
+### Reading the chronicle at an earlier revision
+
+```sh
+praukron history state <rev>                   # the chronicle at that revision, or UNSUPPORTED and why
+praukron history diff <earlier> <later>        # what changed in the records between two revisions
+praukron history diff <earlier> <later> --entity T-123
+praukron history lineage ADR-012 [--at <rev>]  # the Supersedes: chain, older and newer
+praukron history --git-dir <dir> state <rev>   # a chronicle kept in its own repository
+```
+
+All three commands are read-only (ADR-093). `state` asks Git for the
+chronicle files at that revision and writes them to a new temporary directory
+outside the repository. The current compiler then reads them, with the same
+code `compile` uses. The command does not check anything out, and the
+repository's HEAD, branch, index and working tree stay as they were. Add
+`--json` for the full result; `--json --with-state` also includes the compiled
+`project.json`.
+
+The chronicle has moved over time, so `state` looks for it in this order:
+`.praukron/chronicle`, `.prokron/chronicle`, `prokron`, `.prokron`,
+`chronicle` (the layout of a separate chronicle repository), and finally the
+repository root. Each result records:
+
+- the repository and the full revision;
+- where the chronicle was found and in which layout;
+- the compiler's VERSION and commit, and whether its sources were clean.
+
+A revision passes or fails validation under today's rules, and the result
+says so. A revision that fails validation still compiles, and its findings are
+listed separately. A failure to compile is reported separately from
+validation. Three cases are `UNSUPPORTED`, each with its reason:
+
+- there is no chronicle at the revision;
+- the chronicle uses the v0.1 layout, which has no `PHASES.md`;
+- a record cannot be parsed.
+
+Nothing is migrated. For an unparseable record, the reason quotes the
+parser, for example `the current compiler cannot read it: ParseError:
+TRACE.md [EV-162]: missing required field 'Type'`.
+
+`diff` takes the earlier revision first. If the second revision does not
+descend from the first, the result is `NOT_ANCESTRAL` and lists no
+transitions. Otherwise it compares tasks, criteria, ADRs, assumptions,
+phases, gates and ACRs by stable ID. It reports only authored fields, so
+derived views such as `ready`, counts or blockers never show up as changes.
+Each transition is one of:
+
+| Transition | Meaning |
+|---|---|
+| `CHANGED` | One field differs; both values are given. |
+| `ADDED`, `REMOVED` | The ID exists on only one side. |
+| `RELOCATED` | The record moved into or out of `archive/<phase>/`. |
+| `MOVED` | The record moved to another file. |
+| `REUSED` | The ID was deleted between the two revisions and now names different work; both titles are given. |
+
+When the whole chronicle directory moves, as it did from `.prokron/chronicle`
+to `.praukron/chronicle`, no record changes identity.
+
+Every transition records:
+
+- the source revision and the destination revision;
+- its `file#anchor` at each revision;
+- the interval it falls in: after the first revision, at or before the second;
+- how many first-parent commits that interval spans, and how many of them touched the chronicle.
+
+The confidence is `ONE_COMMIT`, `ONE_COMMIT_MERGE` or `SEVERAL_COMMITS`. With
+several commits, a field that changed twice shows only its two ends. If
+either side is `UNSUPPORTED`, or the chronicle is missing or unreadable at a
+revision in between, the answer is `INSUFFICIENT_EVIDENCE` with the reason.
+Some ADRs, responses, journal entries and ACRs name the record by its ID.
+They are attached as linked evidence, each with its source and whether it
+appeared within the interval. Nothing is ever linked because of when it was
+written.
+
+`lineage` reads the `Supersedes:` lines. With no `--at`, it reads the
+chronicle on disk:
+
+```console
+$ praukron history lineage ADR-028 --at fb50014
+ADR-028 (ACCEPTED) at fb500148e9
+  no Supersedes: link in either direction
+```
+
+A superseded ADR keeps its `Status:`. Only the newer ADR's `Supersedes:` line
+records that it was replaced, so use `lineage` rather than the status field.
+
+Git history can be rewritten. A rebase or a force-push changes what these
+commands see, so read their results as what the repository holds now, not as
+an immutable log.
+
 ### CodeGraph (optional)
 
 ```sh

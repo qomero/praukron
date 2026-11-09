@@ -711,7 +711,8 @@ def _history_text(command: str, found: dict) -> str:
         span = found.get("interval")
         if span:
             lines.append(f"  interval after {span['after'][:10]}, at or before {span['atOrBefore'][:10]}: "
-                         f"{span['commits']} commits, {len(span['chronicleCommits'])} touching the chronicle "
+                         f"{span['commits']} commit{'s' if span['commits'] != 1 else ''}, "
+                         f"{len(span['chronicleCommits'])} touching the chronicle "
                          f"({span['confidence']})")
         transitions = found["transitions"]
         for number, item in enumerate(transitions):
