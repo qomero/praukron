@@ -247,7 +247,7 @@ FIELDS: dict[str, tuple[str, ...]] = {
     "criterion": ("text", "evidenceClass", "state", "evidence"),
     "decision": ("title", "status", "supersedes", "affects", "origin", "evidence"),
     "assumption": ("title", "status", "impact", "recorded", "assumption", "basis", "appliedIn",
-                   "references", "tasks", "phases", "modules", "permissions", "reconciledBy"),
+                   "tasks", "permissions", "reconciledBy"),
     "phase": ("name", "outcome", "entry", "exit", "exitAuthority", "status"),
     "gate": ("name", "description", "blocks", "verifiedBy", "status"),
     "acr": ("criterion", "current", "proposed", "decision"),

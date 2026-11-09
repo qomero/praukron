@@ -354,6 +354,19 @@ class TestTemporalDiff(HistoryCase):
         self.assertTrue({i["id"]: i["inInterval"] for i in linked}["R-2"])
         self.assertTrue(all(i["source"] for i in linked))
 
+    def test_an_id_that_returns_with_the_same_title_is_still_reused(self) -> None:
+        path = self.root / layout.AUTHORITY_DIR / "TASKS.md"
+        text = path.read_text(encoding="utf-8")
+        three = text[text.index("## T-THREE:"):]
+        path.write_text(text.replace(three, ""), encoding="utf-8")
+        removed = self.commit("Remove T-THREE")
+        path.write_text(path.read_text(encoding="utf-8") + three.replace("- Status: TODO", "- Status: WIP"),
+                        encoding="utf-8")
+        returned = self.commit("T-THREE returns, same title")
+        [reuse] = self.transitions(temporal.diff(self.repo, self.rev2, returned), "T-THREE")
+        self.assertEqual((reuse["transition"], reuse["before"], reuse["after"], reuse["removedAt"]),
+                         ("REUSED", "Finish later", "Finish later", removed))
+
     def test_a_declared_domain_is_an_authored_field(self) -> None:
         self.edit("TASKS.md", "## T-ONE: Lay the foundation\n- Status: DONE",
                   "## T-ONE: Lay the foundation\n- Status: DONE\n- Domain: operations")
