@@ -578,7 +578,7 @@ validation. Three cases are `UNSUPPORTED`, each with its reason:
 - a record cannot be parsed.
 
 Nothing is migrated. For an unparseable record, the reason quotes the
-parser, for example `the current compiler cannot read it: ParseError:
+parser. This example comes from another project's history: `the current compiler cannot read it: ParseError:
 TRACE.md [EV-162]: missing required field 'Type'`.
 
 `diff` takes the earlier revision first. If the second revision does not
@@ -594,7 +594,7 @@ Each transition is one of:
 | `ADDED`, `REMOVED` | The ID exists on only one side. |
 | `RELOCATED` | The record moved into or out of `archive/<phase>/`. |
 | `MOVED` | The record moved to another file. |
-| `REUSED` | The ID was deleted between the two revisions and now names different work; both titles are given. |
+| `REUSED` | The ID was absent at a chronicle commit between the two revisions and came back with different content; read them as two records. |
 
 When the whole chronicle directory moves, as it did from `.prokron/chronicle`
 to `.praukron/chronicle`, no record changes identity.
@@ -608,8 +608,11 @@ Every transition records:
 
 The confidence is `ONE_COMMIT`, `ONE_COMMIT_MERGE` or `SEVERAL_COMMITS`. With
 several commits, a field that changed twice shows only its two ends. If
-either side is `UNSUPPORTED`, or the chronicle is missing or unreadable at a
-revision in between, the answer is `INSUFFICIENT_EVIDENCE` with the reason.
+either side is `UNSUPPORTED`, or the chronicle is missing at a revision in
+between or uses a layout no compiler reads, the answer is
+`INSUFFICIENT_EVIDENCE` with the reason. A record that fails to parse at a
+revision in between is not detected, because the diff does not compile those
+revisions.
 Some ADRs, responses, journal entries and ACRs name the record by its ID.
 They are attached as linked evidence, each with its source and whether it
 appeared within the interval. Nothing is ever linked because of when it was

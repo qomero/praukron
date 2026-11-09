@@ -354,6 +354,18 @@ class TestTemporalDiff(HistoryCase):
         self.assertTrue({i["id"]: i["inInterval"] for i in linked}["R-2"])
         self.assertTrue(all(i["source"] for i in linked))
 
+    def test_a_declared_domain_is_an_authored_field(self) -> None:
+        self.edit("TASKS.md", "## T-ONE: Lay the foundation\n- Status: DONE",
+                  "## T-ONE: Lay the foundation\n- Status: DONE\n- Domain: operations")
+        declared = self.commit("Declare T-ONE's domain")
+        [change] = temporal.diff(self.repo, self.rev2, declared)["transitions"]
+        self.assertEqual((change["id"], change["field"], change["before"], change["after"]),
+                         ("T-ONE", "declaredDomain", None, "operations"))
+
+    def test_an_unknown_revision_is_named(self) -> None:
+        with self.assertRaisesRegex(temporal.HistoryError, "unknown revision: nosuchrev"):
+            temporal.state_at_commit(self.repo, "nosuchrev")
+
     def test_cli_diff_and_lineage(self) -> None:
         out = io.StringIO()
         with redirect_stdout(out):

@@ -80,7 +80,8 @@ class Repository:
         return subprocess.run(["git", *self.args, *command], capture_output=True).returncode == 0
 
     def resolve(self, revision: str) -> str:
-        return self.git("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}").strip() or _missing(revision)
+        found = self.git("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}", check=False).strip()
+        return found or _missing(revision)
 
     def project_name(self) -> str:
         """The name `compile` would fall back to in a checkout of this repository."""
@@ -241,12 +242,12 @@ def state_at_commit(repo: Repository, revision: str) -> dict[str, object]:
 # Authored fields only. Derived views (counts, obstacles, next, ready, blocks,
 # progress) change whenever anything else does and are never transitions.
 FIELDS: dict[str, tuple[str, ...]] = {
-    "task": ("title", "module", "status", "validation", "deps", "ac", "owner", "claimed",
+    "task": ("title", "module", "declaredDomain", "status", "validation", "deps", "ac", "owner", "claimed",
              "evidence", "decisions", "schedule", "implementation", "authority"),
     "criterion": ("text", "evidenceClass", "state", "evidence"),
-    "decision": ("title", "status", "supersedes", "affects", "evidence"),
-    "assumption": ("title", "status", "impact", "assumption", "basis", "appliedIn",
-                   "permissions", "reconciledBy"),
+    "decision": ("title", "status", "supersedes", "affects", "origin", "evidence"),
+    "assumption": ("title", "status", "impact", "recorded", "assumption", "basis", "appliedIn",
+                   "references", "tasks", "phases", "modules", "permissions", "reconciledBy"),
     "phase": ("name", "outcome", "entry", "exit", "exitAuthority", "status"),
     "gate": ("name", "description", "blocks", "verifiedBy", "status"),
     "acr": ("criterion", "current", "proposed", "decision"),
@@ -262,6 +263,9 @@ def records(found: dict[str, object]) -> dict[tuple[str, str], dict]:
     for kind, key in (("task", "tasks"), ("decision", "decisions"), ("assumption", "assumptions"),
                       ("phase", "phases"), ("gate", "gates")):
         for item in state.get(key) or []:
+            if kind == "task":
+                # `domain` is derived from the module unless the task declares it.
+                item = {**item, "declaredDomain": item.get("domain") if item.get("domainSource") == "declared" else None}
             out[(kind, item["id"])] = item
     for contract_id, contract in (state.get("acceptance") or {}).items():
         source = contract.get("source") or {"file": "ACCEPTANCE.md", "anchor": contract_id}
@@ -289,7 +293,10 @@ def _present(repo: Repository, revision: str, path: str, kind: str, record_id: s
     """Whether a record's heading (or a criterion's bullet) exists at a revision."""
     spec = [path] if path else []
     if kind == "criterion":
-        return repo.ok("grep", "-q", "-F", f"`{record_id}`", revision, "--", *spec)
+        # Only a contract file defines a criterion; evidence elsewhere may quote its ID.
+        base = f"{path}/" if path else ""
+        contracts = [f"{base}ACCEPTANCE.md", f":(glob){base}{layout.ARCHIVE_DIR}/*/ACCEPTANCE.md"]
+        return repo.ok("grep", "-q", "-F", f"`{record_id}`", revision, "--", *contracts)
     return repo.ok("grep", "-q", "-E", _heading_pattern(record_id), revision, "--", *spec)
 
 
@@ -438,11 +445,12 @@ def compare(before: dict, after: dict, span: dict, *, entity: str | None = None,
             if (a.get("source") or {}).get("file") != (b.get("source") or {}).get("file"):
                 found.append({**base, "transition": "RELOCATED" if _archived(b) or _archived(a) else "MOVED",
                               "field": "source.file", "before": a["source"]["file"], "after": b["source"]["file"]})
-            reused = removed_at(kind, record_id) if a.get(title) != b.get(title) else None
+            differs = any(a.get(field) != b.get(field) for field in FIELDS[kind])
+            reused = removed_at(kind, record_id) if differs else None
             if reused:
                 found.append({**base, "transition": "REUSED", "field": title, "before": a.get(title),
                               "after": b.get(title), "removedAt": reused,
-                              "note": "the ID was removed and later names different work; this is not one record that changed"})
+                              "note": "the ID was absent inside the interval and returned; read the two as separate records, not one that changed"})
             else:
                 for field in FIELDS[kind]:
                     if a.get(field) != b.get(field):

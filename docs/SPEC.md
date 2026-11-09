@@ -629,7 +629,7 @@ derived views are excluded. Each transition is one of these kinds:
 | `REMOVED` | The ID exists only at the earlier revision. |
 | `RELOCATED` | The record moved into or out of `archive/`. |
 | `MOVED` | The record moved to another file. |
-| `REUSED` | The ID was absent at a chronicle commit inside the interval and now names different work. |
+| `REUSED` | The ID was absent at a chronicle commit inside the interval and came back with different content. |
 
 Each transition is pinned to both revisions and to its `file#anchor` at each
 revision. It carries its interval (after the first revision, at or before the
@@ -641,7 +641,9 @@ The diff gives one of these answers:
 - `NOT_ANCESTRAL`, with no transitions, when the revisions are not in
   ancestor order;
 - `INSUFFICIENT_EVIDENCE` when either side is `UNSUPPORTED`, or when a
-  chronicle commit in between has no readable chronicle;
+  chronicle commit in between has no chronicle or a layout no compiler reads
+  (intermediate revisions are not compiled, so a parse error there is not
+  detected);
 - `OBSERVED_STATE_TRANSITIONS` otherwise.
 
 Linked evidence is the ADRs, responses, journal entries and ACRs that name the

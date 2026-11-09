@@ -527,7 +527,7 @@ into why the model is shaped this way.
 
 **Implemented and tested.** The compiler and its twenty commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses, the served review page, and read-only history reads at a Git revision with the transitions between two. 933 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses, the served review page, and read-only history reads at a Git revision with the transitions between two. 935 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 
