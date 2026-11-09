@@ -4,6 +4,33 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 3.2.0 — 2026-11-09
+
+- `praukron history diff <earlier> <later>` reports the
+  `OBSERVED_STATE_TRANSITIONS` of authoritative records (tasks, criteria, ADRs,
+  assumptions, phases, gates, ACRs) between two revisions, by stable ID, each
+  pinned to both revisions and its `file#anchor`, with the interval it happened
+  in and how many commits that spans. A move into `archive/` is `RELOCATED`; an
+  ID removed inside the interval that comes back with different content is
+  `REUSED`, never one record that changed; revisions on different lines of history are `NOT_ANCESTRAL`;
+  an `UNSUPPORTED` side or a gap in the chronicle makes the answer
+  `INSUFFICIENT_EVIDENCE`. ADRs, responses, journal entries and ACRs that name
+  a record by its ID are attached as linked evidence, never by timing.
+  `praukron history lineage <ADR>` follows `Supersedes:` both ways
+  (T-PTM-DIFF-01, ADR-093).
+- `praukron history state <revision>` reads the chronicle as it stood at a Git
+  revision: it extracts the committed files into a fresh temporary directory
+  and compiles them with the current compiler, the same reducer as `compile`,
+  without checking anything out. The result names the repository, the full
+  revision, the chronicle path and layout found there, and the compiler's
+  version, commit and whether its sources were clean. Validation findings are
+  reported under current rules; a revision with no chronicle, the v0.1 layout
+  or a record the compiler cannot read is `UNSUPPORTED` with its reason, and
+  nothing is migrated. `--git-dir` reads a separate chronicle repository
+  (T-PTM-STATE-01, ADR-093).
+- The README, the guide and the specification (§2.9) describe `praukron
+  history`, with real output from this repository's public history.
+
 ## 3.1.0 — 2026-11-09
 
 - Removed Notion management. The `praukron notion` command, its watchers,
