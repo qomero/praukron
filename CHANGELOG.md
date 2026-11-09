@@ -4,9 +4,20 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 3.1.0 — 2026-11-09
+
+- Removed Notion management. The `praukron notion` command, its watchers,
+  templates and guide section are gone, and owner responses come from the
+  terminal and the served dashboard only, as before 3.0.0. A project that used
+  Notion keeps its chronicle unchanged; its `.praukron/notion*` files and
+  scheduled tasks can be deleted.
+- The guide and the specification say that structured writes, `respond` and
+  `archive apply` work through a chronicle linked from outside the repository,
+  and the dashboard notes describe the labelled schedule fields.
+
 ## 3.0.0 — 2026-11-03
 
-- The task dialog and the Audit task record show a schedule as labelled Start, End and Estimate values (Bắt đầu, Kết thúc, Ước tính in Vietnamese) instead of raw JSON. Fields a task does not record are hidden, and a task with no schedule still reads Unscheduled (T-DASH-SCHED-01).
+- The task dialog and the Audit task record show a schedule as labelled Start, End and Estimate values (Bắt đầu, Kết thúc, Ước tính in Vietnamese) instead of raw JSON. Fields a task does not record are hidden; for a task with no schedule the dialog still reads Unscheduled and the Audit record reads No schedule recorded (T-DASH-SCHED-01; corrected in 3.1.0).
 - The dashboard's one-tick Verify/Confirm controls no longer sit inside a review item's summary, a refused approval returns keyboard focus to the control that started it, a recorded approval is shown and announced once in a page-level status region, whichever workspace it started from, and each tick sits inside its card's divider.
 - Praukron v3 begins Notion management (ADR-087). `praukron notion doctor` says
   where the Notion key was found (never its value) and whether it works;
