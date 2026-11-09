@@ -181,6 +181,9 @@ their exports; dependency ordering shares depth bands, and calendar Gantt shares
 phase groups and recorded schedules. Dependency ordering never implies dates.
 Calendar bars use an authored end or duration (ms, s, m, h, d or w); invalid or
 unsupported metadata gets no invented bar. Unscheduled work is counted separately.
+The task dialog and Audit's task record show a schedule as labelled Start, End
+and Estimate values, hide the fields a task does not record, and read
+Unscheduled for a task with none.
 Empty views explain what is missing. Undated work can still have a dependency
 order; its calendar shows an empty state. Status labels accompany themed marks.
 Drawings retain readable type and scroll inside a focusable region at phone width.
