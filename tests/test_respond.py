@@ -233,19 +233,6 @@ class TestRespond(RespondCase):
         self.load()
         self.assertEqual(self.project.responses[0].text, "ok")
 
-    def test_typed_text_loses_its_final_newline_and_verbatim_text_keeps_every_byte(self) -> None:
-        """A terminal or form adds a final newline; text pulled from Notion is the owner's to the last byte."""
-        typed, = respond.append(self.dir, [respond.Item("A-1", "CONFIRM", "typed\n\n")], recompile=False)
-        exact = "  indented\n\n\tlast line  \n\n"
-        pulled, = respond.append(self.dir, [respond.Item("A-2", "CONFIRM", exact)], recompile=False,
-                                 verbatim=True)
-        self.load()
-        texts = {r.id: r.text for r in self.project.responses}
-        self.assertEqual(texts[typed], "typed")
-        self.assertEqual(texts[pulled], exact)
-        stored = (self.authority / "RESPONSES.md").read_text(encoding="utf-8")
-        self.assertIn(">   indented\n>\n> \tlast line  \n>\n>\n", stored)
-
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

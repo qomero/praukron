@@ -55,7 +55,6 @@ by reading files:
 .praukron/praukron validate        # check authority before and after editing it
 .praukron/praukron compile         # refresh compiled/ after changing chronicle/
 .praukron/praukron dashboard       # a browsable page of the same state
-.praukron/praukron notion sync     # optional Notion mirror: pull owner submissions, push state (ADR-087)
 ```
 
 After a direct edit of a chronicle file, run `validate`, then `compile &&
