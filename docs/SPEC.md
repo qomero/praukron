@@ -580,6 +580,80 @@ load fails, as for every record file); `duplicate-coordination-record`,
 the working files while an `ACTIVE` brief names it; a `CLOSED` brief keeps
 resolving to its archived task.
 
+### 2.9 Temporal reads
+
+Git keeps every committed state of the chronicle. `praukron history` reads
+those states read-only (ADR-093).
+
+`history state <rev>` (state_at_commit) works in four steps:
+
+1. It finds the chronicle at the revision. It tries `.praukron/chronicle`,
+   `.prokron/chronicle`, `prokron`, `.prokron`, `chronicle` and the
+   repository root, in that order.
+2. It runs `git archive` to write the chronicle files into a new temporary
+   directory outside any repository.
+3. It compiles them with the current compiler, through `compile.load` and
+   `as_json`. Because this is the same reducer, the state equals the
+   `project.json` that `compile` produces from the same files checked out.
+4. It deletes the temporary directory.
+
+No checkout happens. The repository's HEAD, branch, index and working tree
+are unchanged afterwards. `--git-dir` reads a separate chronicle repository
+the same way.
+
+The result is either `STATE` or `UNSUPPORTED`. Each result carries:
+
+- the repository and the full revision;
+- the chronicle's path and layout at that revision;
+- the compiler's VERSION and commit, and whether its sources were clean;
+- the validation findings, labelled as current rules;
+- any compile failure, kept apart from those findings.
+
+These revisions are `UNSUPPORTED`, each with its reason and no traceback:
+
+- a revision with no chronicle;
+- one in the v0.1 layout (no `PHASES.md`);
+- one with a record the parser rejects.
+
+Historical data is never migrated.
+
+`history diff <earlier> <later>` reports `OBSERVED_STATE_TRANSITIONS`
+between two `STATE` results. It compares the authored fields of tasks,
+criteria, ADRs, assumptions, phases, gates and ACRs, matched by stable ID;
+derived views are excluded. Each transition is one of these kinds:
+
+| Kind | Meaning |
+|---|---|
+| `CHANGED` | A field differs, with its value before and after. |
+| `ADDED` | The ID exists only at the later revision. |
+| `REMOVED` | The ID exists only at the earlier revision. |
+| `RELOCATED` | The record moved into or out of `archive/`. |
+| `MOVED` | The record moved to another file. |
+| `REUSED` | The ID was absent at a chronicle commit inside the interval and came back with different content. |
+
+Each transition is pinned to both revisions and to its `file#anchor` at each
+revision. It carries its interval (after the first revision, at or before the
+second) and the number of first-parent commits that interval spans. The
+confidence is `ONE_COMMIT`, `ONE_COMMIT_MERGE` or `SEVERAL_COMMITS`.
+
+The diff gives one of these answers:
+
+- `NOT_ANCESTRAL`, with no transitions, when the revisions are not in
+  ancestor order;
+- `INSUFFICIENT_EVIDENCE` when either side is `UNSUPPORTED`, or when a
+  chronicle commit in between has no chronicle or a layout no compiler reads
+  (intermediate revisions are not compiled, so a parse error there is not
+  detected);
+- `OBSERVED_STATE_TRANSITIONS` otherwise.
+
+Linked evidence is the ADRs, responses, journal entries and ACRs that name the
+record by its ID. Nothing is attached because of timing. `history lineage
+<ADR>` returns the `Supersedes:` chain in both directions, each ADR with its
+source.
+
+Git history can be rewritten, so these results describe what the repository
+holds now. They are not an immutable event log.
+
 ## 3. Entry modes
 
 Praukron has exactly two entry modes.
@@ -737,7 +811,8 @@ The portable workflows are:
 (`praukron journal append`, `praukron criterion set`, `praukron task add`,
 `praukron contract add`, `praukron task update`, `praukron acr add`; §2.6) are commands of the tool,
 not workflows; the workflows use them. `praukron archive` (§2.7) is the owner's
-command and belongs to no workflow.
+command and belongs to no workflow. `praukron history` (§2.9) only reads Git history and
+belongs to no workflow.
 
 Claude Code and OpenCode expose these as project slash commands. Codex exposes
 the same workflows through `$praukron <mode>`. Every installation provides

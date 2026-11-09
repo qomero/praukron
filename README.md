@@ -385,12 +385,72 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron dashboard --lang vi` | Render the dashboard in Vietnamese; overrides the optional `Language:` field in `THESIS.md`. Also works with `--serve`. |
 | `praukron respond <target> <action>` | Owner only: append `CONFIRM`, `REVISE`, `REJECT`, `GUIDE` or `VERIFY` for an assumption or task to `RESPONSES.md`, signed with the active `gh` login; `--batch` writes several, all or nothing. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
+| `praukron history state <rev>` | The chronicle as it stood at a Git revision, compiled read-only by the current compiler, or `UNSUPPORTED` with the reason. |
+| `praukron history diff <earlier> <later>` | Observed state transitions between two revisions, by stable ID, with their interval and linked evidence. |
+| `praukron history lineage <ADR>` | An ADR's `Supersedes:` chain in both directions. |
 
 The six write commands take a JSON payload (`--schema` prints it, `--dry-run`
 previews), validate before and after, and refuse stale revisions; agents use them
 instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`. `batch apply`
 combines them into one ordered atomic write and one refresh. See the
 [guide](docs/GUIDE.md#writing-records-without-editing-files).
+
+### Asking what the project looked like before
+
+The chronicle is committed, so Git holds every state it has been in.
+`praukron history` reads those states without checking anything out. The
+current compiler reads them the same way `compile` reads today's (ADR-093).
+Here it is on this repository's own history. In September the chronicle was
+still public and lived in `.prokron/chronicle`:
+
+```console
+$ praukron history state 30c9f37
+STATE at 30c9f377010a61e0acc1164b84de5cd2eb28527a (2026-09-22T19:50:37+07:00)
+  repository  D:\code\praukron (git)
+  chronicle   .prokron/chronicle (prokron-chronicle)
+  compiler    praukron 3.1.0 4b38aa962f5fa6b2b5d1f7017521aebe3e288612 (clean)
+  validation  0 errors, 82 warnings under praukron 3.1.0 (current rules, not the rules of 30c9f37701)
+```
+
+When a revision cannot be read, the command says why. It never guesses or
+migrates anything. The first commit used a layout that today's compiler does
+not read:
+
+```console
+$ praukron history state 2ac8c55
+UNSUPPORTED at 2ac8c55640d96e289f0a2903266554a1a9eb3dc7 (2026-09-15T16:56:32+07:00)
+  repository  D:\code\praukron (git)
+  chronicle   .prokron (v0.1)
+  compiler    praukron 3.1.0 4b38aa962f5fa6b2b5d1f7017521aebe3e288612 (clean)
+  reason      the v0.1 layout has no PHASES.md, which the current compiler requires
+```
+
+`history diff` compares two revisions and lists what changed in the records,
+matched by stable ID. Here is how T-PILOT-01, the task `explain` showed
+above, was closed:
+
+```console
+$ praukron history diff 9a6f22f fb50014 --entity T-PILOT-01
+OBSERVED_STATE_TRANSITIONS: 9a6f22f06a..fb500148e9
+  interval after 9a6f22f06a, at or before fb500148e9: 1 commit, 1 touching the chronicle (ONE_COMMIT)
+  CHANGED   task T-PILOT-01 status: TODO -> DONE  [TASKS.md#T-PILOT-01]
+  CHANGED   task T-PILOT-01 validation: UNTESTED -> HUMAN_VERIFIED  [TASKS.md#T-PILOT-01]
+  CHANGED   task T-PILOT-01 evidence: none -> All seven criteria pass, recorded in `docs/pilot-2026-09-22.md`. Th...  [TASKS.md#T-PILOT-01]
+  CHANGED   task T-PILOT-01 decisions: ["ADR-008", "ADR-011", "ADR-020"] -> ["ADR-008", "ADR-011", "ADR-020", "ADR-028"]  [TASKS.md#T-PILOT-01]
+            linked by ID: ADR-008 (governs), ADR-011 (governs), ADR-020 (affects), ADR-028 (affects, new), 2026-09-21 — continuity pilot, steps 1 and 2 (text), 2026-09-22 — Phase 2 closes, the pilot becomes named debt (text), 2026-09-22 — T-PILOT-01 complete; P1 closed (text, new)
+  limit: Transitions are differences between two compiled states, not recorded events; each happened after the first revision and at or before the second.
+  limit: Git history can be rewritten; these revisions are what the repository holds now.
+```
+
+These are differences between two states, not a log of events. Git records
+when a change was committed, not when the work happened, so the diff gives the
+interval a change falls in, never one exact time. If an ID was deleted and
+later given to different work, the diff reports it as `REUSED`, not as one
+record that changed. If either side cannot be read, or the chronicle is
+missing anywhere in between, the answer is `INSUFFICIENT_EVIDENCE`. Linked
+evidence is matched by ID, never by when it was written.
+[The guide](docs/GUIDE.md#reading-the-chronicle-at-an-earlier-revision) covers
+separate chronicle repositories and ADR lineage.
 
 ## How it works
 
@@ -465,9 +525,9 @@ into why the model is shaped this way.
 
 ## What is verified, and what is not
 
-**Implemented and tested.** The compiler and its nineteen commands, acceptance
+**Implemented and tested.** The compiler and its twenty commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses and the served review page. 919 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses, the served review page, and read-only history reads at a Git revision with the transitions between two. 936 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 
