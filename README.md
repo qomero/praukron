@@ -385,7 +385,6 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron dashboard --lang vi` | Render the dashboard in Vietnamese; overrides the optional `Language:` field in `THESIS.md`. Also works with `--serve`. |
 | `praukron respond <target> <action>` | Owner only: append `CONFIRM`, `REVISE`, `REJECT`, `GUIDE` or `VERIFY` for an assumption or task to `RESPONSES.md`, signed with the active `gh` login; `--batch` writes several, all or nothing. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
-| `praukron notion setup\|sync\|watch` | Optional: bind a per-project copy of the PPMP Notion template, fill its hub and shared Project Portfolio, and pull listed owners' answers back as responses; `watch install` keeps it in sync. See the [guide](docs/GUIDE.md#following-the-project-from-notion-optional). |
 
 The six write commands take a JSON payload (`--schema` prints it, `--dry-run`
 previews), validate before and after, and refuse stale revisions; agents use them

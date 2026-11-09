@@ -12,6 +12,6 @@ next_plan/
 .praukron/backup/
 .praukron/upgrade/
 
-# Local secrets, such as the Notion key (ADR-087)
+# Local secrets
 .env
 .env.local
