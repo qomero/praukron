@@ -652,6 +652,100 @@ def cmd_migrate(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_history(start: Path, args: argparse.Namespace) -> int:
+    """Read the chronicle as it stood at Git revisions (ADR-093); never writes."""
+    from . import temporal
+
+    try:
+        if args.history_command == "lineage" and not args.at:
+            root = compiler.locate(start)
+            found = temporal.lineage({"state": compiler.as_json(_load(root))}, args.adr)
+        else:
+            repo = temporal.Repository(start, Path(args.git_dir) if args.git_dir else None)
+            if args.history_command == "state":
+                found = temporal.state_at_commit(repo, args.revision)
+                if not args.with_state and found["state"] is not None:
+                    found = {**found, "state": "omitted; pass --with-state"}
+            elif args.history_command == "diff":
+                found = temporal.diff(repo, args.first, args.second, entity=args.entity)
+            else:
+                at = temporal.state_at_commit(repo, args.at)
+                found = ({**temporal.lineage(at, args.adr), "revision": at["revision"]}
+                         if at["status"] == temporal.STATE else
+                         {"id": args.adr, "status": temporal.INSUFFICIENT, "revision": at["revision"],
+                          "reason": at["reason"]})
+    except (temporal.HistoryError, compiler.LayoutError) as error:
+        return _fail(f"history: {error}")
+    if args.json:
+        print(json.dumps(found, ensure_ascii=False, indent=None if args.history_command == "diff" else 2))
+    else:
+        print(_history_text(args.history_command, found))
+    expected = {"state": temporal.STATE, "diff": temporal.OBSERVED}.get(args.history_command)
+    return 0 if found["status"] == expected or (expected is None and found["status"] not in
+                                                (temporal.INSUFFICIENT, "UNKNOWN")) else 1
+
+
+def _history_text(command: str, found: dict) -> str:
+    if command == "state":
+        lines = [f"{found['status']} at {found['revision']} ({found['committed']})",
+                 f"  repository  {found['repository']} ({found['mode']})",
+                 f"  chronicle   {found['chronicle'] or '-'} ({found['layout'] or 'none'})"]
+        made_by = found["compiler"]
+        clean = {True: "clean", False: "modified", None: "installed runtime"}[made_by["clean"]]
+        lines.append(f"  compiler    praukron {made_by['version']} {made_by['commit'] or ''} ({clean})")
+        if found["reason"]:
+            lines.append(f"  reason      {found['reason']}")
+        if found["compileError"]:
+            lines.append(f"  compile     {found['compileError']}")
+        if found["validation"]:
+            check = found["validation"]
+            lines.append(f"  validation  {check['errors']} errors, {check['warnings']} warnings under {check['rules']}")
+            lines += [f"    {item}" for item in check["findings"][:10]]
+            if len(check["findings"]) > 10:
+                lines.append(f"    ... {len(check['findings']) - 10} more with --json")
+        return "\n".join(lines)
+    if command == "diff":
+        lines = [f"{found['status']}: {found['from'][:10]}..{found['to'][:10]}"]
+        if found["reason"]:
+            lines.append(f"  reason   {found['reason']}")
+        span = found.get("interval")
+        if span:
+            lines.append(f"  interval after {span['after'][:10]}, at or before {span['atOrBefore'][:10]}: "
+                         f"{span['commits']} commits, {len(span['chronicleCommits'])} touching the chronicle "
+                         f"({span['confidence']})")
+        transitions = found["transitions"]
+        for number, item in enumerate(transitions):
+            field = f" {item['field']}" if item.get("field") else ""
+            where = item["to"]["source"] or item["from"]["source"]
+            lines.append(f"  {item['transition']:<9} {item['entity']} {item['id']}{field}: "
+                         f"{_short(item.get('before'))} -> {_short(item.get('after'))}  [{where}]")
+            last = number + 1 == len(transitions) or transitions[number + 1]["id"] != item["id"]
+            if last and item.get("evidence"):
+                lines.append("            linked by ID: " + ", ".join(
+                    f"{link['id']} ({link['matchedBy']}{', new' if link['inInterval'] else ''})"
+                    for link in item["evidence"]))
+        lines += [f"  limit: {limit}" for limit in found.get("limits") or []]
+        return "\n".join(lines)
+    lines = [f"{found['id']} ({found['status']})" + (f" at {found['revision'][:10]}" if found.get("revision") else "")]
+    if found.get("reason"):
+        lines.append(f"  reason  {found['reason']}")
+    for label, key in (("supersedes", "supersedes"), ("superseded by", "supersededBy")):
+        for item in found.get(key) or []:
+            source = item["source"] or {}
+            lines.append(f"  {label} {item['id']} (via {item['via']}): {item['title']}  "
+                         f"[{source.get('file')}#{source.get('anchor')}]")
+    if found["status"] not in ("UNKNOWN", "INSUFFICIENT_EVIDENCE") and not (found.get("supersedes") or found.get("supersededBy")):
+        lines.append("  no Supersedes: link in either direction")
+    return "\n".join(lines)
+
+
+def _short(value: object) -> str:
+    if value is None:
+        return "none"
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    return text if len(text) <= 70 else text[:67] + "..."
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="praukron",
@@ -809,6 +903,29 @@ def build_parser() -> argparse.ArgumentParser:
     packet.add_argument("--pretty", action="store_true", help="indent the JSON for reading")
     packet.set_defaults(handler=cmd_context)
 
+    history = subparsers.add_parser(
+        "history", help="read the chronicle as it stood at Git revisions (read-only)"
+    )
+    history.add_argument("--git-dir", default=None,
+                         help="a separate chronicle repository (its core.worktree is the chronicle's home)")
+    history.add_argument("--json", action="store_true", help="print the full result as JSON")
+    history_commands = history.add_subparsers(dest="history_command", required=True)
+    at = history_commands.add_parser("state", help="state_at_commit: compile the chronicle at one revision")
+    at.add_argument("revision")
+    at.add_argument("--with-state", action="store_true", help="include the compiled project.json in --json")
+    between = history_commands.add_parser("diff", help="observed state transitions between two revisions")
+    between.add_argument("first", help="the earlier revision")
+    between.add_argument("second", help="the later revision")
+    between.add_argument("--entity", default=None, help="only this stable ID")
+    chain = history_commands.add_parser("lineage", help="an ADR's Supersedes: chain in both directions")
+    chain.add_argument("adr")
+    chain.add_argument("--at", default=None, help="a revision; default is the chronicle on disk")
+    for sub in (at, between, chain):
+        # Accepted after the subcommand too; SUPPRESS keeps a value given before it.
+        sub.add_argument("--git-dir", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+        sub.add_argument("--json", action="store_true", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    history.set_defaults(handler=cmd_history)
+
     return parser
 
 
@@ -825,6 +942,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if getattr(args, "write_operation", None) and args.schema:
         return args.handler(Path.cwd(), args)
+    if args.command == "history":
+        # A historical read needs a Git repository, not a chronicle on disk.
+        return args.handler((Path(args.directory) if args.directory else Path.cwd()).resolve(), args)
     try:
         start = (Path(args.directory) if args.directory else Path.cwd()).resolve()
         if args.command == "archive":
