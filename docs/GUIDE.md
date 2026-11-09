@@ -359,7 +359,9 @@ cost of a write follows the size of the record, not of `TASKS.md` or
 `ACCEPTANCE.md` ([SPEC §2.6](SPEC.md#26-structured-writes), measured in
 [benchmarks](benchmarks.md)). `--schema` prints a command's payload and an
 example, `--dry-run` shows what would be written without writing it, and
-`--help` says when to use the command and when not to.
+`--help` says when to use the command and when not to. The writes, `respond`
+and `archive apply` also work when `.praukron/chronicle` is a directory
+symlink or Windows junction to a folder outside the repository.
 
 **The starting point.** The examples below form one ordered sequence. Run them
 in a scratch project whose chronicle has a thesis statement, this module in

@@ -277,7 +277,9 @@ direct edit costs about the size of the file; a structured write costs about the
 size of the record. The Markdown stays the only source of truth: the commands
 write the same sections a person would, and `parse.py` remains the single
 definition of the format. Direct editing stays valid for people and for any
-record these commands do not cover.
+record these commands do not cover. The writes resolve `.praukron/chronicle`
+when it is a directory symlink or Windows junction to a folder outside the
+repository.
 
 | Command | Writes | Changes |
 |---|---|---|
