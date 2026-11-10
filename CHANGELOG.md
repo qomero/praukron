@@ -4,6 +4,17 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 2.3.1 — 2026-11-10
+
+- The task dialog and the Audit task record show a schedule as labelled Start, End and Estimate values (Bắt đầu, Kết thúc, Ước tính in Vietnamese) instead of raw JSON. Fields a task does not record are hidden, and a task with no schedule still reads Unscheduled (T-DASH-SCHED-01).
+- The dashboard's one-tick Verify/Confirm controls no longer sit inside a review item's summary, a refused approval returns keyboard focus to the control that started it, a recorded approval is shown and announced once in a page-level status region, whichever workspace it started from, and each tick sits inside its card's divider.
+- Structured writes (journal append, task add/update, criterion set, batch apply, respond) now work when
+  `.praukron/chronicle` is a directory symlink or Windows junction to a folder outside the repository,
+  instead of failing with `write-failed` (T-WRITE-LINK-01).
+- `archive apply` in backup mode, `contract add` and `acr add` now work when `.praukron/chronicle` is a directory
+  symlink or Windows junction to a folder outside the repository, naming each backed-up file relative to the
+  chronicle (T-WRITE-LINK-02).
+
 ## 2.3.0 — 2026-10-28
 
 - Writes stay fast on large chronicles. Structured writes, `respond`, `archive`

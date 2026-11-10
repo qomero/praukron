@@ -1,1 +1,0 @@
-- The task dialog and the Audit task record show a schedule as labelled Start, End and Estimate values (Bắt đầu, Kết thúc, Ước tính in Vietnamese) instead of raw JSON. Fields a task does not record are hidden, and a task with no schedule still reads Unscheduled (T-DASH-SCHED-01).
