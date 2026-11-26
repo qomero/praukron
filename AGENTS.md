@@ -131,6 +131,13 @@ choice is made, accepted, or acted on, append its ADR to `.praukron/chronicle/AD
 immediately and link affected tasks. Supersede decisions instead of overwriting
 them. Keep the compiled views synchronized.
 
+Files and symbols: on create or claim, `praukron ref add` those a task will
+touch (`Scope: planned`). In Git, setting a claimed task `DONE` records its
+changed files and Python symbols; read the reply's `capture`, report a skip,
+then `ref add` symbols of its `symbolsUnresolved` files, and files read,
+verified or documented unchanged. `praukron refs` and packet `references` map
+tasks to code.
+
 ## Assumptions and the owner
 
 When a choice has no answer, search authority first: ADRs, contracts, the task
@@ -201,7 +208,9 @@ both to the agent you start, so point it at the task and the chronicle, nothing
 else; after a lost session, `context <task> --role coordinator` returns your own
 conventions.
 Edit one section at a time, run `validate`, and close a brief when its task is
-merged or abandoned. Never record a secret; name where it is found.
+merged or abandoned. Never record a secret; name where it is found. Capture a
+task merged from another worktree with `scope capture <task> --base <rev> --head
+<rev>`.
 
 ## Disagreement
 

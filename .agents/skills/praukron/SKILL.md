@@ -22,6 +22,11 @@ takes its phase from its module), a `Domain:`
 (`execution` or `operations`), and an acceptance contract, and append an ADR to `.praukron/chronicle/ADR/` as soon as a material
 decision is made or acted on. Keep the single intent at the exact execution point. A task is
 done only when its frozen contract in `ACCEPTANCE.md` has sufficient evidence.
+Claim a task before changing code: in Git, setting it `DONE` then records its
+changed files and Python symbols; report a skipped `capture`. Record the rest
+with `praukron ref add`: planned scope when you know it at the start, symbols
+in the reply's `symbolsUnresolved` files, and files only read, verified or
+documented. `praukron refs` finds a task's code or a file's tasks.
 When a choice has no answer in authority, follow the assumption procedure in
 `AGENTS.md`: record an assumption before relying on it, stop for the owner on a
 reserved choice, and never edit `RESPONSES.md`.

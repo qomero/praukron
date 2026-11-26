@@ -5,7 +5,10 @@ Prepare the chronicle for another person or agent:
 1. Update task status and evidence (`.praukron/praukron task update --input -`),
    criterion state and evidence (`criterion set`), validation strength, and
    governing ADRs. Use the commands instead of editing `TASKS.md` or
-   `ACCEPTANCE.md`.
+   `ACCEPTANCE.md`. Setting a claimed task `DONE` records its changed files
+   and Python symbols; report a skipped `capture`. Record the rest with
+   `ref add`: symbols in the files its `symbolsUnresolved` lists, and files
+   the task reads, verifies or documents without changing them.
 2. Reconcile every owner response that `status` or the packet shows as awaiting
    reconciliation: carry it out in the ADR, contract (through an Acceptance
    Change Request), task, document, or code it concerns, then set the
