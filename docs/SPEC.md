@@ -249,8 +249,16 @@ loads them most relevant first up to a token budget (`--budget`, default 4000,
 the first record always loads, and the labels, the omission list and any code
 section are extra. Every record after the first that does not fit is listed
 instead, by source, size and the command that fetches it, so the cut is a clean
-prefix and nothing relevant goes unmentioned.
+prefix and nothing relevant goes unmentioned. For each task the question
+names, the pack also carries the task's code references (§2.9), as `context
+<task>` does, outside the budget.
 It writes nothing and consults no model.
+
+`praukron context <task>` returns the task packet as JSON: the task with its
+lineage, closability and claim, its contract, invariants, decisions, debt,
+blockers, assumptions, owner responses, brief and conventions, the `file#anchor`
+records to read, and its code references (§2.9): counts, the first twelve, and
+the command that returns the rest.
 
 An agent's order is fixed: `INDEX.md`, then the records it points to, then
 code. Where CodeGraph is installed, `praukron retrieve <task> --code` adds code
@@ -580,10 +588,10 @@ resolving to its archived task.
 
 ### 2.9 Task–code references
 
-**Specified, not yet built.** This section fixes the record format that the
-task–code mapping will read and write (ADR-088, ADR-089). No command described
-here exists in the current release. Until it does, a task's optional `Files:`
-and `Symbols:` anchors (§2.5) are the only link from a task to code.
+**Partly built.** This section fixes the record format that the task–code
+mapping reads and writes (ADR-088, ADR-089). `CODE.md` is read, validated and
+compiled; `praukron refs` and the packet's `references` field exist. The
+`ref add` and `ref set` writes are specified here and not yet built.
 
 A task–code reference says that one task relates to one code artifact: a file,
 or a symbol inside a file. References are authored records in
@@ -661,9 +669,27 @@ praukron refs src/pay/ledger.py           # the tasks, decisions, criteria and a
 praukron refs src/pay/ledger.py#Ledger.post
 ```
 
-`context <task>` and `retrieve <task>` carry the task's references: their
-counts, the first twelve, and the command that returns the rest. The paths and
-symbol names are the search terms an agent starts from.
+For a task, `refs` lists every reference with each compiled field and its
+`file#anchor`. For a path it returns every reference to the file and to a
+symbol in it; for `path#symbol`, the references to that symbol. Either way each
+referencing task comes with its governing ADRs, acceptance criteria and
+assumptions, each with its `file#anchor`. A path is read in this repository; a
+`Symbols:` anchor names no file, so it is found from its task, never from a
+path. A target that is not a task and breaks the path rule above is refused
+with that rule's message. `--json` prints the answer as JSON. `refs` reads the
+compiled references only: it writes nothing and runs no graph provider, so its
+answer is the same with or without one installed.
+
+`context <task>` and `retrieve <task>` carry the task's references in a
+`references` field: `total`, `counts` by scope (`planned`, `observed`), the
+`first` twelve (path, symbol, relation, scope, verification, authorization,
+revision, evidence and `authority`, the record's `file#anchor`), and `rest`,
+the `praukron refs <task>` command that returns them all, or null when none are
+left out. `retrieve` lists them in a `REFERENCES` section after the records,
+outside the token budget. No other packet field changes. With one hundred
+references the packet grows no more than T-PERF-OPT-01 allows for a tenfold
+growth of the chronicle (1.25 times). The paths and symbol names are the search
+terms an agent starts from.
 
 Agents write references through structured writes (§2.6), never by editing
 `CODE.md`:
@@ -837,7 +863,7 @@ The portable workflows are:
 - `/praukron-resume`
 - `/praukron-baseline` (existing repositories, on request)
 
-`praukron retrieve`, `praukron codegraph` and the structured writes
+`praukron retrieve`, `praukron refs` (§2.9), `praukron codegraph` and the structured writes
 (`praukron journal append`, `praukron criterion set`, `praukron task add`,
 `praukron contract add`, `praukron task update`, `praukron acr add`; §2.6) are commands of the tool,
 not workflows; the workflows use them. `praukron archive` (§2.7) is the owner's

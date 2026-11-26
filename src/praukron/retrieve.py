@@ -71,6 +71,8 @@ class Pack:
     budget: int = DEFAULT_BUDGET  # 0 for no budget
     index_note: str = ""
     implementation: str = ""
+    # Each named task's references, from the compiled model (SPEC §2.9).
+    references: dict[str, dict[str, object]] = field(default_factory=dict)
 
     def as_json(self) -> dict[str, object]:
         return {
@@ -83,6 +85,7 @@ class Pack:
             "budgetTokens": self.budget or None,
             "index": self.index_note,
             "implementation": self.implementation or None,
+            "references": [{"task": task_id, **packed} for task_id, packed in self.references.items()],
         }
 
     def render(self) -> str:
@@ -96,6 +99,11 @@ class Pack:
             # record text is otherwise verbatim.
             body = re.sub(r"(?m)^(#{1,4}) ", r"###\1 ", item.text.strip())
             lines += ["", f"## {item.kind} · {item.id} — {item.source}", f"_{item.reason}_", *([item.metadata()] if item.metadata() else []), "", body]
+        if self.references:
+            from .refs import render_summary
+
+            for task_id, packed in self.references.items():
+                lines += ["", *render_summary(task_id, packed)]
         if self.omitted:
             # Pointers, not bodies: the agent still sees what else is relevant
             # and expands only what it needs.
@@ -357,12 +365,21 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
                 task_neighbourhood(blocker["id"], f"main blocker of {blocker['blocking']}")
 
     # Explicit ids first, in the order the question names them.
+    compiled_refs = None
     explicit = list(dict.fromkeys(_ID.findall(query)))
     explicit += [f"Gate {g}" for g in _GATE.findall(query) if f"Gate {g}" in gates]
     for entity in explicit:
         if entity in tasks:
             pack.routed.append((entity, "named"))
             task_neighbourhood(entity, "named in the question")
+            # Search terms for the code, outside the token budget like the labels.
+            from . import refs
+
+            if compiled_refs is None:
+                from .compile import compiled_references
+
+                compiled_refs = compiled_references(project)
+            pack.references[entity] = refs.summary(project, entity, compiled_refs)
         elif entity in phases:
             pack.routed.append((entity, "named"))
             phase_neighbourhood(entity, "named in the question")
