@@ -13,7 +13,7 @@ from pathlib import Path
 from . import analytics, domain, index, views
 from . import layout
 from .layout import AUTHORITY_DIR, COMPILED_DIR
-from .model import Project, event_order
+from .model import Project, Reference, Source, event_order, reference_path_problem
 from .snapshot import Snapshot, SnapshotPath
 from .parse import (
     ParseError,
@@ -25,6 +25,7 @@ from .parse import (
     parse_modules,
     parse_phases,
     parse_project_name,
+    parse_references,
     parse_responses,
     parse_tasks,
     parse_thesis,
@@ -173,13 +174,15 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         conventions=conventions,
         briefs=briefs,
         change_requests=_change_requests(authority, phases),
+        # CODE.md never moves to an archive, so a reference keeps resolving (SPEC §2.9).
+        references=parse_references(authority / "CODE.md"),
     )
     # Only authored record files, including archives; never generated INDEX.md.
     dated_sources = {item.source.file for items in (
         project.tasks, project.phases, project.modules, project.decisions,
         project.assumptions, project.responses, project.events, project.debts,
         list(project.contracts.values()), project.change_requests,
-        project.conventions, project.briefs,
+        project.conventions, project.briefs, project.references,
     ) for item in items}
     dated_sources.update(entry["source"]["file"] for entry in project.journal)
     dated_sources.update(("INTENT.md", "HANDOFF.md", "THESIS.md"))
@@ -419,6 +422,11 @@ def as_json(project: Project) -> dict[str, object]:
             ],
         },
     }
+    # Task-code references and the artifacts they name (SPEC §2.9); nothing
+    # above changes when they are added.
+    references = compiled_references(project)
+    data["references"] = [reference.as_json() for reference in references]
+    data["artifacts"] = artifacts(references)
     data["validationFindings"] = [
         {"severity": finding.severity, "code": finding.code, "message": finding.message,
          "where": finding.where, "ownerAction": list(finding.owner_action)}
@@ -427,6 +435,53 @@ def as_json(project: Project) -> dict[str, object]:
     data["mission"] = mission.project(data)
     data["searchIndex"] = mission.search_index(data)
     return data
+
+
+def anchor_references(project: Project) -> list[Reference]:
+    """Each task's `Files:` and `Symbols:` anchors, read as planned references
+    with manual provenance and no relation. Anchors are never rewritten; a
+    `Symbols:` anchor names no file, so it is unresolved."""
+    found: list[Reference] = []
+    for task in project.tasks:
+        for label, values in (("Files", task.files), ("Symbols", task.symbols)):
+            for value in dict.fromkeys(values):
+                is_file = label == "Files"
+                found.append(Reference(
+                    id=f"{task.id}#{label}:{value}", title=value, task=task.id,
+                    path=value if is_file else None, symbol=None if is_file else value,
+                    relation=None, scope="planned", verification="unverified",
+                    authorization=None, provenance="manual", recorded=None,
+                    source=Source(task.source.file, task.id),
+                    lifecycle=None if is_file and not reference_path_problem(value) else "unresolved",
+                    legacy=True,
+                ))
+    return found
+
+
+def compiled_references(project: Project) -> list[Reference]:
+    """Authored references whose path is valid, then every task's anchors.
+
+    A reference with an absolute path, or one that leaves the repository root,
+    is a validation error and is not compiled."""
+    authored = [r for r in project.references if not reference_path_problem(r.path)]
+    return authored + anchor_references(project)
+
+
+def artifacts(references: list[Reference]) -> list[dict[str, object]]:
+    """One entry per artifact: its repository, path and qualified name, and the
+    tasks and references that name it. Two symbols that share only a name in
+    different files stay two artifacts."""
+    grouped: dict[tuple, dict[str, object]] = {}
+    for reference in references:
+        key = reference.artifact
+        if key is None:
+            continue
+        entry = grouped.setdefault(key, {"repository": key[0], "path": key[1], "symbol": key[2],
+                                         "tasks": [], "references": []})
+        if reference.task not in entry["tasks"]:
+            entry["tasks"].append(reference.task)
+        entry["references"].append(reference.id)
+    return list(grouped.values())
 
 
 def assumption_json(project: Project, assumption) -> dict[str, object]:

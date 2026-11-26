@@ -12,7 +12,7 @@ printf '# Keep agent rules\n' > "$fixture/AGENTS.md"
 printf '# Keep Claude rules\n' > "$fixture/CLAUDE.md"
 "$root/install.sh" existing "$fixture" --no-link > "$fixture/output"
 
-for file in README THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE TECH_DEBT ASSUMPTIONS RESPONSES COORDINATION; do
+for file in README THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE TECH_DEBT ASSUMPTIONS RESPONSES COORDINATION CODE; do
   test -f "$fixture/.praukron/chronicle/$file.md"
 done
 # Every installed surface describes the same hierarchy (ADR-035).
@@ -326,8 +326,15 @@ printf 'STALE\n' > "$upgrade/.praukron/compiled/STATE.md"
 # file keeps the coordinator's records (ADR-075).
 printf '# Coordination\n\n## CV-01: Kept\n- Status: ACTIVE\n' > "$upgrade/coordination"
 cp "$upgrade/coordination" "$upgrade/.praukron/chronicle/COORDINATION.md"
+# Likewise CODE.md: installed when absent, never replaced (SPEC 2.9).
+rm "$upgrade/.praukron/chronicle/CODE.md"
+"$root/install.sh" "$upgrade" --no-link >/dev/null
+cmp "$root/templates/chronicle/CODE.md" "$upgrade/.praukron/chronicle/CODE.md"
+printf '# Code references\n\nKept.\n' > "$upgrade/code"
+cp "$upgrade/code" "$upgrade/.praukron/chronicle/CODE.md"
 "$root/install.sh" "$upgrade" --no-link > "$upgrade/output"
 cmp "$upgrade/coordination" "$upgrade/.praukron/chronicle/COORDINATION.md"
+cmp "$upgrade/code" "$upgrade/.praukron/chronicle/CODE.md"
 grep -Fq 'Generated views were refreshed' "$upgrade/output"
 grep -Fvq 'STALE' "$upgrade/.praukron/compiled/dashboard.html"
 grep -Fvq 'STALE' "$upgrade/.praukron/compiled/STATE.md"

@@ -23,6 +23,7 @@ from .model import (
     Milestone,
     Module,
     Phase,
+    Reference,
     Response,
     Schedule,
     Source,
@@ -550,6 +551,66 @@ def parse_coordination(path: Path) -> tuple[list[Convention], list[Brief]]:
                 text=text, source=Source(name, record_id),
             ))
     return conventions, briefs
+
+
+_REFERENCE_REQUIRED = ("Task", "Path", "Relation", "Scope", "Verification", "Authorization",
+                       "Source", "Recorded")
+
+
+def parse_references(path: Path) -> list[Reference]:
+    """CODE.md (SPEC §2.9). Optional: no file, no references.
+
+    Values are kept as written; validate decides whether they are allowed, so
+    one wrong value is reported against its record instead of failing the load.
+    """
+    if not path.is_file():
+        return []
+    name = path.name
+    found: list[Reference] = []
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
+        match = re.match(r"(CR-T-[A-Za-z0-9.\-]+-[0-9]{2,}): (\S.*)$", heading)
+        if not match:
+            raise ParseError(name, heading, "reference heading must read '## CR-<task id>-<nn>: <title>'")
+        reference_id = match.group(1)
+        fields = _fields(body)
+        for required in _REFERENCE_REQUIRED:
+            if not (fields.get(required) or "").strip():
+                raise ParseError(name, reference_id, f"missing required field '{required}'")
+
+        def optional(key: str) -> str | None:
+            value = fields.get(key)
+            return value.strip() if value and value.strip() else None
+
+        found.append(Reference(
+            id=reference_id,
+            title=match.group(2).strip(),
+            task=fields["Task"].strip(),
+            path=fields["Path"].strip(),
+            relation=fields["Relation"].strip(),
+            scope=fields["Scope"].strip(),
+            verification=fields["Verification"].strip(),
+            authorization=fields["Authorization"].strip(),
+            provenance=fields["Source"].strip(),
+            recorded=fields["Recorded"].strip(),
+            source=Source(name, reference_id),
+            repository=optional("Repository"),
+            symbol=optional("Symbol"),
+            kind=optional("Kind"),
+            code_class=optional("Class"),
+            lifecycle=optional("Lifecycle"),
+            authorized_by=optional("Authorized by"),
+            provider=optional("Provider"),
+            revision=optional("Revision"),
+            base=optional("Base"),
+            head=optional("Head"),
+            lines=optional("Lines"),
+            confidence=optional("Confidence"),
+            was=optional("Was"),
+            replaces=optional("Replaces"),
+            withdrawn=optional("Withdrawn"),
+            evidence=optional("Evidence"),
+        ))
+    return found
 
 
 def _quoted(body: str) -> str:

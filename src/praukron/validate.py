@@ -37,10 +37,19 @@ from .model import (
     GATE_STATUSES,
     NO_PHASE,
     PHASE_STATUSES,
+    REFERENCE_AUTHORIZATIONS,
+    REFERENCE_CLASSES,
+    REFERENCE_KINDS,
+    REFERENCE_LIFECYCLES,
+    REFERENCE_RELATIONS,
+    REFERENCE_SCOPES,
+    REFERENCE_SOURCES,
+    REFERENCE_VERIFICATIONS,
     STATUSES,
     VALIDATIONS,
     Finding,
     Project,
+    reference_path_problem,
 )
 
 
@@ -299,6 +308,88 @@ def coordination_findings(project: Project) -> list[Finding]:
                 error("unknown-brief-convention", f"rests on {convention_id}, which is not a convention")
             elif record.status == "ACTIVE" and convention.status != "ACTIVE":
                 error("retired-brief-convention", f"rests on {convention_id}, which is {convention.status}")
+    return findings
+
+
+_REFERENCE_VALUES = (
+    ("Relation", "relation", REFERENCE_RELATIONS),
+    ("Scope", "scope", REFERENCE_SCOPES),
+    ("Verification", "verification", REFERENCE_VERIFICATIONS),
+    ("Authorization", "authorization", REFERENCE_AUTHORIZATIONS),
+    ("Source", "provenance", REFERENCE_SOURCES),
+    ("Kind", "kind", REFERENCE_KINDS),
+    ("Class", "code_class", REFERENCE_CLASSES),
+    ("Lifecycle", "lifecycle", REFERENCE_LIFECYCLES),
+)
+
+
+def reference_findings(project: Project) -> list[Finding]:
+    """Task-code references in CODE.md (SPEC §2.9). Anchors on tasks are not
+    checked here: they were valid before references existed and stay so."""
+    findings: list[Finding] = []
+    task_ids = {t.id for t in project.tasks}
+    reference_ids = {r.id for r in project.references}
+    replaced = {r.replaces for r in project.references if r.replaces}
+    responses = {r.id for r in project.responses}
+    accepted = {d.id for d in project.decisions if d.status == "ACCEPTED"}
+    seen: set[str] = set()
+    repeated: dict[tuple, str] = {}
+    for reference in project.references:
+        where = f"{reference.source.file}#{reference.id}"
+
+        def error(code: str, message: str) -> None:
+            findings.append(Finding("error", code, f"{reference.id}: {message}", where))
+
+        if reference.id in seen:
+            error("duplicate-reference", "the reference is defined more than once")
+        seen.add(reference.id)
+        if reference.task not in task_ids:
+            error("unknown-reference-task", f"names task {reference.task}, which is not a task")
+        elif not re.fullmatch(rf"CR-{re.escape(reference.task)}-[0-9]{{2,}}", reference.id):
+            error("invalid-reference-value",
+                  f"the identifier must be CR-{reference.task}-<nn> for Task {reference.task}")
+        problem = reference_path_problem(reference.path)
+        if problem:
+            error("invalid-reference-path", f"Path '{reference.path}': {problem}; it is not compiled")
+        for label, attribute, allowed in _REFERENCE_VALUES:
+            value = getattr(reference, attribute)
+            if value is not None and value not in allowed:
+                error("invalid-reference-value",
+                      f"{label} '{value}' is not one of {', '.join(allowed)}")
+        if reference.confidence is not None and reference.confidence_value is None:
+            error("invalid-reference-value",
+                  f"Confidence '{reference.confidence}' is not a number from 0 to 1")
+        if reference.lines is not None and not re.fullmatch(r"[0-9]+-[0-9]+", reference.lines):
+            error("invalid-reference-value", f"Lines '{reference.lines}' is not start-end")
+        if reference.symbol and not reference.kind:
+            error("symbol-without-kind", "names a Symbol but no Kind")
+        if reference.authorization == "authorized" and not (
+                reference.authorized_by in responses or reference.authorized_by in accepted):
+            error("authorized-without-authority",
+                  "is authorized, but Authorized by names no owner response or accepted ADR"
+                  if reference.authorized_by else "is authorized with no Authorized by")
+        if reference.provenance == "graph_provider" and not reference.provider:
+            error("provider-missing", "Source is graph_provider but no Provider is named")
+        if reference.replaces and reference.replaces not in reference_ids:
+            error("unknown-replaced-reference", f"replaces {reference.replaces}, which is not a reference")
+        artifact = reference.artifact
+        if artifact is not None and reference.id not in replaced:
+            key = (reference.task, artifact, reference.relation, reference.scope)
+            if key in repeated and repeated[key] != reference.id:
+                findings.append(Finding(
+                    "warning", "repeated-reference",
+                    f"{reference.id}: records the same task, artifact, relation and scope as "
+                    f"{repeated[key]}; replace or withdraw one", where))
+            repeated.setdefault(key, reference.id)
+        text = " ".join(filter(None, (
+            reference.title, reference.path, reference.symbol, reference.evidence,
+            reference.withdrawn, reference.recorded, reference.provider,
+        )))
+        if _SECRET.search(text):
+            findings.append(Finding(
+                "warning", "possible-secret",
+                f"{reference.id}: record text looks like it contains a credential; name where it is found instead",
+                where))
     return findings
 
 
@@ -843,6 +934,7 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
     findings.extend(debt_findings(project))
     findings.extend(assumption_findings(project))
     findings.extend(coordination_findings(project))
+    findings.extend(reference_findings(project))
     findings.extend(freeze.findings(project))
     findings.extend(stale_references(project))
     findings.extend(journal_findings(project, snapshot))
