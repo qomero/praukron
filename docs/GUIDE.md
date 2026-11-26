@@ -605,8 +605,16 @@ Closing a task twice, or capturing a range again, adds only what is new
 A capture leaves out anything Git's ignore rules ignore, anything under
 `.praukron/`, and a path a record cannot hold (not UTF-8, a line break, a
 backslash, or leading or trailing whitespace), which the reply lists in
-`skippedPaths`. Praukron keeps no ignore list of its own, so put build output
-and caches in `.gitignore`.
+`skippedPaths`. It also leaves out untracked cache files even when the
+repository has no ignore rule for them: anything under a `__pycache__`,
+`.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox` or `node_modules`
+directory, and files named `.DS_Store` or `Thumbs.db` or ending in `.pyc` or
+`.pyo`. A tracked file is always recorded, whatever its name. The reply says
+how many untracked files were left out; in a repository without a
+`.gitignore`, a close with a new `__pycache__/invoice.cpython-314.pyc` and a
+`.pytest_cache/README` beside a changed, tracked `vendor/kept.pyc` replied
+`"untrackedLeftOut":2` and recorded `vendor/kept.pyc`. Anything else you do not
+want captured, such as build output, belongs in `.gitignore`.
 
 **Reading them.** `refs` answers both directions and reads only the compiled
 records:
@@ -736,6 +744,29 @@ $ praukron scope capture T-BILL-06 --base e5befdd5c19468a9eaa0f81918113afbb1daaf
 Run it in the repository the work was committed to, after the commits are
 there.
 
+**Naming both ends.** Without `--head`, `scope capture` reads the working tree
+and keeps the close's rule: a range that another open task was also claimed
+over is marked unresolved. With both `--base` and `--head` named, you vouch
+that the range is the task's own. The capture is attributed to the task,
+nothing is marked unresolved, each record's evidence says `range named by the
+caller`, and the reply has `"rangeNamed":true`. This is how a coordinator whose
+builders work in other worktrees captures each merged task: the builders'
+tasks were claimed at the same commit, so their claims overlap, and the
+coordinator names each task's own merged range. In a repository where
+`T-BILL-04` and `T-BILL-05` were both `WIP`, claimed at the same commit, and
+only `T-BILL-04`'s branch had been merged:
+
+```console
+$ praukron scope capture T-BILL-04 --base 5be9fe2df06eafb356cb441531212df4ad3db116 --dry-run
+{"ok":true,"operation":"scope.capture",…,"capture":{"status":"captured","references":2,"files":1,"symbols":1,"base":"5be9fe2df06eafb356cb441531212df4ad3db116","head":"6fa5a5fbe6ab0b7ee374f7bb6f1302935794dd42","workingTree":true,"alreadyRecorded":0,"unresolved":2}}
+
+$ praukron scope capture T-BILL-04 --base 5be9fe2df06eafb356cb441531212df4ad3db116 --head 6fa5a5fbe6ab0b7ee374f7bb6f1302935794dd42
+{"ok":true,"operation":"scope.capture",…,"capture":{"status":"captured","references":2,"files":1,"symbols":1,"base":"5be9fe2df06eafb356cb441531212df4ad3db116","head":"6fa5a5fbe6ab0b7ee374f7bb6f1302935794dd42","workingTree":false,"alreadyRecorded":0,"unresolved":0,"rangeNamed":true}}
+```
+
+The file record's evidence then reads `git diff 5be9fe2df06e to 6fa5a5fbe6ab
+(range named by the caller): added`.
+
 **Limits.**
 
 - **Symbols are captured for Python only** (`.py` and `.pyi`, parsed with the
@@ -754,7 +785,10 @@ there.
   closed and captured files inside the range, only those files are unresolved.
   Once you know whose change it was, record that with `ref set` (for example
   `"set":{"lifecycle":"active","evidence":"made by T-BILL-04"}`) or withdraw
-  it; to avoid it, work one task per worktree.
+  it. To avoid it, work one task per worktree and capture each merged task with
+  both `--base` and `--head` named (see *Naming both ends* above): a named range
+  is attributed to the task and nothing in it is unresolved. A close, and
+  `scope capture` without `--head`, keep the rule.
 - **Pulls and merges count.** A file that arrives through a pull or a merge
   between a task's claim and its close is attributed to that task, because it
   lies in the same range of commits. Close a task before you pull other work

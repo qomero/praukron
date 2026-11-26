@@ -7,8 +7,9 @@
   references, planned against observed scope, the dashboard's Files and Symbols columns and
   Code References section, `scope capture`, and the limits: symbols for Python only, unresolved
   attribution when two tasks are open over the same commits, pulled and merged changes counting
-  for the open task, capture needing Git, and no graph provider needed, a provider's network
-  behaviour being the user's to handle. SPEC §2.9 reads as one specification of what is built.
+  for the open task, a range named with both `--base` and `--head` being attributed to its task,
+  untracked caches left out (`untrackedLeftOut`), capture needing Git, and no graph provider
+  needed, a provider's network behaviour being the user's to handle. SPEC §2.9 reads as one specification of what is built.
   The command, file and task-field tables list `refs`, `ref add`, `ref set`, `ref history`,
   `scope capture`, `CODE.md` and `Claimed at`; the dashboard task dialog screenshot is
   regenerated and two new ones show the Code References section and the task registry

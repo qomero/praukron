@@ -333,7 +333,19 @@ What the capture does not do, stated where you will meet it:
   not record which task made a change. If another task was claimed earlier and
   is still `WIP` or `BLOCKED` when this one closes, every file of the closing
   task is recorded with `Lifecycle: unresolved`, and its evidence names the
-  other task, instead of a guess.
+  other task, instead of a guess. The exception is a range you name yourself:
+  `praukron scope capture <task> --base <rev> --head <rev>` takes your word
+  that the range is the task's own, attributes it to the task, marks nothing
+  unresolved, and says in the evidence that the range was named by the caller.
+  That is how a coordinator whose builders work in other worktrees captures
+  each merged task.
+- **Caches are left out.** Besides what Git's ignore rules ignore, a capture
+  leaves out untracked cache files even when the repository has no ignore rule
+  for them: anything under a `__pycache__`, `.pytest_cache`, `.mypy_cache`,
+  `.ruff_cache`, `.tox` or `node_modules` directory, and files named
+  `.DS_Store` or `Thumbs.db` or ending in `.pyc` or `.pyo`. A tracked file is
+  always recorded, and the reply counts what was left out in
+  `untrackedLeftOut`.
 - **Changes pulled or merged in between count.** A file that arrives through a
   pull or a merge between a task's claim and its close is attributed to that
   task.
@@ -620,7 +632,7 @@ into why the model is shaped this way.
 
 **Implemented and tested.** The compiler and its twenty-two commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1072 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1094 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 

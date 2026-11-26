@@ -870,9 +870,7 @@ source directories in some projects), and a tracked file is always recorded,
 whatever its path, unless Git's own rules ignore it.
 
 A change is attributed to the task only when it lies between `Base` and
-`Head`, the working tree included. Git records no author task, so a change
-that arrives in that range through a pull or a merge is attributed to the task
-like one made in it. When another task may also have made it,
+`Head`, the working tree included. When another task may also have made it,
 Git alone cannot tell the two apart, and the record says so instead of
 guessing: `Lifecycle: unresolved`, and `Evidence` ends `unresolved
 attribution: <task> was also claimed over this range`. Another task overlaps
