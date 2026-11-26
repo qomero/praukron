@@ -12,9 +12,10 @@ says why capture was skipped.
 
 Git is reached only through `_run`, by subprocess with a timeout, using the
 standard library. `changes` is the one place that knows a changed file's
-change type and paths; symbol capture (T-CIL-SCOPE-02) extends a `Change`
-there, where the old text (at `base`) and the new text (at `head`, or in the
-working tree) of each file can be read.
+change type and paths. `changed_symbols` reads the old text (at `base`) and
+the new text (at `head`, or in the working tree) of each changed Python file
+and `symbols` attributes the changed lines to functions, classes and methods
+(T-CIL-SCOPE-02), recorded in the same write as the files.
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import mutate, ref, refs
+from . import mutate, ref, refs, symbols
 from .layout import AUTHORITY_DIR
 from .model import Project, reference_path_problem
 
@@ -39,6 +40,7 @@ _SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 # Statuses of a task that is claimed and not yet closed.
 _ACTIVE = ("WIP", "BLOCKED")
 _UNASSIGNED = {"unassigned", "none", "—", "-"}
+_PAST = {"creates": "created", "modifies": "modified", "deletes": "deleted"}
 
 
 class GitUnavailable(Exception):
@@ -264,52 +266,228 @@ def overlapping(project: Project, root: Path, task_id: str, base: str, head_comm
     return blame
 
 
+def _sides(root: Path, change: Change, base: str, head_commit: str, working_tree: bool) -> tuple:
+    """Where a change's old and new text are read: a `rev:./path` spec, a Path, or None."""
+    old = None if change.kind == "added" else f"{base}:./{change.old_path or change.path}"
+    if change.kind == "deleted":
+        new = None
+    elif working_tree:
+        new = root / change.path
+    else:
+        new = f"{head_commit}:./{change.path}"
+    return old, new
+
+
+def _hunks(root: Path, compared: list[Change], base: str, until: str | None) -> dict:
+    """The changed line ranges on each side of each compared file, from one `git diff -U0`.
+
+    Git's own diff names the lines, so the cost grows with the change, not
+    with the file. Hunks are never merged across unchanged lines, every file
+    is compared as text, and the user's diff programs and prefixes are not
+    used. Renames are detected as in `changes`, so a renamed file's old side
+    is its old path.
+    """
+    if not compared:
+        return {}
+    paths = sorted({p for c in compared for p in (c.path, c.old_path) if p})
+    patch = _git(root, "--literal-pathspecs", "-c", "core.quotePath=false", "diff", "-U0",
+                 "--inter-hunk-context=0", "--no-color", "--no-ext-diff", "--no-textconv", "--text", "-M",
+                 "--relative", "--src-prefix=a/", "--dst-prefix=b/", base, *([until] if until else []),
+                 "--", *paths)
+    return symbols.hunks(patch)
+
+
+def changed_symbols(root: Path, found: list[Change], base: str, head_commit: str, *,
+                    working_tree: bool) -> tuple[dict[str, list[symbols.Changed]], dict[str, str]]:
+    """The changed symbols of each changed file, and why a file's symbols are unresolved.
+
+    Only changed files are read, a Python file only when it is within
+    `symbols.MAX_FILE_BYTES` on each side it needs and the capture's reading
+    stays within `symbols.MAX_CAPTURE_BYTES`, and none when the capture holds
+    more than `symbols.MAX_FILES` changed Python files. Never raises: a
+    failure leaves the affected files unresolved with the reason.
+    """
+    result: dict[str, list[symbols.Changed]] = {}
+    unresolved = {c.path: symbols.NO_EXTRACTOR for c in found if not symbols.is_python(c.path)}
+    python = [c for c in found if symbols.is_python(c.path)]
+    if len(python) > symbols.MAX_FILES:
+        unresolved.update({c.path: f"more than {symbols.MAX_FILES} changed Python files in one capture"
+                           for c in python})
+        return result, unresolved
+    try:
+        sides = {c.path: _sides(root, c, base, head_commit, working_tree) for c in python}
+        sizes = symbols.blob_sizes(_git, root, [s for pair in sides.values() for s in pair if isinstance(s, str)])
+        sizes.update({s: symbols.file_size(s) for pair in sides.values() for s in pair if isinstance(s, Path)})
+        # Sizes first, so nothing over a limit is read: per file, then for the capture, in path order.
+        admitted: list[Change] = []
+        spent = 0
+        for change in python:
+            needed = [s for s in sides[change.path] if s is not None]
+            if any(sizes.get(s) is None for s in needed):
+                unresolved[change.path] = "its text could not be read"
+                continue
+            large = [sizes[s] for s in needed if sizes[s] > symbols.MAX_FILE_BYTES]
+            if large:
+                unresolved[change.path] = f"file larger than {symbols.MAX_FILE_BYTES} bytes ({large[0]} bytes)"
+                continue
+            cost = sum(sizes[s] for s in needed)
+            if spent + cost > symbols.MAX_CAPTURE_BYTES:
+                reason = (f"the capture's symbol budget of {symbols.MAX_CAPTURE_BYTES} bytes of Python source "
+                          f"is spent")
+                for later in python[python.index(change):]:
+                    unresolved.setdefault(later.path, reason)
+                break
+            spent += cost
+            admitted.append(change)
+        blobs = symbols.read_blobs(_git, root, [s for c in admitted for s in sides[c.path] if isinstance(s, str)])
+        texts: dict[str, tuple[bytes | None, bytes | None]] = {}
+        for change in admitted:
+            old_at, new_at = sides[change.path]
+            old = blobs.get(old_at) if old_at else None
+            new = symbols.read_file(new_at) if isinstance(new_at, Path) else (blobs.get(new_at) if new_at else None)
+            if (old_at and old is None) or (new_at and new is None):
+                unresolved[change.path] = "its text could not be read"
+                continue
+            if new is not None and len(new) > symbols.MAX_FILE_BYTES:  # grew after it was measured
+                unresolved[change.path] = f"file larger than {symbols.MAX_FILE_BYTES} bytes ({len(new)} bytes)"
+                continue
+            texts[change.path] = (old, new)
+        # Both sides of a changed text: Git names the changed lines, in one call for the capture.
+        compared = [c for c in python if c.path in texts and None not in texts[c.path]
+                    and texts[c.path][0] != texts[c.path][1]]
+        ranges = _hunks(root, compared, base, None if working_tree else head_commit)
+        for change in python:
+            if change.path not in texts:
+                continue
+            old, new = texts[change.path]
+            if change in compared and change.path not in ranges:
+                unresolved[change.path] = "git reported no changed lines for a changed text"
+                continue
+            try:
+                result[change.path] = symbols.changed(old, new, *ranges.get(change.path, ((), ())))
+            except symbols.Unresolved as error:
+                unresolved[change.path] = str(error)
+    except Exception as error:  # symbol capture never blocks the file capture
+        for change in python:
+            if change.path not in result:
+                unresolved.setdefault(change.path, f"symbol extraction failed: {error}")
+    return result, unresolved
+
+
+def _attribution(others: list[str]) -> str:
+    return (f"; unresolved attribution: {', '.join(others)} "
+            f"{'was' if len(others) == 1 else 'were'} also claimed over this range")
+
+
 def plan(project: Project, root: Path, task, base: str, head_commit: str, *, working_tree: bool,
          actor: str) -> tuple[dict, dict, list[str]]:
     """The CODE.md change for one capture, the reply's `capture` member, and the new ids.
 
     Raises GitUnavailable when Git cannot answer. Returns no change when every
-    changed file is already recorded as observed for the task with the same
-    relation, so a second capture adds only what is new.
+    changed file and symbol is already recorded as observed for the task with
+    the same relation, so a second capture adds only what is new.
     """
     found, skipped = changes(root, base, None if working_tree else head_commit)
-    existing = {(r.path, r.relation) for r in _observed(project, task.id) if r.symbol is None}
-    fresh = [c for c in found if (c.path, c.relation) not in existing]
+    observed = _observed(project, task.id)
+    existing = {(r.path, r.relation) for r in observed if r.symbol is None}
+    existing_symbols = {(r.path, r.symbol, r.relation) for r in observed if r.symbol is not None}
+    fresh_files = {c.path for c in found if (c.path, c.relation) not in existing}
+    per_file, unresolved_symbols = changed_symbols(root, found, base, head_commit, working_tree=working_tree)
+    fresh_symbols: dict[str, list[tuple[str, symbols.Changed]]] = {}
+    known = 0
+    for change in found:
+        for item in per_file.get(change.path, []):
+            where = change.old_path if item.from_base and change.old_path else change.path
+            if (where, item.name, item.relation) in existing_symbols:
+                known += 1
+            else:
+                fresh_symbols.setdefault(change.path, []).append((where, item))
+    # At most symbols.MAX_RECORDS symbol records, whole files only, in path order.
+    written, full = 0, False
+    for change in found:
+        if change.path not in per_file:
+            continue
+        count = len(fresh_symbols.get(change.path, []))
+        cap = f"the capture's cap of {symbols.MAX_RECORDS} symbol records is reached"
+        if not full and written + count > symbols.MAX_RECORDS:
+            full = True
+            cap += (f": this file has {count} changed symbols and "
+                    f"{symbols.MAX_RECORDS - written} records were left")
+        if full:
+            fresh_symbols.pop(change.path, None)
+            per_file.pop(change.path)
+            unresolved_symbols[change.path] = cap
+        else:
+            written += count
+    involved =[c for c in found if c.path in fresh_files or c.path in fresh_symbols]
     blame = overlapping(project, root, task.id, base, head_commit,
-                        {c.path for c in fresh} | {c.old_path for c in fresh if c.old_path})
+                        {c.path for c in involved} | {c.old_path for c in involved if c.old_path})
     sequence = int(ref._next_id(project, task.id).rsplit("-", 1)[1])
     today = dt.date.today().isoformat()
     records, ids = [], []
-    unresolved = 0
-    for change in fresh:
-        others = sorted(set(blame.get(change.path, []) + blame.get(change.old_path or "", [])))
-        fields = {"Task": task.id, "Path": change.path, "Relation": change.relation, "Scope": "observed"}
-        if others:
-            fields["Lifecycle"] = "unresolved"
-            unresolved += 1
-        elif change.kind == "deleted":
-            fields["Lifecycle"] = "deleted"
-        fields.update({"Verification": "verified", "Authorization": "not_applicable", "Source": "git_diff",
-                       "Recorded": f"{today} · {actor}"})
-        if not change.uncommitted:
-            fields["Revision"] = head_commit
-        fields.update({"Base": base, "Head": head_commit})
-        if change.old_path:
-            fields["Was"] = change.old_path
-        where = "the working tree at " if change.uncommitted else ""
-        evidence = f"git diff {base[:12]} to {where}{head_commit[:12]}: {change.kind}"
-        if others:
-            evidence += (f"; unresolved attribution: {', '.join(others)} "
-                         f"{'was' if len(others) == 1 else 'were'} also claimed over this range")
-        fields["Evidence"] = evidence
-        title = f"{change.path} ({change.kind}{' from ' + change.old_path if change.old_path else ''})"
+    unresolved = files = symbol_count = 0
+
+    def add(title: str, fields: dict) -> None:
+        nonlocal sequence
         reference_id = f"CR-{task.id}-{sequence:02d}"
         records.append(ref._render(reference_id, title, fields))
         ids.append(reference_id)
         sequence += 1
-    info = {"status": "captured", "references": len(records), "base": base, "head": head_commit,
-            "workingTree": working_tree, "alreadyRecorded": len(found) - len(fresh),
-            "unresolved": unresolved}
+
+    for change in involved:
+        others = sorted(set(blame.get(change.path, []) + blame.get(change.old_path or "", [])))
+        where = "the working tree at " if change.uncommitted else ""
+        span = f"git diff {base[:12]} to {where}{head_commit[:12]}"
+        if change.path in fresh_files:
+            fields = {"Task": task.id, "Path": change.path, "Relation": change.relation, "Scope": "observed"}
+            if others:
+                fields["Lifecycle"] = "unresolved"
+                unresolved += 1
+            elif change.kind == "deleted":
+                fields["Lifecycle"] = "deleted"
+            fields.update({"Verification": "verified", "Authorization": "not_applicable", "Source": "git_diff",
+                           "Recorded": f"{today} · {actor}"})
+            if not change.uncommitted:
+                fields["Revision"] = head_commit
+            fields.update({"Base": base, "Head": head_commit})
+            if change.old_path:
+                fields["Was"] = change.old_path
+            evidence = f"{span}: {change.kind}"
+            if others:
+                evidence += _attribution(others)
+            if change.path in unresolved_symbols:
+                evidence += f"; symbols unresolved: {unresolved_symbols[change.path]}"
+            fields["Evidence"] = evidence
+            add(f"{change.path} ({change.kind}{' from ' + change.old_path if change.old_path else ''})", fields)
+            files += 1
+        for path, item in fresh_symbols.get(change.path, []):
+            fields = {"Task": task.id, "Path": path, "Symbol": item.name, "Kind": item.kind,
+                      "Relation": item.relation, "Scope": "observed"}
+            if others:
+                fields["Lifecycle"] = "unresolved"
+                unresolved += 1
+            elif item.relation == "deletes":
+                fields["Lifecycle"] = "deleted"
+            fields.update({"Verification": "verified", "Authorization": "not_applicable",
+                           "Source": "static_analysis", "Recorded": f"{today} · {actor}"})
+            # A deleted symbol's name is true at the base; any other at the head commit,
+            # unless its file's change is only in the working tree.
+            if item.from_base:
+                fields["Revision"] = base
+            elif not change.uncommitted:
+                fields["Revision"] = head_commit
+            fields.update({"Base": base, "Head": head_commit, "Lines": f"{item.start}-{item.end}"})
+            evidence = f"{span}: {item.kind} {item.name} {_PAST[item.relation]} (Python ast)"
+            if others:
+                evidence += _attribution(others)
+            fields["Evidence"] = evidence
+            add(f"{path}#{item.name} ({_PAST[item.relation]})", fields)
+            symbol_count += 1
+    info = {"status": "captured", "references": len(records), "files": files, "symbols": symbol_count,
+            "base": base, "head": head_commit, "workingTree": working_tree,
+            "alreadyRecorded": len(found) - len(fresh_files) + known, "unresolved": unresolved}
+    if unresolved_symbols:
+        info["symbolsUnresolved"] = [{"path": p, "reason": r} for p, r in sorted(unresolved_symbols.items())]
     if skipped:
         info["skippedPaths"] = skipped
     if not records:
