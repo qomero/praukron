@@ -618,7 +618,8 @@ the `praukron refs` lookup and the packet's `references` field
 (T-CIL-MAP-03); the writes `ref add`, `ref set` and `ref history`
 (T-CIL-MAP-02); the dashboard's Files and Symbols columns, Code References
 section and artifact records (T-CIL-MAP-04); and the capture of a task's
-observed files from Git at its close, and `scope capture` (T-CIL-SCOPE-01).
+observed files from Git at its close, and `scope capture` (T-CIL-SCOPE-01);
+and, in the same capture, the changed Python symbols (T-CIL-SCOPE-02).
 
 A task–code reference says that one task relates to one code artifact: a file,
 or a symbol inside a file. References are authored records in
@@ -865,6 +866,72 @@ equal to, `Head` (then every file of the capture is unresolved), or when it is
 `DONE` and its own captured records end inside this range, that is their
 `Head` is after `Base`, or is `Base` with no `Revision` (then only the files it
 recorded are unresolved). A task with no `Claimed at` overlaps nothing.
+
+**Observed symbols, from the standard library's `ast` (ADR-092).** The same
+capture, in the same write, records the changed symbols of every changed
+Python file (`.py`, `.pyi`). The old text is read at `Base` and the new text
+at `Head`, or in the working tree when the capture runs to it; both are
+parsed, never imported or run, and compared line by line. A function, async
+function, class or method whose source range, its decorators included,
+holds a changed line on its side is changed: present only in the new text it
+`creates`, only in the old text it `deletes` with `Lifecycle: deleted`, in
+both it `modifies`. A class whose method changed is itself changed. Its
+`Symbol` is the qualified name inside the file (`Ledger.post`, nested names
+joined with `.`), its `Kind` `function`, `method` (defined directly in a
+class body) or `class`; a name defined twice in one scope, such as a property
+and its setter, is one symbol whose range spans both.
+
+```text
+## CR-T-PAY-03-05: src/pay/ledger.py#Ledger.post (modified)
+- Task: T-PAY-03
+- Path: src/pay/ledger.py
+- Symbol: Ledger.post
+- Kind: method
+- Relation: modifies
+- Scope: observed
+- Verification: verified
+- Authorization: not_applicable
+- Source: static_analysis
+- Recorded: 2026-11-26 · claude/primary
+- Revision: 9c1e0f…
+- Base: 286b9a7…
+- Head: 9c1e0f…
+- Lines: 12-19
+- Evidence: git diff 286b9a7c0d1e to 9c1e0f2a3b4c: method Ledger.post modified (Python ast)
+```
+
+`Base`, `Head`, `Recorded`, `Revision` and unresolved attribution follow the
+file's rules, with one difference: a deleted symbol's name is read from the
+base, so its `Revision` is `Base`, and in a renamed file its `Path` is the old
+path. Every recorded name is therefore in the source at the recorded
+revision, or in the working tree when there is no `Revision`. `Lines` is the
+range on the side the name was read from, a hint only. A renamed symbol is
+one deletion and one creation. A symbol already recorded as observed for
+the task with the same path, name and relation is counted in
+`alreadyRecorded` and not recorded again.
+
+A symbol is never recorded without a real name. A changed file whose symbols
+cannot be resolved keeps its file record, whose `Evidence` ends `symbols
+unresolved: <reason>`, and the reply lists it in `symbolsUnresolved` with
+the reason: any file but Python (`no deterministic symbol extractor for this
+file type`); a Python file that does not parse on a side it needs (`does not
+parse: <message> at line <n> at the base revision` or `at the head`); a file
+larger than 524288 bytes (512 KiB) on a side it needs, which is never read
+(`file larger than 524288 bytes`); every Python file of a capture with more
+than 200 changed Python files, none of which is read; and, when extraction
+fails, `symbol extraction failed: <error>`. Only changed files are read: two
+Git calls (`cat-file --batch-check`, then `cat-file --batch`) whatever their
+number, and the working tree from disk. The reply's `capture` member also
+gives `files` and `symbols`, the records of each kind it wrote, besides
+`references`, their total.
+
+Measured on 2026-11-26 (Python 3.14, macOS, median of nine runs): closing a
+task with fifty changed Python files, each of three classes of five methods
+and ten functions with ten of its symbols changed, takes 0.25 s and
+writes 550 records (261 KB of `CODE.md`); the same close at `main` before
+this change took 0.09 s and wrote 50 records (21 KB). Symbol extraction is
+0.11 s of the difference; the rest is writing and validating 500 more
+records.
 
 Capture adds observed references only: it changes no planned or earlier
 record and writes `Authorization: not_applicable`, never `authorized`. It

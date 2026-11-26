@@ -509,10 +509,22 @@ skipped and why, and the writes are otherwise unchanged. In a Git repository
 the claim also records the current commit as `Claimed at` (`"capture":
 {"status":"recorded","commit":"<sha>"}`), and the close records every file
 changed since that commit, the working tree and untracked files included, as
-observed references in `CODE.md` (`"capture":{"status":"captured",
-"references":<n>,...}`). Nothing else is needed; `praukron scope capture
-<task> --base <rev> [--head <rev>]` does the same for a task claimed
-elsewhere.
+observed references in `CODE.md`, and with each changed Python file the
+functions, classes and methods whose lines changed:
+
+```json
+"capture":{"status":"captured","references":5,"files":2,"symbols":3,"base":"<sha>","head":"<sha>",
+  "workingTree":true,"alreadyRecorded":0,"unresolved":0,
+  "symbolsUnresolved":[{"path":"web/app.js","reason":"no deterministic symbol extractor for this file type"}]}
+```
+
+Here `src/pay/ledger.py` gained a record for the file and one each for
+`Ledger.post` (modified), `Ledger.void` (created) and the class `Ledger`
+that holds them (modified); `web/app.js` has its
+file record, whose evidence says its symbols are unresolved, and no symbol
+record. Add a symbol Praukron could not resolve yourself with `ref add`.
+Nothing else is needed; `praukron scope capture <task> --base <rev> [--head
+<rev>]` does the same for a task claimed elsewhere.
 
 An `Authority: owner` task is never closed this way (`owner-held`), and no
 command sets `HUMAN_VERIFIED`.
