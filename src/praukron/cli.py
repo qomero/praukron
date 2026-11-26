@@ -796,6 +796,23 @@ def build_parser() -> argparse.ArgumentParser:
     write_options(add_request, "acr.add")
     add_request.set_defaults(handler=acr.command, write_operation="acr.add")
 
+    from . import ref
+
+    references = subparsers.add_parser("ref", help="structured task-code reference writes and history")
+    reference_commands = references.add_subparsers(dest="ref_command", required=True)
+    add_reference = reference_commands.add_parser("add", help="append one task-code reference to CODE.md")
+    write_options(add_reference, "ref.add")
+    add_reference.set_defaults(handler=ref.command_add, write_operation="ref.add")
+    set_reference = reference_commands.add_parser(
+        "set", help="change a reference's verification, lifecycle or evidence, or withdraw or replace it")
+    write_options(set_reference, "ref.set")
+    set_reference.set_defaults(handler=ref.command_set, write_operation="ref.set")
+    reference_history = reference_commands.add_parser(
+        "history", help="print a reference and every record it replaces, oldest first, unchanged")
+    reference_history.add_argument("id", help="a CR- reference id")
+    reference_history.add_argument("--json", action="store_true")
+    reference_history.set_defaults(handler=ref.command_history)
+
     answer = subparsers.add_parser(
         "respond", help="append the owner's response to RESPONSES.md"
     )

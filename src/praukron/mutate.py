@@ -110,6 +110,29 @@ GUIDANCE = {
         "EXAMPLE: echo '{\"task\":\"T-ONE\",\"criterion\":\"AC-T-ONE-01\",\"proposed\":\"Given x, When y, "
         "Then z.\",\"reason\":\"Untestable as written.\"}' | praukron acr add --input -",
     ),
+    "ref.add": (
+        "WHEN: record that a task relates to a file, or a symbol in it, in CODE.md (SPEC 2.9): what it plans "
+        "to touch (scope planned) or what it did touch (scope observed).",
+        "WHEN NOT: to change, withdraw or replace an existing reference (ref set), or to grant permission: "
+        "a planned creates, modifies or deletes is written proposed unless authorizedBy names an owner "
+        "response (R-) or an ACCEPTED ADR that grants it.",
+        "RETURNS: one JSON line with ok, recordId (the CR- id the tool assigns), source, revision. The record "
+        "carries Source and Recorded: <date> · <recordedBy>.",
+        "EXAMPLE: echo '{\"task\":\"T-ONE\",\"title\":\"Post entries\",\"path\":\"src/ledger.py\","
+        "\"relation\":\"modifies\",\"scope\":\"planned\",\"source\":\"agent\",\"recordedBy\":\"agent/builder\"}' "
+        "| praukron ref add --input -",
+    ),
+    "ref.set": (
+        "WHEN: change a reference's verification, lifecycle or evidence in place (set), or append a record "
+        "that withdraws it (withdraw) or replaces it (replace); needs expectRevision.",
+        "WHEN NOT: to delete a reference (references are never deleted), to edit a reference already replaced "
+        "or withdrawn, or to set Authorization: a replacement is authorized only through authorizedBy.",
+        "RETURNS: one JSON line with ok, recordId, source, revision; withdraw and replace return the new "
+        "record's id and replaces, and the earlier record stays byte for byte. A stale expectRevision is "
+        "refused with currentRevision and the current section.",
+        "EXAMPLE: echo '{\"id\":\"CR-T-ONE-01\",\"expectRevision\":\"<16 hex>\",\"source\":\"agent\","
+        "\"recordedBy\":\"agent/builder\",\"set\":{\"verification\":\"verified\"}}' | praukron ref set --input -",
+    ),
 }
 
 # The next valid step for refusals whose message does not already carry one.
@@ -151,6 +174,14 @@ NEXT_STEP = {
     "empty-set": "set at least one of status, owner, claimed, evidence or validation, or give addGovernedBy",
     "no-change": "nothing to do; the record already has these values",
     "unfrozen-contract": "edit the criterion in ACCEPTANCE.md directly; no request is needed before WIP",
+    "invalid-change": "give exactly one of set, withdraw and replace (see `--schema`)",
+    "invalid-reference-path": "give a repository-relative path with / separators",
+    "symbol-without-kind": "add kind",
+    "unknown-reference-task": "name an existing task id",
+    "unknown-authority": "name an owner response (R-) or an ACCEPTED ADR, or omit authorizedBy to record the reference proposed for the owner to decide",
+    "authorization-not-applicable": "remove authorizedBy; only a planned creates, modifies or deletes is authorized",
+    "replaced-reference": "act on the reference that replaced it (replacedBy)",
+    "withdrawn-reference": "record a new reference with ref add instead",
 }
 
 

@@ -295,6 +295,8 @@ record these commands do not cover.
 | `praukron contract add` | `ACCEPTANCE.md`, `TASKS.md` | appends a contract and sets the task's `AC:` |
 | `praukron task update` | `TASKS.md` | `Status`, `Owner`, `Claimed`, `Evidence`, `Validation` of one task; appends to `Governed by` (ADR-068, ADR-074) |
 | `praukron acr add` | `ACCEPTANCE.md` | appends one `### ACR-<n>` request to the `## Acceptance Change Requests` log (ADR-076) |
+| `praukron ref add` | `CODE.md` | appends one task–code reference, creating the file from its template header when absent (§2.9) |
+| `praukron ref set` | `CODE.md` | one reference's verification, lifecycle or evidence in place, or an appended record that withdraws or replaces it (§2.9) |
 | `praukron batch apply` | the files its operations write | runs several of the writes above in order under one lock, one validation and one refresh; all or nothing (ADR-077) |
 
 With `INDEX.md` (generated), `respond` (`RESPONSES.md`, ADR-055) and `archive`
@@ -323,8 +325,10 @@ again.
 **Field permissions and rules.**
 
 - IDs are supplied by the caller and refused if they exist in a working file or
-  in any archive (`duplicate-id`); they are never inferred. The one exception
-  is an ACR id, a log sequence `acr add` assigns under the lock (ADR-076).
+  in any archive (`duplicate-id`); they are never inferred. The exceptions
+  are an ACR id, a log sequence `acr add` assigns under the lock (ADR-076),
+  and a reference's `CR-<task>-<nn>` id, the task's next sequence, which
+  `ref add` and `ref set` assign under the lock (§2.9).
 - `task add` needs an existing `module`, an explicit `domain` and
   `dependencies`; it has no `phase` field (a task's phase comes from its
   module). Give exactly one of `contract` (a new definition, written with the
@@ -403,8 +407,8 @@ write; run `compile && graph && dashboard`.
 
 **Batch composition (ADR-077).** `batch apply` takes a non-empty `operations`
 array. Each entry is one write command's payload plus `op`, the command's name:
-`journal append`, `criterion set`, `task add`, `contract add`, `task update` or
-`acr add`. An unknown `op` and a nested batch are refused. A registry pairs each
+`journal append`, `criterion set`, `task add`, `contract add`, `task update`,
+`acr add`, `ref add` or `ref set`. An unknown `op` and a nested batch are refused. A registry pairs each
 name with the command's schema, handler and revision target, so a later governed
 write joins without a second transaction engine.
 
@@ -588,10 +592,12 @@ resolving to its archived task.
 
 ### 2.9 Task–code references
 
-**Partly built.** This section fixes the record format that the task–code
-mapping reads and writes (ADR-088, ADR-089). `CODE.md` is read, validated and
-compiled; `praukron refs` and the packet's `references` field exist. The
-`ref add` and `ref set` writes are specified here and not yet built.
+**Built.** This section fixes the record format that the task–code
+mapping reads and writes (ADR-088, ADR-089). Built: reading `CODE.md`, its
+validation and compilation into `references` and `artifacts` (T-CIL-MAP-01);
+the `praukron refs` lookup and the packet's `references` field
+(T-CIL-MAP-03); and the writes `ref add`, `ref set` and `ref history`
+(T-CIL-MAP-02).
 
 A task–code reference says that one task relates to one code artifact: a file,
 or a symbol inside a file. References are authored records in
@@ -701,10 +707,56 @@ Agents write references through structured writes (§2.6), never by editing
 ```sh
 praukron ref add --input -      # one reference; a planned change is `proposed` unless `authorizedBy` names its authority
 praukron ref set --input -      # verification, lifecycle, withdrawal, or a replacement
+praukron ref history CR-T-PAY-03-02   # the reference and every record it replaces, oldest first, unchanged
 ```
 
-Both are also `batch apply` operations. No write sets `Authorization:
+Both writes are also `batch apply` operations. No write sets `Authorization:
 authorized` without `Authorized by`. `archive` never moves `CODE.md`.
+
+**`ref add`** takes `task`, `title`, `path`, `relation`, `scope`, `source` and
+`recordedBy`, and optionally the other fields of the table in camel case
+(`commit` is written as `Revision`, `authorizedBy` as `Authorized by`). It
+assigns the identifier: `CR-`, the task, and the task's highest sequence plus
+one, two digits at least. `Verification` defaults to `unverified`. The payload
+has no `authorization` field: a `planned` reference whose relation is
+`creates`, `modifies` or `deletes` is written `proposed`, or `authorized` with
+`Authorized by` when `authorizedBy` names an owner response (`R-`) or an
+`ACCEPTED` ADR (`unknown-authority` otherwise); every other reference is
+`not_applicable`, and `authorizedBy` on one is refused
+(`authorization-not-applicable`). When `CODE.md` is absent the write creates
+it from the template's header.
+
+**`ref set`** takes `id`, `expectRevision` (the reference section's revision,
+§2.6), `source`, `recordedBy`, and exactly one of:
+
+- `set`: `verification`, `lifecycle` or `evidence`, changed in place;
+  `Source` and `Recorded` are rewritten to this write's, so they name the
+  last writer. A value already present is `no-change`.
+- `withdraw`: `reason` and an optional `date`. A new record is appended that
+  copies the reference, adds `Replaces:` and `Withdrawn: <date> · <reason>`,
+  and carries this write's `Source` and `Recorded`.
+- `replace`: the fields that change. A new record is appended with
+  `Replaces:`; it inherits path, repository, symbol, kind, class, relation,
+  scope, lifecycle and title unless given, starts `unverified` unless given,
+  and takes its authorization by the `ref add` rule, so an earlier
+  `authorized` is not carried over without `authorizedBy`.
+
+A withdrawal or replacement leaves the earlier record byte for byte and
+returns the new record's id with `replaces`. A reference already replaced
+(`replaced-reference`, naming `replacedBy`) or withdrawn
+(`withdrawn-reference`) is refused; act on its latest record. A stale
+`expectRevision` is refused with `currentRevision` and the current section.
+
+Every record a write produces carries `Source` and `Recorded: <date> ·
+<recordedBy>`; `recordedOn` gives the date and defaults to today. `source:
+graph_provider` needs `provider`, and `provider` is refused with any other
+source.
+
+**`ref history <CR-id>`** follows `Replaces:` back from the named reference
+and prints each record, oldest first, exactly as it stands in `CODE.md`,
+separated by a blank line; `--json` returns `records` with each one's `id`,
+`source`, `revision` and `record`. It does not list records that replace the
+named one.
 
 `validate` reports a malformed heading or a missing required field (the load
 fails, as for every record file); `duplicate-reference`,
