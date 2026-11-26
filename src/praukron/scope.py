@@ -402,7 +402,24 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
                 known += 1
             else:
                 fresh_symbols.setdefault(change.path, []).append((where, item))
-    involved = [c for c in found if c.path in fresh_files or c.path in fresh_symbols]
+    # At most symbols.MAX_RECORDS symbol records, whole files only, in path order.
+    written, full = 0, False
+    for change in found:
+        if change.path not in per_file:
+            continue
+        count = len(fresh_symbols.get(change.path, []))
+        cap = f"the capture's cap of {symbols.MAX_RECORDS} symbol records is reached"
+        if not full and written + count > symbols.MAX_RECORDS:
+            full = True
+            cap += (f": this file has {count} changed symbols and "
+                    f"{symbols.MAX_RECORDS - written} records were left")
+        if full:
+            fresh_symbols.pop(change.path, None)
+            per_file.pop(change.path)
+            unresolved_symbols[change.path] = cap
+        else:
+            written += count
+    involved =[c for c in found if c.path in fresh_files or c.path in fresh_symbols]
     blame = overlapping(project, root, task.id, base, head_commit,
                         {c.path for c in involved} | {c.old_path for c in involved if c.old_path})
     sequence = int(ref._next_id(project, task.id).rsplit("-", 1)[1])

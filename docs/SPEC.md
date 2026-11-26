@@ -927,7 +927,13 @@ capture's budget of 4194304 bytes (4 MiB) of Python source, both sides of
 every file counted (the text at `Base` and the text at `Head` or in the
 working tree): files are taken in path order, and once the next file would
 pass the budget, it and every later file are not read (`the capture's symbol
-budget of 4194304 bytes of Python source is spent`); and, when extraction
+budget of 4194304 bytes of Python source is spent`); the files past the
+capture's cap of 200 symbol records, applied after the size and byte limits
+in path order: a file's symbols are written all or none, and once a file's
+changed symbols would pass what is left of the cap, it and every later file
+get no symbol record (`the capture's cap of 200 symbol records is reached`,
+and for the first file that did not fit `: this file has <n> changed symbols
+and <m> records were left`). File references are not capped; and, when extraction
 fails, `symbol extraction failed: <error>`; a changed text for which Git reports
 no changed line (`git reported no changed lines for a changed text`). Only
 changed files are read, and sizes are taken before any text: three Git calls
@@ -948,9 +954,11 @@ limit) 0.51 s, nearly all of it parsing both sides; a whole close of the
 first stays under the three seconds `TestWriteTime` allows. Forty such files
 of 200 KiB, each changed in one line, close in 1.5 s: the budget admits ten
 and leaves thirty unresolved. The budget bounds reading and parsing (about
-2 s for 4 MiB of the densest source), not the number of records: eight added
-files of 512 KiB holding one-line functions write 171,304 symbol records
-(85 MB of `CODE.md`) in 21 s.
+2 s for 4 MiB of the densest source) and the cap the records: eight added
+files of 512 KiB holding 171,304 one-line functions, which wrote 85 MB of
+`CODE.md` in 21 s before the cap, now close in 2.6 s, and `CODE.md` grows by
+5,282 bytes, the eight file records, since the first file alone passes the
+cap.
 
 Capture adds observed references only: it changes no planned or earlier
 record and writes `Authorization: not_applicable`, never `authorized`. It

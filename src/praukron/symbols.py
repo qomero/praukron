@@ -29,6 +29,8 @@ MAX_FILES = 200
 # A capture reads at most this much Python source for symbols, both sides of
 # every file counted; files are taken in path order until the next would pass it.
 MAX_CAPTURE_BYTES = 4 * 1024 * 1024
+# A capture writes at most this many symbol records, a file's symbols all or none.
+MAX_RECORDS = 200
 SUFFIXES = (".py", ".pyi")
 NO_EXTRACTOR = "no deterministic symbol extractor for this file type"
 # The nodes that can hold a statement, and so a definition.

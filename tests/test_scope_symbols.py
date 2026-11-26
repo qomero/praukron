@@ -239,6 +239,7 @@ class TestWriteTime(SymbolCase):
 
     BOUND = 3.0  # seconds for the whole close; difflib took 17 s for the same change
     MANY_BOUND = 6.0  # seconds for forty 200 KiB files, the budget admitting ten
+    DENSE_BOUND = 10.0  # seconds for eight 512 KiB added files of one-line functions
 
     def test_a_one_line_change_in_a_long_file_closes_within_the_bound(self):
         text = "".join(f"def f{i}(a):\n    return a + 1\n\n\n" for i in range(6000))
@@ -270,6 +271,81 @@ class TestWriteTime(SymbolCase):
         self.assertEqual(len(self.files()), 40)
         self.assertEqual(len(result["capture"]["symbolsUnresolved"]), 40 - len(admitted))
         self.assertLess(elapsed, self.MANY_BOUND, f"close took {elapsed:.2f} s")
+
+    def test_eight_dense_added_files_close_within_the_bound(self):
+        # Eight added files just under 512 KiB of one-line functions fit the 4 MiB budget and
+        # hold 171,304 symbols; before the record cap they wrote 85 MB of CODE.md in 21 s.
+        def dense(k: int) -> str:
+            lines, size, i = [], 0, 0
+            while True:
+                line = f"def g{k}_{i}(): return 0\n"
+                if size + len(line) > 512 * 1024 - 64:
+                    return "".join(lines)
+                lines.append(line)
+                size += len(line)
+                i += 1
+        self.repository({"README.md": "r\n"})
+        self.claim()
+        before = self.code.stat().st_size if self.code.exists() else 0
+        for k in range(8):
+            self.write(f"src/m{k}.py", dense(k))
+        start = time.perf_counter()
+        result = self.close()
+        elapsed = time.perf_counter() - start
+        grown = self.code.stat().st_size - before
+        self.assertEqual(result["capture"]["files"], 8)
+        self.assertEqual(result["capture"]["symbols"], 0)  # the first file alone passes the cap
+        self.assertEqual(len(result["capture"]["symbolsUnresolved"]), 8)
+        # Eight file records and at most the capped symbol records, each well under 1 KB.
+        self.assertLess(grown, (8 + symbols.MAX_RECORDS) * 1024)
+        self.assertLess(elapsed, self.DENSE_BOUND, f"close took {elapsed:.2f} s, CODE.md grew {grown} bytes")
+
+
+def functions(prefix: str, count: int) -> str:
+    return "".join(f"def {prefix}{i}():\n    return {i}\n" for i in range(count))
+
+
+@unittest.skipIf(GIT is None, "git is not installed")
+class TestRecordCap(SymbolCase):
+    """A capture writes at most symbols.MAX_RECORDS symbol records, whole files only."""
+
+    def test_exactly_the_cap_records_every_symbol(self):
+        self.repository({"README.md": "r\n"})
+        self.claim()
+        self.write("src/a.py", functions("a", 120))
+        self.write("src/b.py", functions("b", 80))
+        result = self.close()
+        self.assertEqual(symbols.MAX_RECORDS, 200)
+        self.assertEqual(result["capture"]["symbols"], 200)
+        self.assertEqual(len(self.symbols()), 200)
+        self.assertNotIn("symbolsUnresolved", result["capture"])
+
+    def test_one_file_over_the_cap_records_none_of_its_symbols(self):
+        self.repository({"README.md": "r\n"})
+        self.claim()
+        self.write("src/a.py", functions("a", 201))
+        result = self.close()
+        self.assertEqual(self.symbols(), {})
+        self.assertEqual(list(self.files()), ["src/a.py"])
+        reason = ("the capture's cap of 200 symbol records is reached: "
+                  "this file has 201 changed symbols and 200 records were left")
+        self.assertEqual(result["capture"]["symbolsUnresolved"], [{"path": "src/a.py", "reason": reason}])
+        self.assertIn(f"symbols unresolved: {reason}", self.files()["src/a.py"].evidence)
+
+    def test_a_later_file_that_does_not_fit_is_listed_and_every_file_after_it(self):
+        self.repository({"README.md": "r\n"})
+        self.claim()
+        self.write("src/a.py", functions("a", 150))
+        self.write("src/b.py", functions("b", 60))
+        self.write("src/c.py", functions("c", 1))  # would fit, but comes after b
+        result = self.close()
+        self.assertEqual(sorted({k.split("#")[0] for k in self.symbols()}), ["src/a.py"])
+        self.assertEqual(len(self.symbols()), 150)
+        self.assertEqual(sorted(self.files()), ["src/a.py", "src/b.py", "src/c.py"])
+        self.assertEqual(result["capture"]["symbolsUnresolved"], [
+            {"path": "src/b.py", "reason": "the capture's cap of 200 symbol records is reached: "
+                                           "this file has 60 changed symbols and 50 records were left"},
+            {"path": "src/c.py", "reason": "the capture's cap of 200 symbol records is reached"}])
 
 
 @unittest.skipIf(GIT is None, "git is not installed")
