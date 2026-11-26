@@ -186,6 +186,9 @@ class Task:
     authority: str | None = None
     # The contract's fingerprint from when the task became WIP (ADR-078), as authored.
     frozen: str | None = None
+    # The commit a structured write recorded when the task was claimed
+    # (`Claimed at`, ADR-092); capture at DONE starts from it.
+    claimed_at: str | None = None
 
     @property
     def owner_held(self) -> bool:

@@ -813,6 +813,22 @@ def build_parser() -> argparse.ArgumentParser:
     reference_history.add_argument("--json", action="store_true")
     reference_history.set_defaults(handler=ref.command_history)
 
+    from . import scope
+
+    observed = subparsers.add_parser("scope", help="observed task scope captured from Git")
+    scope_commands = observed.add_subparsers(dest="scope_command", required=True)
+    capture = scope_commands.add_parser(
+        "capture",
+        help="record the files changed between two revisions as a task's observed references",
+        description="Record the files changed from --base to --head (default: the working tree at HEAD) "
+                    "as observed references of TASK in CODE.md, as a DONE write does by itself from "
+                    "the task's Claimed at commit. Files already recorded are skipped. Output is one JSON line.")
+    capture.add_argument("task", help="a T- task id")
+    capture.add_argument("--base", required=True, help="the revision the task's work starts from")
+    capture.add_argument("--head", help="the revision it ends at; absent means the working tree")
+    capture.add_argument("--dry-run", action="store_true", help="report the change without writing")
+    capture.set_defaults(handler=scope.command)
+
     answer = subparsers.add_parser(
         "respond", help="append the owner's response to RESPONSES.md"
     )

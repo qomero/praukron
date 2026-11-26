@@ -7,7 +7,7 @@ import re
 import textwrap
 from pathlib import Path
 
-from . import contract, freeze, mutate
+from . import contract, freeze, mutate, scope
 from .layout import AUTHORITY_DIR
 from .model import VALIDATIONS, Project
 from .parse import _fields
@@ -43,7 +43,7 @@ _LABELS = {"status": "Status", "owner": "Owner", "claimed": "Claimed", "evidence
            "validation": "Validation"}
 # Where an absent field goes: after the nearest earlier field in this order.
 _ORDER = ["Status", "Module", "Phase", "Domain", "Authority", "Validation", "Dependencies",
-          "Owner", "Claimed", "AC", "Frozen", "Schedule", "Evidence", "Governed by"]
+          "Owner", "Claimed", "Claimed at", "AC", "Frozen", "Schedule", "Evidence", "Governed by"]
 _FIELD = re.compile(r"- ([A-Za-z][A-Za-z ]*): ?(.*)")
 _WIDTH = 100
 
@@ -160,6 +160,7 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
     operation = "task.update"
     stale: dict = {}
     skipped: list[str] = []
+    capture: dict = {}
     try:
         mutate.validate_payload(payload, SCHEMA)
         task_id, expected, changes = payload["id"], payload["expectRevision"], payload.get("set", {})
@@ -209,6 +210,14 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 if not _usable(owner):
                     raise mutate.WriteError("owner-required", "WIP needs an owner; include set.owner in the same update", "owner")
                 edits.setdefault("Claimed", dt.date.today().isoformat())
+                # Record the commit the work starts from; a task claimed again keeps its first (ADR-092).
+                if task.claimed_at:
+                    capture.update(status="kept", commit=task.claimed_at)
+                else:
+                    commit, info = scope.claim_commit(root)
+                    capture.update(info)
+                    if commit:
+                        edits["Claimed at"] = commit
             # The contract freezes on entering WIP; a frozen task keeps its fingerprint (ADR-078).
             # A task frozen before ADR-078 gains one on its next status change.
             moved = "status" in changes and status != task.status
@@ -226,14 +235,22 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
             data = mutate.read_bytes(path)
             located = mutate.section(data, task.source.anchor)
             start, end = located.span
-            return mutate.Plan({path: data[:start] + _edit(located.data, edits) + data[end:]},
-                               task_id, f"{task.source.file}#{task.source.anchor}")
+            planned = {path: data[:start] + _edit(located.data, edits) + data[end:]}
+            if status == "DONE" and task.status != "DONE":
+                # Capture the files changed since the claim in this same write; never blocks it.
+                observed, info = scope.at_close(project, root, task, owner)
+                capture.clear()
+                capture.update(info)
+                planned.update(observed)
+            return mutate.Plan(planned, task_id, f"{task.source.file}#{task.source.anchor}")
 
         result = mutate.transaction(root, operation, prepare, dry_run=dry_run)
     except mutate.WriteError as error:
         return mutate.refusal(operation, error)
     if skipped and result.get("ok"):
         result["alreadyGoverned"] = list(skipped)
+    if capture and result.get("ok"):
+        result["capture"] = dict(capture)
     if stale and not result.get("ok", True) and result.get("error", {}).get("code") == "stale-revision":
         result["error"].update(stale)
     return result
@@ -242,4 +259,5 @@ def update(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
 def _current(task, label: str) -> str | None:
     return {"Status": task.status, "Owner": task.owner, "Claimed": task.claimed,
             "Evidence": task.evidence, "Validation": task.validation, "Frozen": task.frozen,
+            "Claimed at": task.claimed_at,
             "Governed by": ", ".join(task.decisions)}[label]

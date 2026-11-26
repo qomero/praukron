@@ -457,7 +457,7 @@ $ echo '{"id":"T-DOCS-01","expectRevision":"0000000000000000","set":{"status":"W
 {"ok":false,"operation":"task.update","error":{"code":"stale-revision","message":"T-DOCS-01 changed: expected revision 0000000000000000, current 9101852277a8233c; retry with currentRevision","field":"expectRevision","currentRevision":"9101852277a8233c","section":"## T-DOCS-01: Write the retry guide\n- Status: TODO\n- Module: M-FOUNDATION\n- Domain: execution\n- Validation: UNTESTED\n- Dependencies: none\n- Owner: unassigned\n- AC: AC-T-DOCS-01\n- Evidence: \u2014\n- Governed by: none"},"written":false}
 
 $ echo '{"id":"T-DOCS-01","expectRevision":"9101852277a8233c","set":{"status":"WIP","owner":"worker"}}' | praukron task update --input -
-{"ok":true,"operation":"task.update","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"864c26d8af8f1583","validation":"passed","written":true,"refreshed":true}
+{"ok":true,"operation":"task.update","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"864c26d8af8f1583","validation":"passed","written":true,"refreshed":true,"capture":{"status":"skipped","reason":"not a Git repository"}}
 ```
 
 `WIP` dates the claim. The task's contract is now frozen: `contract add` for it
@@ -501,8 +501,18 @@ $ echo '{"id":"T-DOCS-01","expectRevision":"864c26d8af8f1583","set":{"status":"D
 {"ok":false,"operation":"task.update","error":{"code":"evidence-required","message":"DONE needs recorded evidence; include set.evidence","field":"evidence"},"written":false}
 
 $ echo '{"id":"T-DOCS-01","expectRevision":"864c26d8af8f1583","set":{"status":"DONE","evidence":"Guide reviewed; AC-T-DOCS-01-01 PASS."}}' | praukron task update --input -
-{"ok":true,"operation":"task.update","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"406567c8185533f1","validation":"passed","written":true,"refreshed":true}
+{"ok":true,"operation":"task.update","recordId":"T-DOCS-01","source":"TASKS.md#T-DOCS-01","revision":"406567c8185533f1","validation":"passed","written":true,"refreshed":true,"capture":{"status":"skipped","reason":"the task has no Claimed at commit"}}
 ```
+
+This example runs outside a Git repository, so both replies say capture was
+skipped and why, and the writes are otherwise unchanged. In a Git repository
+the claim also records the current commit as `Claimed at` (`"capture":
+{"status":"recorded","commit":"<sha>"}`), and the close records every file
+changed since that commit, the working tree and untracked files included, as
+observed references in `CODE.md` (`"capture":{"status":"captured",
+"references":<n>,...}`). Nothing else is needed; `praukron scope capture
+<task> --base <rev> [--head <rev>]` does the same for a task claimed
+elsewhere.
 
 An `Authority: owner` task is never closed this way (`owner-held`), and no
 command sets `HUMAN_VERIFIED`.

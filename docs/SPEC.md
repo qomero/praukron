@@ -293,7 +293,7 @@ record these commands do not cover.
 | `praukron criterion set` | `ACCEPTANCE.md` | one criterion's state and its one-line evidence |
 | `praukron task add` | `TASKS.md`, optionally `ACCEPTANCE.md` | appends a task, and its new contract in the same write |
 | `praukron contract add` | `ACCEPTANCE.md`, `TASKS.md` | appends a contract and sets the task's `AC:` |
-| `praukron task update` | `TASKS.md` | `Status`, `Owner`, `Claimed`, `Evidence`, `Validation` of one task; appends to `Governed by` (ADR-068, ADR-074) |
+| `praukron task update` | `TASKS.md`, `CODE.md` at `DONE` | `Status`, `Owner`, `Claimed`, `Evidence`, `Validation` of one task; appends to `Governed by` (ADR-068, ADR-074); `Claimed at` when it claims, and the observed references it captures when it closes (§2.9, ADR-092) |
 | `praukron acr add` | `ACCEPTANCE.md` | appends one `### ACR-<n>` request to the `## Acceptance Change Requests` log (ADR-076) |
 | `praukron ref add` | `CODE.md` | appends one task–code reference, creating the file from its template header when absent (§2.9) |
 | `praukron ref set` | `CODE.md` | one reference's verification, lifecycle or evidence in place, or an appended record that withdraws or replaces it (§2.9) |
@@ -358,6 +358,25 @@ again.
   mandatory criterion of the task's contract at `PASS` and recorded evidence. An
   `Authority: owner` task is never set `DONE` (`owner-held`), and no command sets
   `HUMAN_VERIFIED`.
+- In a Git repository, `task update` (alone or inside `batch apply`) that moves
+  a task to `WIP` also writes the optional task field `- Claimed at: <full
+  commit id>`, the commit checked out at the claim (ADR-092). A task that
+  already has one keeps it when claimed again; one without gains it. No
+  payload field sets it. When the update moves a task with `Claimed at` to
+  `DONE`, the same write captures its observed files into `CODE.md` (§2.9); the
+  task and its references are written together or not at all.
+- Capture never refuses or delays a write. The reply of a claim or a close
+  carries a `capture` member: at a claim `{"status":"recorded","commit":…}`,
+  `{"status":"kept","commit":…}` for a task claimed before, or
+  `{"status":"skipped","reason":…}`; at a close `{"status":"captured",
+  "references":<n written>,"base":…,"head":…,"workingTree":true,
+  "alreadyRecorded":<n>,"unresolved":<n>}`, with `skippedPaths` for a path a
+  record cannot hold, or `skipped` with its reason. Capture is skipped, and the
+  write is otherwise exactly as without it, when `git` is not on the path, the
+  project is not in a Git working tree, the repository has no commit, the task
+  has no `Claimed at`, the claim commit is not in the repository, or a Git
+  command fails or exceeds its 20-second timeout. Inside `batch apply` the
+  member is on that operation's entry in `results`.
 - Records under `chronicle/archive/` are immutable to every command
   (`archived-record`).
 - `journal append` keeps its full heading unique across the working file and
@@ -597,8 +616,9 @@ mapping reads and writes (ADR-088, ADR-089). Built: reading `CODE.md`, its
 validation and compilation into `references` and `artifacts` (T-CIL-MAP-01);
 the `praukron refs` lookup and the packet's `references` field
 (T-CIL-MAP-03); the writes `ref add`, `ref set` and `ref history`
-(T-CIL-MAP-02); and the dashboard's Files and Symbols columns, Code References
-section and artifact records (T-CIL-MAP-04).
+(T-CIL-MAP-02); the dashboard's Files and Symbols columns, Code References
+section and artifact records (T-CIL-MAP-04); and the capture of a task's
+observed files from Git at its close, and `scope capture` (T-CIL-SCOPE-01).
 
 A task–code reference says that one task relates to one code artifact: a file,
 or a symbol inside a file. References are authored records in
@@ -788,6 +808,71 @@ paths from `Was`, the tasks that reference it and their decisions. The page
 embeds the reference list once, in its project data, plus the ids of the
 references that are no longer current.
 
+**Observed files, captured from Git (ADR-092).** When a structured write sets a
+task `DONE` and the task has `Claimed at` (§2.6), the same write records every
+file changed from that commit to the working tree, staged, unstaged and
+untracked changes included, as observed references. No command is needed.
+`praukron scope capture <task> --base <rev> [--head <rev>]` records the same
+between two named revisions (to the working tree when `--head` is absent), for
+a task that has no `Claimed at` or was worked elsewhere; it plans through the
+same code and commits through the same transaction and validation, and prints
+one JSON line with the same `capture` member (`--dry-run` reports
+`wouldWrite`). A capture that finds nothing new succeeds without writing.
+
+Each changed file is one record, `Recorded` by the task's owner:
+
+```text
+## CR-T-PAY-03-04: src/pay/ledger_v2.py (renamed from src/pay/ledger.py)
+- Task: T-PAY-03
+- Path: src/pay/ledger_v2.py
+- Relation: modifies
+- Scope: observed
+- Verification: verified
+- Authorization: not_applicable
+- Source: git_diff
+- Recorded: 2026-11-26 · claude/primary
+- Revision: 9c1e0f…
+- Base: 286b9a7…
+- Head: 9c1e0f…
+- Was: src/pay/ledger.py
+- Evidence: git diff 286b9a7c0d1e to 9c1e0f2a3b4c: renamed
+```
+
+An added file `creates`; a modified file `modifies`; a deleted file `deletes`
+with `Lifecycle: deleted`; a renamed file (Git's rename detection, `-M`)
+`modifies` its new path with `Was` the old one. A change of type or mode is a
+modification, and a rename whose new file is still untracked is a deletion and
+an addition. `Base` is the claim commit (or `--base`) and `Head` the commit
+checked out at the close (or `--head`), both in full. A change already in
+`Head` also carries `Revision: <Head>`; a change only in the working tree has
+no `Revision`, and its `Evidence` says "the working tree at". Paths are
+relative to the Praukron project root; in a repository where that root is a
+subdirectory, only changes below it are captured.
+
+Not recorded: anything Git's ignore rules ignore (`.gitignore`,
+`.git/info/exclude`, `core.excludesFile`), a tracked file they match
+included; anything under `.praukron/`; and a path a record cannot hold (not
+UTF-8, leading or trailing whitespace, a line break or a backslash), which the
+reply lists in `skippedPaths`. Praukron keeps no ignore list of its own.
+
+A change is attributed to the task only when it lies between `Base` and
+`Head`, the working tree included. When another task may also have made it,
+Git alone cannot tell the two apart, and the record says so instead of
+guessing: `Lifecycle: unresolved`, and `Evidence` ends `unresolved
+attribution: <task> was also claimed over this range`. Another task overlaps
+when it is `WIP` or `BLOCKED` with a `Claimed at` that is an ancestor of, or
+equal to, `Head` (then every file of the capture is unresolved), or when it is
+`DONE` and its own captured records end inside this range, that is their
+`Head` is after `Base`, or is `Base` with no `Revision` (then only the files it
+recorded are unresolved). A task with no `Claimed at` overlaps nothing.
+
+Capture adds observed references only: it changes no planned or earlier
+record and writes `Authorization: not_applicable`, never `authorized`. It
+never records the same file twice for a task: a file that already has a
+current observed record of the task with the same relation is counted in
+`alreadyRecorded` and skipped, so a second close, or `scope capture` over a
+range already captured, adds only what is new.
+
 `validate` reports a malformed heading or a missing required field (the load
 fails, as for every record file); `duplicate-reference`,
 `unknown-reference-task`, `invalid-reference-path`, `invalid-reference-value`
@@ -949,7 +1034,7 @@ The portable workflows are:
 - `/praukron-resume`
 - `/praukron-baseline` (existing repositories, on request)
 
-`praukron retrieve`, `praukron refs` (§2.9), `praukron codegraph` and the structured writes
+`praukron retrieve`, `praukron refs` and `praukron scope capture` (§2.9), `praukron codegraph` and the structured writes
 (`praukron journal append`, `praukron criterion set`, `praukron task add`,
 `praukron contract add`, `praukron task update`, `praukron acr add`; §2.6) are commands of the tool,
 not workflows; the workflows use them. `praukron archive` (§2.7) is the owner's

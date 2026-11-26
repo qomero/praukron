@@ -170,6 +170,7 @@ def parse_tasks(path: Path, modules: list[Module] | None = None, name: str | Non
                 legacy_phase=legacy_phase,
                 authority=(fields.get("Authority") or "").strip().lower() or None,
                 frozen=fields.get("Frozen") or None,
+                claimed_at=fields.get("Claimed at") or None,
             )
         )
     return tasks
