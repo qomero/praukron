@@ -214,7 +214,8 @@ out from under the assumption. Decision records in `ADR/` stay too: they are
 the highest-ranked authority an agent reads, and a journal entry that names only
 ADRs names nothing to archive. `COORDINATION.md` stays as well: it is how the
 project runs its agents, and a task with an `ACTIVE` brief stays in the working
-files with it (ADR-075). `INTENT.md`, `HANDOFF.md`, `PHASES.md`,
+files with it (ADR-075). `CODE.md` stays whole: a file's history across tasks
+is what it records. `INTENT.md`, `HANDOFF.md`, `PHASES.md`,
 `MODULES.md`, `THESIS.md` and the gates are state, not history, and also stay.
 
 **Destinations.** `archive/<phase>/` receives `TASKS.md`, `ACCEPTANCE.md`,
@@ -354,7 +355,8 @@ alone, so retain its history and backups.
 ### Writing records without editing files
 
 Agents record tasks, criterion results, status changes, journal entries and
-Acceptance Change Requests with six commands. Each reads a small JSON payload and prints one JSON line, so the
+Acceptance Change Requests with six commands, and code references with two more
+(see [Which code each task touched](#which-code-each-task-touched)). Each reads a small JSON payload and prints one JSON line, so the
 cost of a write follows the size of the record, not of `TASKS.md` or
 `ACCEPTANCE.md` ([SPEC §2.6](SPEC.md#26-structured-writes), measured in
 [benchmarks](benchmarks.md)). `--schema` prints a command's payload and an
@@ -513,18 +515,15 @@ observed references in `CODE.md`, and with each changed Python file the
 functions, classes and methods whose lines changed:
 
 ```json
-"capture":{"status":"captured","references":5,"files":2,"symbols":3,"base":"<sha>","head":"<sha>",
+"capture":{"status":"captured","references":9,"files":3,"symbols":6,
+  "base":"2ad8fafd1f0d823550701da785b47b0cf984d1c8","head":"4d3db3177202fc2329b5e19ea22f36a6f5889573",
   "workingTree":true,"alreadyRecorded":0,"unresolved":0,
   "symbolsUnresolved":[{"path":"web/app.js","reason":"no deterministic symbol extractor for this file type"}]}
 ```
 
-Here `src/pay/ledger.py` gained a record for the file and one each for
-`Ledger.post` (modified), `Ledger.void` (created) and the class `Ledger`
-that holds them (modified); `web/app.js` has its
-file record, whose evidence says its symbols are unresolved, and no symbol
-record. Add a symbol Praukron could not resolve yourself with `ref add`.
-Nothing else is needed; `praukron scope capture <task> --base <rev> [--head
-<rev>]` does the same for a task claimed elsewhere.
+That reply is from the example in
+[Which code each task touched](#which-code-each-task-touched), which shows what
+was recorded and how to read and correct it.
 
 An `Authority: owner` task is never closed this way (`owner-held`), and no
 command sets `HUMAN_VERIFIED`.
@@ -573,6 +572,202 @@ praukron codegraph uninit
 
 Praukron works the same without it. Give a task `- Files:` and `- Symbols:`
 lines to seed its code query.
+
+CodeGraph, like any graph provider, is a third-party program. Praukron does
+not control or inspect what it sends over the network, telemetry included;
+check its documentation and settings and decide for yourself. Praukron itself
+sends nothing, and nothing in [Which code each task touched](#which-code-each-task-touched)
+uses a provider.
+
+### Which code each task touched
+
+A task that is claimed and closed through `task update` (or `batch apply`) in
+a Git repository ends up with its files and Python symbols recorded in
+`.praukron/chronicle/CODE.md`. You do not run anything for this. The rest of
+this section uses a small synthetic invoicing repository: `T-BILL-01` adds a
+discount to `src/billing/invoice.py`, changes `web/app.js` and adds a test;
+`T-BILL-02`, governed by `ADR-001`, later rounds totals in the same file.
+
+**What happens by itself.** The claim writes `- Claimed at: <commit>` on the
+task and says so in its reply (`"capture":{"status":"recorded","commit":…}`).
+Claiming again keeps the first commit (`"kept"`). The close compares that
+commit with the working tree, staged, unstaged and untracked changes included,
+and records each changed file, and each changed Python function, class and
+method, as an **observed** reference in the same write. An added file or
+symbol `creates`, a changed one `modifies`, a removed one `deletes`; a renamed
+file keeps its old path in `Was`. Each record carries the commits it was
+captured between (`Base`, `Head`), the commit it is true at (`Revision`, absent
+for a change still only in the working tree), and evidence such as `git diff
+2ad8fafd1f0d to 4d3db3177202: method Invoice.total modified (Python ast)`.
+Closing a task twice, or capturing a range again, adds only what is new
+(`alreadyRecorded` counts the rest).
+
+A capture leaves out anything Git's ignore rules ignore, anything under
+`.praukron/`, and a path a record cannot hold (not UTF-8, a line break, a
+backslash, or leading or trailing whitespace), which the reply lists in
+`skippedPaths`. Praukron keeps no ignore list of its own, so put build output
+and caches in `.gitignore`.
+
+**Reading them.** `refs` answers both directions and reads only the compiled
+records:
+
+```console
+$ praukron refs 'src/billing/invoice.py#format_total'
+src/billing/invoice.py#format_total — referenced by 1 tasks through 1 references
+
+T-BILL-02 — Round totals to cents [DONE] — TASKS.md#T-BILL-02
+  - src/billing/invoice.py#format_total · modifies · observed · verified · not_applicable · revision ac480ae0c823e2c5edb7675f475a6e1af36f97f0 · evidence: git diff 1cddfe31b7eb to ac480ae0c823: function format_total modified (Python ast) — CODE.md#CR-T-BILL-02-02
+  decision ADR-001 [ACCEPTED] Round invoice totals half up to whole cents — ADR/ADR-001.md
+  criterion AC-T-BILL-02-01 [PASS] — ACCEPTANCE.md#AC-T-BILL-02
+```
+
+| You want | Run |
+|---|---|
+| A task's files and symbols | `praukron refs T-BILL-01` |
+| Every task that touched a file, or a symbol in it | `praukron refs src/billing/invoice.py` |
+| The tasks behind one symbol | `praukron refs 'src/billing/invoice.py#format_total'` |
+| The same as data, every field included | add `--json` |
+| A reference and the records it replaced | `praukron ref history CR-T-BILL-02-04` |
+
+A path lookup also brings each task's governing decisions, acceptance criteria
+and assumptions, each with the record to open. An agent does not need to run
+`refs` to start: `praukron context <task>` and `praukron retrieve <task>` carry
+the task's current references in a `references` field (the first twelve, the
+counts, and the `refs` command for the rest when there are more).
+
+**Planned and observed.** A reference written before the work, saying what the
+task expects to touch, is **planned**; one captured or recorded after it is
+**observed**. Both stay; an observed reference never replaces a planned one, so
+the difference between the plan and what happened stays visible. Neither one
+gives permission. `Authorization` says whether a change was approved: a planned
+`creates`, `modifies` or `deletes` is written `proposed` unless `authorizedBy`
+names an owner response (`R-…`) or an accepted ADR, and everything else is
+`not_applicable`. `Verification` says, separately, whether the reference
+matches the code. Capture writes `verified` and `not_applicable`, never
+`authorized`.
+
+**Adding one by hand.** Use `ref add` for a planned reference before you start,
+and for anything capture could not name, such as a symbol in a language other
+than Python:
+
+```console
+$ echo '{"task":"T-BILL-01","title":"Show the discounted total","path":"web/app.js","symbol":"showTotal","kind":"function","relation":"modifies","scope":"observed","verification":"verified","source":"agent","recordedBy":"agent/builder","evidence":"read web/app.js at 4d3db31"}' | praukron ref add --input -
+{"ok":true,"operation":"ref.add","recordId":"CR-T-BILL-01-11","source":"CODE.md#CR-T-BILL-01-11","revision":"63ad57429895a8d6","validation":"passed","written":true,"refreshed":true}
+```
+
+The tool assigns the identifier: `CR-`, the task, and its next number.
+`praukron ref add --schema` lists every field.
+
+**Correcting one.** A reference is never deleted or rewritten in place, except
+for three fields. `ref set` takes the reference's revision, like every
+structured write; sixteen zeros return the current one:
+
+```console
+$ echo '{"id":"CR-T-BILL-01-01","expectRevision":"0000000000000000","recordedBy":"agent/reviewer","set":{"verification":"verified"}}' | praukron ref set --input -
+{"ok":false,"operation":"ref.set","error":{"code":"stale-revision","message":"CR-T-BILL-01-01 changed: expected revision 0000000000000000, current 0587c2be89611f2a; retry with currentRevision","field":"expectRevision","currentRevision":"0587c2be89611f2a","section":"## CR-T-BILL-01-01: The discount changes the total\n…"},"written":false}
+
+$ echo '{"id":"CR-T-BILL-01-01","expectRevision":"0587c2be89611f2a","recordedBy":"agent/reviewer","set":{"verification":"verified","evidence":"Invoice.total changed as planned"}}' | praukron ref set --input -
+{"ok":true,"operation":"ref.set","recordId":"CR-T-BILL-01-01","source":"CODE.md#CR-T-BILL-01-01","revision":"235bb0eaea826c1f","validation":"passed","written":true,"refreshed":true}
+```
+
+- **Verify**, or mark it `disputed` or `stale`: `set` changes `verification`,
+  `lifecycle` or `evidence` in place and adds an `Updated:` line. Who first
+  recorded the reference, and how, is never changed.
+- **Replace** it when it named the wrong thing. A new record is appended with
+  `Replaces:`, and the old one stays as it was:
+
+  ```console
+  $ echo '{"id":"CR-T-BILL-02-03","expectRevision":"7aa38af194033d8c","recordedBy":"agent/builder","source":"agent","replace":{"path":"src/billing/invoice.py","symbol":"format_total","relation":"modifies"}}' | praukron ref set --input -
+  {"ok":true,"operation":"ref.set","recordId":"CR-T-BILL-02-04","source":"CODE.md#CR-T-BILL-02-04","revision":"5acd91a4f87ed5fd","validation":"passed","written":true,"refreshed":true,"replaces":"CR-T-BILL-02-03"}
+  ```
+
+- **Withdraw** it when it should not exist at all. A new record is appended
+  with `Withdrawn:` and the reason:
+
+  ```console
+  $ echo '{"id":"CR-T-BILL-02-05","expectRevision":"0dbd95d14d324e95","recordedBy":"person/reviewer","source":"manual","withdraw":{"reason":"recorded against the wrong task; the test belongs to T-BILL-01"}}' | praukron ref set --input -
+  {"ok":true,"operation":"ref.set","recordId":"CR-T-BILL-02-06","source":"CODE.md#CR-T-BILL-02-06","revision":"86882cd846622494","validation":"passed","written":true,"refreshed":true,"replaces":"CR-T-BILL-02-05"}
+  ```
+
+A replaced or withdrawn record can no longer be changed; act on its latest
+record. `refs` still lists every record and marks the old ones:
+
+```console
+$ praukron refs T-BILL-02
+T-BILL-02 — Round totals to cents [DONE] — TASKS.md#T-BILL-02
+  6 references: 2 planned, 4 observed
+  - src/billing/invoice.py · modifies · observed · verified · not_applicable · …
+  - src/billing/invoice.py#format_total · modifies · observed · verified · not_applicable · …
+  - src/billing/money.py#round_cents · creates · planned · unverified · proposed · replaced by CR-T-BILL-02-04 — CODE.md#CR-T-BILL-02-03
+  - src/billing/invoice.py#format_total · modifies · planned · unverified · proposed — CODE.md#CR-T-BILL-02-04
+  - tests/test_invoice.py · verifies · observed · unverified · not_applicable · replaced by CR-T-BILL-02-06 — CODE.md#CR-T-BILL-02-05
+  - tests/test_invoice.py · verifies · observed · unverified · not_applicable · withdrawn 2026-11-26 · recorded against the wrong task; the test belongs to T-BILL-01 — CODE.md#CR-T-BILL-02-06
+```
+
+`praukron ref history CR-T-BILL-02-04` prints that record and the one it
+replaced, oldest first, exactly as they stand in `CODE.md`.
+
+**In the dashboard.** The task registry in Work has a **Files** and a
+**Symbols** column, counting each task's current references, and its filter
+search matches a path, part of one, or a symbol name. Every task record, and the dialog that opens
+when you click a task, has a **Code References** section: planned files,
+planned symbols, observed files and observed symbols, each with its relation,
+authorization, verification, revision and how it was recorded, and the other
+tasks that reference the same file or symbol. Replaced, withdrawn, stale and
+unresolved references are listed and marked. Audit's **Code artifacts** group
+gives each file or symbol its earlier paths and the tasks and decisions behind
+it.
+
+<p align="center">
+  <img src="assets/dashboard-registry.png" alt="The Work task registry lists three tasks with Files and Symbols counts: T-BILL-01 with 3 files and 8 symbols, T-BILL-02 with 1 and 2, and the work-in-progress T-BILL-03 with 0 and 2." width="900">
+</p>
+
+**Work done somewhere else.** A task worked in another worktree, a task
+without `Claimed at`, or one closed by editing `TASKS.md` has no capture of its
+own. Capture it afterwards between two revisions; `--head` defaults to the
+working tree, and `--dry-run` shows what would be written. Here `T-BILL-06`
+was committed on top of `e5befdd`:
+
+```console
+$ praukron scope capture T-BILL-06 --base e5befdd5c19468a9eaa0f81918113afbb1daaf81 --head HEAD
+{"ok":true,"operation":"scope.capture","recordId":"CR-T-BILL-06-01","source":"CODE.md#CR-T-BILL-06-01","revision":"380111dc7af5de0e","validation":"passed","written":true,"refreshed":true,"capture":{"status":"captured","references":2,"files":1,"symbols":1,"base":"e5befdd5c19468a9eaa0f81918113afbb1daaf81","head":"e2edbb11d052a867b289381dc5ad6f25ac1074fe","workingTree":false,"alreadyRecorded":0,"unresolved":0}}
+```
+
+Run it in the repository the work was committed to, after the commits are
+there.
+
+**Limits.**
+
+- **Symbols are captured for Python only** (`.py` and `.pyi`, parsed with the
+  standard library, never imported or run). Any other file keeps its file
+  reference, whose evidence ends `symbols unresolved: <reason>`, and the reply
+  lists it under `symbolsUnresolved`. A Python file that does not parse, is
+  larger than 512 KiB, or falls past a capture's limits (200 changed Python
+  files, 4 MiB of Python source, 200 symbol records) is listed there too, with
+  the reason. Add what you need with `ref add`.
+- **Git cannot tell two open tasks apart.** If another task in the same
+  working tree is still `WIP` or `BLOCKED` and was claimed at a commit the
+  closing task's range includes, every file of the closing task is recorded
+  with `Lifecycle: unresolved`, and its evidence names the other task:
+  `git diff 885ca55f42d1 to the working tree at 885ca55f42d1: added; unresolved
+  attribution: T-BILL-03 was also claimed over this range`. If a task already
+  closed and captured files inside the range, only those files are unresolved.
+  Once you know whose change it was, record that with `ref set` (for example
+  `"set":{"lifecycle":"active","evidence":"made by T-BILL-04"}`) or withdraw
+  it; to avoid it, work one task per worktree.
+- **Pulls and merges count.** A file that arrives through a pull or a merge
+  between a task's claim and its close is attributed to that task, because it
+  lies in the same range of commits. Close a task before you pull other work
+  in, or withdraw what is not yours afterwards.
+- **Capture needs Git.** Outside a repository, without `git` on the path, in a
+  repository with no commit, for a task without `Claimed at`, or when a Git
+  command fails or takes more than 20 seconds, the write still succeeds and the
+  reply says why capture was skipped, for example
+  `"capture":{"status":"skipped","reason":"not a Git repository"}`. A failed
+  capture never blocks or delays a close.
+- **No graph provider is needed** for any of this. See the next section for
+  what an optional provider adds.
+
 
 ### Checking and rebuilding
 
@@ -730,7 +925,8 @@ commands above, so the task and contract arrive in one validated step. If a mate
 an ADR should appear without you asking for one.
 
 **Checking.** `praukron status`, or open the dashboard. Click a task to see its
-contract, every criterion, and the evidence behind each. `DONE` with a criterion
+contract, every criterion, the evidence behind each, and the files and symbols
+it touched. `DONE` with a criterion
 still `NOT_RUN` is a validation error, and the tool will say so.
 
 **Stopping.** Ask for a checkpoint, or let the rules fire. What you want in
@@ -755,6 +951,9 @@ actually needs.
 | `debt-trigger-reached` warning | A debt's trigger is reached and no repayment is scheduled | Schedule a task and link it, or record why the debt is still acceptable |
 | `ambiguous-domain` warning | A phase-independent task has no `Domain:` | Add `- Domain: execution` or `- Domain: operations`; `praukron domains` lists them |
 | A maintenance task disappeared from Home | It is declared `operations`, so it no longer competes with product work | Find it in Work's registry (filter by domain) and its trace under Audit; Home names it only if execution waits on it |
+| A close says `"capture":{"status":"skipped",…}` | No Git repository, no `git`, no `Claimed at`, or a Git command failed; the close itself succeeded | Commit the work and run `praukron scope capture <task> --base <rev>` |
+| A captured file shows `Lifecycle: unresolved` | Another task was open over the same commits, so Git could not say whose change it was | Correct it with `praukron ref set`; see [Which code each task touched](#which-code-each-task-touched) |
+| A file you did not change is on your task | It arrived by a pull or merge between your claim and close | `praukron ref set` with `withdraw` |
 | `stale-reference` warning | `HANDOFF.md` or `INTENT.md` names a file that moved or was deleted | Update the path in the handoff |
 | Merge conflict in `.praukron/compiled/` | Both branches recompiled | Take either side, then `praukron compile && praukron graph && praukron dashboard` |
 | Merge conflict in `INTENT.md` or `HANDOFF.md` | Both branches changed current state | Resolve by hand toward the branch whose work is current |
@@ -777,6 +976,10 @@ actually needs.
   columns, and only a named human can record the top one.
 - **Nothing is invented.** No duration unless someone recorded one, no date
   unless someone set one, `UNKNOWN` the rest of the time.
+- **A code reference is never deleted.** It is replaced or withdrawn, and the
+  earlier record stays, so the history of a file survives its rename. Observed
+  is not authorized: a reference says what a task touched, not that it was
+  allowed to.
 - **Praukron owns project understanding, not execution.** It schedules nothing
   and runs nothing. Your agents and you do the work.
 

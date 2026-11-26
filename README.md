@@ -14,7 +14,8 @@ Chronicle.
 
 Previously published as **Prokron**. Existing DOI identifiers and Git history are preserved.
 
-[The problem](#the-problem) · [Get started](#get-started) ·
+[The problem](#the-problem) · [Which work touched which code](#which-work-touched-which-code) ·
+[Get started](#get-started) ·
 [Guide](docs/GUIDE.md) · [Specification](docs/SPEC.md) ·
 [Thesis](docs/PRODUCT-THESIS.md)
 
@@ -26,8 +27,8 @@ code meant does not.
 
 The next participant cannot tell from the repository which task was half
 finished, which decision was reversed last month and why, what has to happen
-before this work can start, or what would have to be true for anyone to call it
-done. So they reconstruct it: read the diff, guess the intent, ask someone, or
+before this work can start, what would have to be true for anyone to call it
+done, or which task changed the file in front of them. So they reconstruct it: read the diff, guess the intent, ask someone, or
 quietly redo a decision that was already made.
 
 This is usually described as an AI memory problem. It is not, or not only.
@@ -127,7 +128,8 @@ Each record answers one question a project keeps being asked.
 |---|---|---|
 | What are we trying to do right now? | **Intent** — zero or one active task, at its exact stopping point | `INTENT.md` |
 | Why does the project exist? | **Thesis** — the statement every phase, module, and task descends from | `THESIS.md` |
-| What work exists? | **Tasks** — module (and through it, phase), owner, status, validation, evidence | `TASKS.md`, `MODULES.md` |
+| What work exists? | **Tasks** — module (and through it, phase), owner, status, the commit it was claimed at, validation, evidence | `TASKS.md`, `MODULES.md` |
+| Which code did this work touch? | **Code references** — the files and symbols each task planned to touch and, captured from Git when it closed, did touch | `CODE.md` |
 | What has to happen first? | **Dependencies**, resolved into a graph of ready and blocked work | computed from `TASKS.md` |
 | What counts as done? | **Acceptance** — a frozen contract per task, criterion by criterion | `ACCEPTANCE.md` |
 | What phase are we in, and what must be true to leave it? | **Phases** and **gates** — outcome, entry, exit, exit authority | `PHASES.md` |
@@ -174,11 +176,11 @@ Completion and confidence stay separate. A task can be `DONE` and still be
 manual evidence.
 
 <p align="center">
-  <img src="docs/assets/dashboard-contract.png" alt="A task detail dialog shows dependencies, three acceptance criteria (not run, pass, fail), the obstacle they cause, decisions, schedule, source and a path to the full record in Audit." width="640">
+  <img src="docs/assets/dashboard-contract.png" alt="A task detail dialog shows dependencies, three acceptance criteria (not run, pass, fail), the obstacle they cause, decisions, schedule, source, a path to the full record in Audit, and the code references the task planned, one of which another task also references." width="640">
 </p>
 
 <p align="center"><em>Click any task for its contract, its criteria, and the evidence behind each one.<br>
-One criterion passes, one fails, one has not run — so the task cannot close, and the dialog says why.</em></p>
+One criterion passes, one fails, one has not run — so the task cannot close, and the dialog says why. Below them are the files and symbols the task plans to touch.</em></p>
 
 That last part matters more than it looks. When two people — or two agents —
 disagree about whether something is finished, the contract makes the
@@ -209,6 +211,145 @@ from whether it is done.
 
 <p align="center"><em>Six views draw offline: dependencies, critical path, phases, gates, dependency ordering and calendar Gantt.<br>
 Each drawing keeps its Mermaid source beside it. Calendar bars use recorded schedules only.</em></p>
+
+## Which work touched which code
+
+A task says what was meant to change. A commit says which lines changed. What
+usually goes missing is the link between them. Months later someone opens a
+file and asks which task changed this function, under which decision, and
+against which acceptance criteria. The reverse question is just as common: a
+task is marked done, so what did it actually touch? Commit messages answer
+this only when someone remembered to write the task identifier, and an agent
+that is asked to record its files by hand forgets as often as a person does.
+
+Praukron records the link itself. When a task is claimed through a structured
+write in a Git repository, the claim notes the commit that is checked out.
+When the task is closed the same way, the closing write records every file
+changed since that commit, the working tree and untracked files included, and
+for Python files the functions, classes and methods whose lines changed. They
+are written to `.praukron/chronicle/CODE.md` as *observed* references of that
+task. There is no extra command to run.
+
+In a small synthetic repository, an agent claims a task:
+
+```console
+$ echo '{"id":"T-BILL-01","expectRevision":"d0a71ca157351098","set":{"status":"WIP","owner":"agent/builder"}}' | praukron task update --input -
+{"ok":true,"operation":"task.update","recordId":"T-BILL-01",…,"capture":{"status":"recorded","commit":"2ad8fafd1f0d823550701da785b47b0cf984d1c8"}}
+```
+
+It changes `src/billing/invoice.py` and `web/app.js`, adds a test, passes the
+task's criterion, and closes it:
+
+```console
+$ echo '{"id":"T-BILL-01","expectRevision":"ceb70f5ce7896bb5","set":{"status":"DONE","evidence":"AC-T-BILL-01-01 PASS: tests/test_invoice.py"}}' | praukron task update --input -
+{"ok":true,"operation":"task.update","recordId":"T-BILL-01",…,"capture":{"status":"captured",
+  "references":9,"files":3,"symbols":6,
+  "base":"2ad8fafd1f0d823550701da785b47b0cf984d1c8","head":"4d3db3177202fc2329b5e19ea22f36a6f5889573",
+  "workingTree":true,"alreadyRecorded":0,"unresolved":0,
+  "symbolsUnresolved":[{"path":"web/app.js","reason":"no deterministic symbol extractor for this file type"}]}}
+```
+
+Three files and six Python symbols were recorded. `web/app.js` keeps its file
+reference, and the reply says why it has no symbols. Either direction can
+now be asked:
+
+```console
+$ praukron refs T-BILL-01
+T-BILL-01 — Apply a discount to an invoice [DONE] — TASKS.md#T-BILL-01
+  10 references: 1 planned, 9 observed
+  - src/billing/invoice.py#Invoice.total · modifies · planned · unverified · proposed — CODE.md#CR-T-BILL-01-01
+  - src/billing/invoice.py · modifies · observed · verified · not_applicable · revision 4d3db31… · evidence: git diff 2ad8fafd1f0d to 4d3db3177202: modified — CODE.md#CR-T-BILL-01-02
+  - src/billing/invoice.py#Invoice · modifies · observed · verified · …
+  - src/billing/invoice.py#Invoice.__init__ · modifies · observed · verified · …
+  - src/billing/invoice.py#Invoice.apply_discount · creates · observed · verified · …
+  - src/billing/invoice.py#Invoice.total · modifies · observed · verified · …
+  - tests/test_invoice.py · creates · observed · verified · not_applicable · evidence: git diff 2ad8fafd1f0d to the working tree at 4d3db3177202: added — CODE.md#CR-T-BILL-01-07
+  - tests/test_invoice.py#DiscountTest · creates · observed · verified · …
+  - tests/test_invoice.py#DiscountTest.test_ten_percent · creates · observed · verified · …
+  - web/app.js · modifies · observed · verified · … · evidence: git diff 2ad8fafd1f0d to 4d3db3177202: modified; symbols unresolved: no deterministic symbol extractor for this file type — CODE.md#CR-T-BILL-01-10
+
+$ praukron refs src/billing/invoice.py
+src/billing/invoice.py — referenced by 2 tasks through 8 references
+
+T-BILL-01 — Apply a discount to an invoice [DONE] — TASKS.md#T-BILL-01
+  - src/billing/invoice.py#Invoice.total · modifies · planned · unverified · proposed — CODE.md#CR-T-BILL-01-01
+  - src/billing/invoice.py · modifies · observed · verified · …
+  …
+  criterion AC-T-BILL-01-01 [PASS] — ACCEPTANCE.md#AC-T-BILL-01
+
+T-BILL-02 — Round totals to cents [DONE] — TASKS.md#T-BILL-02
+  - src/billing/invoice.py · modifies · observed · verified · …
+  - src/billing/invoice.py#format_total · modifies · observed · verified · …
+  decision ADR-001 [ACCEPTED] Round invoice totals half up to whole cents — ADR/ADR-001.md
+  criterion AC-T-BILL-02-01 [PASS] — ACCEPTANCE.md#AC-T-BILL-02
+```
+
+The first reference is *planned*: the agent wrote it with `praukron ref add`
+before starting, to say what it expected to touch. Planned and observed
+references sit side by side and neither replaces the other. Neither one is
+permission to make the change, either: a planned change stays `proposed`
+until an owner response or an accepted decision authorizes it.
+
+An agent that picks the task up later gets the same references in its packet,
+with the paths and symbol names it can start searching from:
+
+```console
+$ praukron context T-BILL-01
+{
+  …
+  "references": {
+    "total": 10,
+    "counts": { "planned": 1, "observed": 9 },
+    "first": [
+      { "id": "CR-T-BILL-01-06", "path": "src/billing/invoice.py", "symbol": "Invoice.total",
+        "relation": "modifies", "scope": "observed", "verification": "verified",
+        "authorization": "not_applicable", "revision": "4d3db3177202fc2329b5e19ea22f36a6f5889573",
+        "evidence": "git diff 2ad8fafd1f0d to 4d3db3177202: method Invoice.total modified (Python ast)",
+        "authority": "CODE.md#CR-T-BILL-01-06" },
+      …
+    ],
+    "rest": null
+  }
+}
+```
+
+A person sees them in the dashboard: the task list counts each task's Files and
+Symbols, and every task carries a Code References section.
+
+<p align="center">
+  <img src="docs/assets/dashboard-code.png" alt="The Code References section of a closed task's dialog groups one planned symbol, three observed files and the observed Python symbols, each with relation, authorization, verification, revision and how it was recorded; one file notes that another task also references it." width="760">
+</p>
+
+<p align="center"><em>The task from the example above, in <code>praukron dashboard</code>, after the corrections shown in the guide: the planned reference verified, and the JavaScript function added by hand.<br>
+Each row says where the reference came from: <code>agent</code> for one written by hand, <code>git_diff</code> for a file and <code>static_analysis</code> for a symbol captured at the close.</em></p>
+
+What the capture does not do, stated where you will meet it:
+
+- **Symbols are captured for Python only** (`.py`, `.pyi`, read with the
+  standard library's parser, never imported or run). A file in any other
+  language keeps its file reference, and the reply lists it under
+  `symbolsUnresolved`. Add its symbols yourself with `ref add`.
+- **Two tasks open at once in one working tree cannot be told apart.** Git does
+  not record which task made a change. If another task was claimed earlier and
+  is still `WIP` or `BLOCKED` when this one closes, every file of the closing
+  task is recorded with `Lifecycle: unresolved`, and its evidence names the
+  other task, instead of a guess.
+- **Changes pulled or merged in between count.** A file that arrives through a
+  pull or a merge between a task's claim and its close is attributed to that
+  task.
+- **Capture needs Git.** Without a repository, or for a task that has no
+  recorded claim commit, the write still succeeds and its reply says capture
+  was skipped and why. A task worked in another worktree or claimed
+  elsewhere can be captured afterwards with `praukron scope capture`.
+- **No graph provider is needed.** Capture, `refs`, the packet and the
+  dashboard use Git and the standard library only. A graph provider such as
+  CodeGraph is optional; it is a third-party program, and what it sends over
+  the network, telemetry included, is yours to check and handle. Praukron
+  itself sends nothing.
+
+How to add a reference by hand, correct one, and read its history is in the
+[guide](docs/GUIDE.md#which-code-each-task-touched); the record format is in
+[SPEC §2.9](docs/SPEC.md#29-taskcode-references).
 
 ## Get started
 
@@ -292,6 +433,8 @@ invent it. A populated chronicle is preserved if you initialize again.
 Ask for the work you want. The installed rules instruct the agent to create the
 task before implementing, write its contract, append a decision when one is
 made, and keep progress current — without a slash command for every update.
+When the agent closes the task, the files and symbols it changed are recorded
+with it.
 
 Then check it yourself:
 
@@ -315,8 +458,10 @@ what changed, or which work actually serves the current goal.
 ## Asking the project questions
 
 The tool is standard-library Python. No dependencies, no package to install, no
-model provider, no network. Output for a given set of documents is identical
-every time, which is what lets two agents and a person agree on the numbers.
+model provider, no network. To capture a task's files and symbols it runs the
+`git` already on your machine; everything else works without Git. Output for a given
+set of documents is identical every time, which is what lets two agents and a
+person agree on the numbers.
 
 ```console
 $ praukron status
@@ -365,16 +510,22 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron context` | Orientation for a fresh agent: phase, work in flight, ready, blocked, the critical path, and where authority lives. |
 | `praukron context <task>` | The minimal packet an agent needs to start that task, with the exact records to read and any references that do not resolve. |
 | `praukron domains` | How each task's execution/operations domain was decided, and which need one. |
+| `praukron refs <task>` | The task's files and symbols, planned and observed, each with its record. |
+| `praukron refs <path>` · `<path>#<symbol>` | Every task that references the file or symbol, with its decisions, criteria and assumptions. |
 | `praukron retrieve "<question or id>"` | Only the chronicle records a question needs, routed by `INDEX.md`, each with its source, within a token budget (`--budget`). |
 | `praukron archive plan <phase>` | Owner only, read-only: which closed records of a COMPLETE phase (or `P-NONE`) would move to `archive/<phase>/` and which stay and why, with a digest. |
 | `praukron archive apply <phase> --plan <digest>` | Owner only: move exactly that plan. They stay authority; open work stays put; a stale plan is refused. |
 | `praukron archive restore <phase>` | Owner only: return an archive's records to the working files. |
 | `praukron task add --input -` | Append a task, with its new contract in the same validated write. |
-| `praukron task update --input -` | Change one task's status, owner, claim date, evidence or validation (never `HUMAN_VERIFIED`), or add governing ADRs (ADR-074); `DONE` needs every criterion `PASS`. |
+| `praukron task update --input -` | Change one task's status, owner, claim date, evidence or validation (never `HUMAN_VERIFIED`), or add governing ADRs (ADR-074); `DONE` needs every criterion `PASS`. In a Git repository a claim records `Claimed at` and a close captures the changed files and Python symbols into `CODE.md`. |
 | `praukron contract add --input -` | Give a `TODO` task its acceptance contract. |
 | `praukron criterion set --input -` | Record one criterion's state and one-line evidence. |
 | `praukron journal append --input -` | Append one dated journal entry; a repeat is refused. |
 | `praukron acr add --input -` | Record an Acceptance Change Request against a frozen criterion, for the owner to decide (ADR-076). |
+| `praukron ref add --input -` | Record one task–code reference by hand: a planned file or symbol, or one capture could not name. |
+| `praukron ref set --input -` | Verify a reference or change its lifecycle or evidence in place, or append a record that withdraws or replaces it. |
+| `praukron ref history <CR-id>` | A reference and every record it replaces, oldest first. |
+| `praukron scope capture <task> --base <rev>` | Capture a task's changed files and symbols between two revisions, for work claimed elsewhere or in another worktree. |
 | `praukron batch apply --input -` | Apply several of the writes above in one call, in order, all or nothing (ADR-077). |
 | `praukron codegraph status` | Optional: whether CodeGraph is available to add code structure after the records. |
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
@@ -386,9 +537,10 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron respond <target> <action>` | Owner only: append `CONFIRM`, `REVISE`, `REJECT`, `GUIDE` or `VERIFY` for an assumption or task to `RESPONSES.md`, signed with the active `gh` login; `--batch` writes several, all or nothing. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
 
-The six write commands take a JSON payload (`--schema` prints it, `--dry-run`
-previews), validate before and after, and refuse stale revisions; agents use them
-instead of editing `TASKS.md`, `ACCEPTANCE.md` or `JOURNAL.md`. `batch apply`
+The eight write commands, from `task add` to `ref set`, take a JSON payload
+(`--schema` prints it, `--dry-run` previews), validate before and after, and
+refuse stale revisions; agents use them instead of editing `TASKS.md`,
+`ACCEPTANCE.md`, `JOURNAL.md` or `CODE.md`. `batch apply`
 combines them into one ordered atomic write and one refresh. See the
 [guide](docs/GUIDE.md#writing-records-without-editing-files).
 
@@ -440,7 +592,8 @@ authoritative.
 | `THESIS.md` | The purpose: the product thesis every phase, module, and task descends from. |
 | `PHASES.md` | The arc: maturity stages, exit conditions, exit authority, and gates. |
 | `MODULES.md` | The decomposition: modules, each inside one phase or `P-NONE`. |
-| `TASKS.md` | The work: module, domain (execution or operations), owner, dependencies, status, validation, evidence. |
+| `TASKS.md` | The work: module, domain (execution or operations), owner, dependencies, status, the claim date and `Claimed at` commit, validation, evidence. |
+| `CODE.md` | The code: which files and symbols each task planned to touch and was observed to touch. Written through `ref add`, `ref set` and the capture at a task's close. |
 | `INTENT.md` | The focus: zero or one active task and its exact execution point. |
 | `HANDOFF.md` | The baton: what the next person or agent needs right now. |
 | `JOURNAL.md` | The diary: progress, validation, what was left mid-air, and why. |
@@ -465,9 +618,9 @@ into why the model is shaped this way.
 
 ## What is verified, and what is not
 
-**Implemented and tested.** The compiler and its nineteen commands, acceptance
+**Implemented and tested.** The compiler and its twenty-two commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses and the served review page. 919 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1072 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 
