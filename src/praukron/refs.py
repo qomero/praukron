@@ -8,6 +8,8 @@ installed. Nothing here writes.
 
 from __future__ import annotations
 
+import re
+
 from . import compile as compiler
 from .analytics import _pointer
 from .model import Project, Reference, reference_path_problem
@@ -41,7 +43,8 @@ def entry(reference: Reference) -> dict[str, object]:
     }
     if reference.withdrawn:
         found["withdrawn"] = reference.withdrawn
-    return found
+    # An absent key means not recorded: nulls would be half of every entry.
+    return {key: value for key, value in found.items() if value is not None}
 
 
 def detail(reference: Reference) -> dict[str, object]:
@@ -96,6 +99,9 @@ def _assumptions(project: Project, task_id: str) -> list[dict[str, object]]:
              "authority": _pointer(a.source)} for a in project.assumptions_for(task_id)]
 
 
+_TASK_ID = re.compile(r"T-[A-Za-z0-9.\-]*[A-Za-z0-9]")
+
+
 def parse_target(target: str) -> tuple[str, str | None]:
     """A path, or `path#Qualified.symbol`, checked by the reference path rule."""
     path, _, symbol = target.partition("#")
@@ -130,6 +136,8 @@ def lookup(project: Project, target: str) -> dict[str, object]:
             "counts": _counts(found),
             "references": [detail(r) for r in found],
         }
+    if _TASK_ID.fullmatch(target):
+        raise TargetError(f"unknown-task: {target}: no such task")
     path, symbol = parse_target(target)
     # This repository only, and a bare symbol name is never an identity, so a
     # `Symbols:` anchor, which names no file, never matches.
@@ -213,7 +221,7 @@ def render(result: dict[str, object]) -> str:
         for decision in task["decisions"]:
             lines.append(f"  decision {decision['id']} [{decision['status']}] {decision['title']} — {decision['authority']}")
         for criterion in task["acceptance"]:
-            lines.append(f"  criterion {criterion['id']} [{criterion['state']}] {criterion['text']} — {criterion['authority']}")
+            lines.append(f"  criterion {criterion['id']} [{criterion['state']}] — {criterion['authority']}")
         for assumption in task["assumptions"]:
             lines.append(f"  assumption {assumption['id']} [{assumption['status']}] {assumption['title']} — {assumption['authority']}")
     return "\n".join(lines) + "\n"

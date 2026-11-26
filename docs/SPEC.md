@@ -675,15 +675,19 @@ symbol in it; for `path#symbol`, the references to that symbol. Either way each
 referencing task comes with its governing ADRs, acceptance criteria and
 assumptions, each with its `file#anchor`. A path is read in this repository; a
 `Symbols:` anchor names no file, so it is found from its task, never from a
-path. A target that is not a task and breaks the path rule above is refused
-with that rule's message. `--json` prints the answer as JSON. `refs` reads the
+path. A target written as a task identifier that names no task is refused as
+`unknown-task`; any other target that is not a task and breaks the path rule
+above is refused with that rule's message. `--json` prints the answer as JSON,
+every field included, with null for one not recorded. The text names each
+criterion by its identifier and state; `--json` also carries its text. `refs` reads the
 compiled references only: it writes nothing and runs no graph provider, so its
 answer is the same with or without one installed.
 
 `context <task>` and `retrieve <task>` carry the task's references in a
 `references` field: `total`, `counts` by scope (`planned`, `observed`), the
 `first` twelve (path, symbol, relation, scope, verification, authorization,
-revision, evidence and `authority`, the record's `file#anchor`), and `rest`,
+revision, evidence and `authority`, the record's `file#anchor`; a key that is
+absent was not recorded), and `rest`,
 the `praukron refs <task>` command that returns them all, or null when none are
 left out. `retrieve` lists them in a `REFERENCES` section after the records,
 outside the token budget. No other packet field changes. With one hundred

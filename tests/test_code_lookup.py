@@ -85,12 +85,17 @@ class TestTaskPacket(LookupCase):
     def check_entries(self, entries: list[dict]) -> None:
         by_id = {e["id"]: e for e in entries}
         first = by_id["CR-T-ONE-01"]
+        # An absent key means not recorded: a file reference carries no `symbol`.
         self.assertEqual(
-            {k: first[k] for k in ("path", "symbol", "relation", "scope", "verification",
-                                   "authorization", "revision", "evidence", "authority")},
-            {"path": "src/app/core.py", "symbol": None, "relation": "modifies", "scope": "planned",
+            first,
+            {"id": "CR-T-ONE-01", "path": "src/app/core.py", "relation": "modifies", "scope": "planned",
              "verification": "unverified", "authorization": "proposed", "revision": "286b9a7",
              "evidence": "tests/test_core.py covers it", "authority": "CODE.md#CR-T-ONE-01"})
+        self.assertTrue(all(None not in e.values() for e in entries))
+        anchor = by_id["T-ONE#Files:docs/guide.md"]
+        self.assertEqual(anchor, {"id": "T-ONE#Files:docs/guide.md", "path": "docs/guide.md",
+                                  "scope": "planned", "verification": "unverified",
+                                  "authority": "TASKS.md#T-ONE"})
         symbol = by_id["CR-T-ONE-02"]
         self.assertEqual((symbol["path"], symbol["symbol"], symbol["relation"], symbol["scope"],
                           symbol["verification"]),
@@ -127,6 +132,9 @@ class TestTaskPacket(LookupCase):
         core = next(r for r in result["references"] if r["id"] == "CR-T-ONE-01")
         self.assertEqual((core["source"], core["recorded"], core["authority"]),
                          ("agent", "2026-01-02 · agent/builder", "CODE.md#CR-T-ONE-01"))
+        # `refs --json` stays complete: an unrecorded field is null, not absent.
+        self.assertIn("symbol", core)
+        self.assertIsNone(core["symbol"])
         code, text, _ = run(self.root, "refs", "T-ONE")
         self.assertEqual(code, 0)
         self.assertIn("7 references: 6 planned, 1 observed", text)
@@ -187,8 +195,17 @@ class TestCodeToTasks(LookupCase):
         self.assertEqual(code, 0)
         self.assertIn("referenced by 2 tasks", text)
         self.assertIn("decision ADR-001", text)
-        self.assertIn("criterion AC-T-ONE-01", text)
+        # The text names each criterion by id and state; `--json` keeps its text.
+        criterion = self.json("refs", "src/app/core.py", "--json")["tasks"][0]["acceptance"][0]
+        self.assertIn(f"criterion AC-T-ONE-01 [{criterion['state']}] — ACCEPTANCE.md#AC-T-ONE", text)
+        self.assertTrue(criterion["text"])
+        self.assertNotIn(criterion["text"], text)
         self.assertIn("assumption A-1 [OPEN] The ledger keeps one currency — ASSUMPTIONS.md#A-1", text)
+
+    def test_an_unknown_task_is_refused(self):
+        code, out, err = run(self.root, "refs", "T-NOPE")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("unknown-task: T-NOPE: no such task", err)
 
     def test_an_unreferenced_path_has_no_tasks(self):
         result = self.json("refs", "src/nowhere.py", "--json")
