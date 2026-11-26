@@ -643,6 +643,7 @@ The heading's title is free text on one line.
 | `Source` | yes | `manual`, `agent`, `git_diff`, `static_analysis` or `graph_provider`. |
 | `Provider` | with `graph_provider` | The provider's name and version. |
 | `Recorded` | yes | A date, `·`, and who recorded it. |
+| `Updated` | no | A date, `·`, and who made the latest in-place change (`ref set` with `set`). `Source`, `Provider` and `Recorded` keep the reference's origin. |
 | `Revision` | no | The commit the reference was true at. |
 | `Base`, `Head` | no | The revisions an observed reference was captured between. |
 | `Lines` | no | `start-end`, a hint only; never an identity. |
@@ -727,15 +728,18 @@ has no `authorization` field: a `planned` reference whose relation is
 it from the template's header.
 
 **`ref set`** takes `id`, `expectRevision` (the reference section's revision,
-§2.6), `source`, `recordedBy`, and exactly one of:
+§2.6), `recordedBy`, and exactly one of:
 
-- `set`: `verification`, `lifecycle` or `evidence`, changed in place;
-  `Source` and `Recorded` are rewritten to this write's, so they name the
-  last writer. A value already present is `no-change`.
-- `withdraw`: `reason` and an optional `date`. A new record is appended that
+- `set`: `verification`, `lifecycle` or `evidence`, changed in place. It never
+  touches `Source`, `Provider` or `Recorded`, which say how the reference was
+  first obtained and by whom; it writes `Updated: <date> · <recordedBy>` after
+  `Recorded`, rewritten by each later `set`. `source` and `provider` are
+  refused with `set` (`provenance-kept`). A value already present is
+  `no-change`.
+- `withdraw` (needs `source`): `reason` and an optional `date`. A new record is appended that
   copies the reference, adds `Replaces:` and `Withdrawn: <date> · <reason>`,
   and carries this write's `Source` and `Recorded`.
-- `replace`: the fields that change. A new record is appended with
+- `replace` (needs `source`): the fields that change. A new record is appended with
   `Replaces:`; it inherits path, repository, symbol, kind, class, relation,
   scope, lifecycle and title unless given, starts `unverified` unless given,
   and takes its authorization by the `ref add` rule, so an earlier
@@ -747,8 +751,9 @@ returns the new record's id with `replaces`. A reference already replaced
 (`withdrawn-reference`) is refused; act on its latest record. A stale
 `expectRevision` is refused with `currentRevision` and the current section.
 
-Every record a write produces carries `Source` and `Recorded: <date> ·
-<recordedBy>`; `recordedOn` gives the date and defaults to today. `source:
+Every record a write appends carries `Source` and `Recorded: <date> ·
+<recordedBy>`, and every in-place change `Updated: <date> · <recordedBy>`;
+`recordedOn` gives the date and defaults to today. `source:
 graph_provider` needs `provider`, and `provider` is refused with any other
 source.
 

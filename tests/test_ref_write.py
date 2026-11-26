@@ -77,8 +77,10 @@ class RefCase(FixtureCase):
         return {r["id"]: r for r in compiler.as_json(project)["references"] if not r["legacy"]}
 
     def set(self, reference_id: str, revision: str, **change) -> dict:
-        payload = {"id": reference_id, "expectRevision": revision, "source": "agent",
-                   "recordedBy": "agent/reviewer", **change}
+        payload = {"id": reference_id, "expectRevision": revision, "recordedBy": "agent/reviewer"}
+        if "withdraw" in change or "replace" in change:
+            payload["source"] = "agent"
+        payload.update(change)
         return ref.set_reference(self.root, payload)
 
     def run_cli(self, *argv: str, stdin: str | None = None) -> tuple[int, str]:
@@ -205,20 +207,52 @@ class TestAdd(RefCase):
 class TestSet(RefCase):
     """AC-T-CIL-MAP-02-01: in-place changes are revision-checked and carry provenance."""
 
-    def test_verify_records_the_writer_and_returns_the_new_revision(self) -> None:
+    def test_verify_records_the_writer_in_updated_and_returns_the_new_revision(self) -> None:
         revision = self.added()["revision"]
-        result = self.set("CR-T-ONE-01", revision, source="static_analysis",
+        result = self.set("CR-T-ONE-01", revision,
                           set={"verification": "verified", "evidence": "Core.run is defined", "lifecycle": "active"})
         self.assertTrue(result["ok"], result)
         fields = self.fields("CR-T-ONE-01")
         self.assertEqual(fields["Verification"], "verified")
         self.assertEqual(fields["Lifecycle"], "active")
         self.assertEqual(fields["Evidence"], "Core.run is defined")
-        self.assertEqual(fields["Source"], "static_analysis")
-        self.assertEqual(fields["Recorded"], f"{TODAY} · agent/reviewer")
+        self.assertEqual(fields["Source"], "agent")
+        self.assertEqual(fields["Recorded"], f"{TODAY} · agent/builder")
+        self.assertEqual(fields["Updated"], f"{TODAY} · agent/reviewer")
         self.assertEqual(result["revision"], mutate.revision(self.section("CR-T-ONE-01")))
         lines = self.section("CR-T-ONE-01").decode("utf-8").splitlines()
         self.assertLess(lines.index("- Lifecycle: active"), lines.index("- Verification: verified"))
+
+    def test_set_keeps_a_git_diff_origin_byte_for_byte_and_gains_updated(self) -> None:
+        revision = self.added(scope="observed", source="git_diff", recordedOn="2026-02-03",
+                              recordedBy="git/capture")["revision"]
+        before = self.section("CR-T-ONE-01").decode("utf-8").splitlines()
+        origin = [line for line in before if line.startswith(("- Source:", "- Recorded:"))]
+        self.assertEqual(origin, ["- Source: git_diff", "- Recorded: 2026-02-03 · git/capture"])
+        first = self.set("CR-T-ONE-01", revision, set={"verification": "verified"}, recordedOn="2026-02-04")
+        self.assertTrue(first["ok"], first)
+        after = self.section("CR-T-ONE-01").decode("utf-8").splitlines()
+        self.assertEqual([line for line in after if line.startswith(("- Source:", "- Recorded:"))], origin)
+        self.assertEqual(after[after.index(origin[1]) + 1], "- Updated: 2026-02-04 · agent/reviewer")
+        second = self.set("CR-T-ONE-01", first["revision"], set={"lifecycle": "active"}, recordedBy="owner")
+        after = self.section("CR-T-ONE-01").decode("utf-8").splitlines()
+        self.assertEqual([line for line in after if line.startswith(("- Source:", "- Recorded:"))], origin)
+        self.assertEqual([line for line in after if line.startswith("- Updated:")], [f"- Updated: {TODAY} · owner"])
+        self.assertEqual(second["revision"], mutate.revision(self.section("CR-T-ONE-01")))
+        self.assertEqual(self.compiled()["CR-T-ONE-01"]["source"], "git_diff")
+        self.assertNotIn("updated", self.compiled()["CR-T-ONE-01"])
+
+    def test_set_refuses_source_and_provider(self) -> None:
+        revision = self.added()["revision"]
+        before = self.code.read_bytes()
+        for extra in ({"source": "agent"}, {"source": "graph_provider", "provider": "codegraph 1.6.0"},
+                      {"provider": "codegraph 1.6.0"}):
+            result = self.set("CR-T-ONE-01", revision, set={"verification": "verified"}, **extra)
+            self.assertEqual(result["error"]["code"], "provenance-kept", extra)
+        self.assertEqual(self.code.read_bytes(), before)
+        result = ref.set_reference(self.root, {"id": "CR-T-ONE-01", "expectRevision": revision,
+                                               "recordedBy": "agent", "withdraw": {"reason": "x"}})
+        self.assertEqual((result["error"]["code"], result["error"]["field"]), ("missing-field", "source"))
 
     def test_stale_revision_is_refused_with_the_current_one(self) -> None:
         old = self.added()["revision"]
@@ -381,7 +415,7 @@ class TestBatchAndCli(RefCase):
         result = batch.apply(self.root, {"operations": [
             {"op": "ref add", **planned()},
             {"op": "ref add", **planned(path="src/b.py")},
-            {"op": "ref set", "id": "CR-T-ONE-01", "expectRevision": "$previous", "source": "agent",
+            {"op": "ref set", "id": "CR-T-ONE-01", "expectRevision": "$previous",
              "recordedBy": "agent/builder", "set": {"verification": "verified"}},
         ]})
         self.assertTrue(result["ok"], result)
@@ -394,7 +428,7 @@ class TestBatchAndCli(RefCase):
         before = self.code.read_bytes()
         result = batch.apply(self.root, {"operations": [
             {"op": "ref add", **planned(path="src/b.py")},
-            {"op": "ref set", "id": "CR-T-ONE-01", "expectRevision": "0" * 16, "source": "agent",
+            {"op": "ref set", "id": "CR-T-ONE-01", "expectRevision": "0" * 16,
              "recordedBy": "agent/builder", "set": {"verification": "verified"}},
         ]})
         self.assertEqual((result["error"]["code"], result["error"]["index"]), ("stale-revision", 1))
@@ -414,7 +448,7 @@ class TestBatchAndCli(RefCase):
         result = json.loads(text)
         self.assertEqual((code, result["recordId"]), (0, "CR-T-ONE-01"))
         code, text = self.run_cli("ref", "set", "--input", "-", stdin=json.dumps(
-            {"id": "CR-T-ONE-01", "expectRevision": result["revision"], "source": "manual",
+            {"id": "CR-T-ONE-01", "expectRevision": result["revision"],
              "recordedBy": "owner", "set": {"verification": "verified"}}))
         self.assertEqual((code, json.loads(text)["ok"]), (0, True))
 

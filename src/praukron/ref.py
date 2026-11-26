@@ -71,7 +71,7 @@ code) and `Authorization` (whether the task may make the change) are separate.
 
 # Record field order, as SPEC §2.9 lists the fields.
 ORDER = ("Task", "Repository", "Path", "Symbol", "Kind", "Class", "Relation", "Scope", "Lifecycle",
-         "Verification", "Authorization", "Authorized by", "Source", "Provider", "Recorded", "Revision",
+         "Verification", "Authorization", "Authorized by", "Source", "Provider", "Recorded", "Updated", "Revision",
          "Base", "Head", "Lines", "Confidence", "Was", "Replaces", "Withdrawn", "Evidence")
 # A planned reference with one of these relations is a change the task may need permission for.
 CHANGES = ("creates", "modifies", "deletes")
@@ -165,9 +165,9 @@ SET_SCHEMA = {
         },
         **_PROVENANCE,
     },
-    "required": ["id", "expectRevision", "source", "recordedBy"],
+    "required": ["id", "expectRevision", "recordedBy"],
 }
-SET_EXAMPLE = {"id": "CR-T-EXAMPLE-01-01", "expectRevision": "0123456789abcdef", "source": "agent",
+SET_EXAMPLE = {"id": "CR-T-EXAMPLE-01-01", "expectRevision": "0123456789abcdef",
                "recordedBy": "agent/builder", "set": {"verification": "verified", "evidence": "tests pass"}}
 
 ADD_SCHEMA["description"] = "\n".join(mutate.GUIDANCE["ref.add"])
@@ -388,7 +388,17 @@ def set_reference(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
         if not change and mode != "replace":
             raise mutate.WriteError("invalid-change", f"{mode} must name at least one field", mode)
         _check_fields({k: v for k, v in change.items() if k != "date"})
-        _check_provenance(payload)
+        if mode == "set":
+            # The record's origin stays as first recorded; the change is noted in Updated.
+            for name in ("source", "provider"):
+                if name in payload:
+                    raise mutate.WriteError(
+                        "provenance-kept", f"set never changes Source or Provider; remove {name}", name)
+            _line(payload["recordedBy"], "recordedBy")
+        else:
+            if "source" not in payload:
+                raise mutate.WriteError("missing-field", f"{mode} writes a new record and needs source", "source")
+            _check_provenance(payload)
 
         def prepare(project: Project) -> mutate.Plan:
             earlier = _find(project, reference_id)
@@ -411,17 +421,17 @@ def set_reference(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 raise mutate.WriteError("withdrawn-reference",
                                         f"{reference_id} is withdrawn", "id")
             fields = _record_fields(current.data)
-            provenance = _provenance(payload)
             if mode == "set":
                 edits = _descriptive(change)
                 if all(fields.get(label) == value for label, value in edits.items()):
                     raise mutate.WriteError("no-change", "the update would change nothing")
-                edits.update(provenance)
+                date = payload.get("recordedOn", dt.date.today().isoformat())
+                edits["Updated"] = f"{date} · {payload['recordedBy']}"
                 start, end = current.span
                 return mutate.Plan({path: data[:start] + _edit(current.data, edits) + data[end:]},
                                    reference_id, f"{earlier.source.file}#{reference_id}")
             kept = {label: value for label, value in fields.items()
-                    if label in ORDER and label not in ("Source", "Provider", "Recorded", "Replaces", "Withdrawn")}
+                    if label in ORDER and label not in ("Source", "Provider", "Recorded", "Updated", "Replaces", "Withdrawn")}
             title = earlier.title
             if mode == "withdraw":
                 new = kept
@@ -435,7 +445,7 @@ def set_reference(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 new.setdefault("Verification", "unverified")
                 title = change.get("title", title)
                 new.update(authorization(project, new["Scope"], new["Relation"], change.get("authorizedBy")))
-            new.update(provenance)
+            new.update(_provenance(payload))
             new["Replaces"] = reference_id
             _check_symbol(new)
             successor_id = _next_id(project, earlier.task)

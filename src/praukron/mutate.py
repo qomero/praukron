@@ -124,13 +124,14 @@ GUIDANCE = {
     ),
     "ref.set": (
         "WHEN: change a reference's verification, lifecycle or evidence in place (set), or append a record "
-        "that withdraws it (withdraw) or replaces it (replace); needs expectRevision.",
+        "that withdraws it (withdraw) or replaces it (replace); needs expectRevision. set keeps Source, "
+        "Provider and Recorded and writes Updated: <date> · <recordedBy>; withdraw and replace need source.",
         "WHEN NOT: to delete a reference (references are never deleted), to edit a reference already replaced "
         "or withdrawn, or to set Authorization: a replacement is authorized only through authorizedBy.",
         "RETURNS: one JSON line with ok, recordId, source, revision; withdraw and replace return the new "
         "record's id and replaces, and the earlier record stays byte for byte. A stale expectRevision is "
         "refused with currentRevision and the current section.",
-        "EXAMPLE: echo '{\"id\":\"CR-T-ONE-01\",\"expectRevision\":\"<16 hex>\",\"source\":\"agent\","
+        "EXAMPLE: echo '{\"id\":\"CR-T-ONE-01\",\"expectRevision\":\"<16 hex>\","
         "\"recordedBy\":\"agent/builder\",\"set\":{\"verification\":\"verified\"}}' | praukron ref set --input -",
     ),
 }
@@ -182,6 +183,7 @@ NEXT_STEP = {
     "authorization-not-applicable": "remove authorizedBy; only a planned creates, modifies or deletes is authorized",
     "replaced-reference": "act on the reference that replaced it (replacedBy)",
     "withdrawn-reference": "record a new reference with ref add instead",
+    "provenance-kept": "send only recordedBy (and recordedOn) with set; use replace to record a new origin",
 }
 
 
