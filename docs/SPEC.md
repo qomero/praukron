@@ -54,6 +54,7 @@ one compiled `compiled/` directory. Only the first is authoritative.
 | `TRACE.md` | Append-only operational events: tool calls, commands, mini-actions, mutations, failures, retries, validation runs |
 | `TECH_DEBT.md` | Known technical debt: what each compromise costs, its trigger, its exit condition, and its lineage |
 | `COORDINATION.md` | Optional. A coordinator's standing conventions and per-task briefs (§2.8); never archived |
+| `CODE.md` | Task–code references: the files and symbols each task planned to touch and was observed to touch (§2.9); never archived |
 | `archive/<phase>/` | Closed records moved verbatim by `praukron archive` (§2.7); authority, immutable to the write commands |
 | `INDEX.md` | **Generated.** The routing layer an agent reads first: what matters now and where each record lives |
 
@@ -279,7 +280,8 @@ the agent       HOW
 
 ### 2.6 Structured writes
 
-Agents write four kinds of record through commands instead of editing Markdown
+Agents write tasks, contracts, criterion results, journal entries, change
+requests and code references through commands instead of editing Markdown
 (ADR-068, ADR-069). An editing tool must read a file before changing it, so a
 direct edit costs about the size of the file; a structured write costs about the
 size of the record. The Markdown stays the only source of truth: the commands
@@ -299,9 +301,9 @@ record these commands do not cover.
 | `praukron ref set` | `CODE.md` | one reference's verification, lifecycle or evidence in place, or an appended record that withdraws or replaces it (§2.9) |
 | `praukron batch apply` | the files its operations write | runs several of the writes above in order under one lock, one validation and one refresh; all or nothing (ADR-077) |
 
-With `INDEX.md` (generated), `respond` (`RESPONSES.md`, ADR-055) and `archive`
-(ADR-067, only when the owner asks), these are the only chronicle writes the
-tool makes.
+With `INDEX.md` (generated), `respond` (`RESPONSES.md`, ADR-055), `scope
+capture` (`CODE.md`, §2.9) and `archive` (ADR-067, only when the owner asks),
+these are the only chronicle writes the tool makes.
 
 **Interface.** Each command takes a JSON object from `--input FILE` or
 `--input -` (stdin); unknown fields, duplicate keys and wrong types are refused.
@@ -611,15 +613,17 @@ resolving to its archived task.
 
 ### 2.9 Task–code references
 
-**Built.** This section fixes the record format that the task–code
-mapping reads and writes (ADR-088, ADR-089). Built: reading `CODE.md`, its
-validation and compilation into `references` and `artifacts` (T-CIL-MAP-01);
-the `praukron refs` lookup and the packet's `references` field
-(T-CIL-MAP-03); the writes `ref add`, `ref set` and `ref history`
-(T-CIL-MAP-02); the dashboard's Files and Symbols columns, Code References
-section and artifact records (T-CIL-MAP-04); and the capture of a task's
-observed files from Git at its close, and `scope capture` (T-CIL-SCOPE-01);
-and, in the same capture, the changed Python symbols (T-CIL-SCOPE-02).
+This section defines how a task is linked to the code it touches: the record
+format in `CODE.md`, how references are read (`praukron refs`, the task
+packet, the dashboard), how they are written by hand (`ref add`, `ref set`),
+and how the tool records them by itself from Git when a task closes (ADR-088,
+ADR-089, ADR-092). Everything in it is built.
+
+None of it needs a graph provider. A provider is optional and only adds code
+structure to `retrieve --code` (§2.5). A provider is a third-party program:
+Praukron does not control or inspect what it sends over the network,
+telemetry included, and handling that is the user's responsibility. Praukron
+itself sends nothing (ADR-090).
 
 A task–code reference says that one task relates to one code artifact: a file,
 or a symbol inside a file. References are authored records in
@@ -724,14 +728,14 @@ lists them as no longer current.
 
 `context <task>` and `retrieve <task>` carry the task's current references in a
 `references` field: `total`, `counts` by scope (`planned`, `observed`), the
-`first` twelve (path, symbol, relation, scope, verification, authorization,
+`first` twelve (id, path, symbol, relation, scope, verification, authorization,
 revision, evidence and `authority`, the record's `file#anchor`; a key that is
 absent was not recorded), and `rest`,
 the `praukron refs <task>` command that returns them all, or null when none are
 left out. `retrieve` lists them in a `REFERENCES` section after the records,
-outside the token budget. No other packet field changes. With one hundred
-references the packet grows no more than T-PERF-OPT-01 allows for a tenfold
-growth of the chronicle (1.25 times). The paths and symbol names are the search
+outside the token budget. No other packet field depends on references. With
+one hundred references the packet grows by no more than 1.25 times, the growth
+allowed for a chronicle ten times larger. The paths and symbol names are the search
 terms an agent starts from.
 
 Agents write references through structured writes (§2.6), never by editing
@@ -962,9 +966,9 @@ gives `files` and `symbols`, the records of each kind it wrote, besides
 Measured on 2026-11-26 (Python 3.14, macOS, median of nine runs): closing a
 task with fifty changed Python files, each of three classes of five methods
 and ten functions with ten of its symbols changed, takes 0.23 s and
-writes 550 records (261 KB of `CODE.md`); the same close at `main` before
-this change took 0.08 s and wrote 50 records (21 KB). Symbol extraction is
-0.10 s of the difference; the rest is writing and validating 500 more
+writes 550 records (261 KB of `CODE.md`); capturing the same fifty files
+without their symbols takes 0.08 s and writes 50 records (21 KB). Symbol
+extraction is 0.10 s of the difference; the rest is writing and validating 500 more
 records. One file of 6,000 small functions (192 KiB) changed in one line
 costs 0.18 s of extraction, and one of 15,700 (510 KiB, just under the
 limit) 0.51 s, nearly all of it parsing both sides; a whole close of the
@@ -972,8 +976,8 @@ first stays under the three seconds `TestWriteTime` allows. Forty such files
 of 200 KiB, each changed in one line, close in 1.5 s: the budget admits ten
 and leaves thirty unresolved. The budget bounds reading and parsing (about
 2 s for 4 MiB of the densest source) and the cap the records: eight added
-files of 512 KiB holding 171,304 one-line functions, which wrote 85 MB of
-`CODE.md` in 21 s before the cap, now close in 2.6 s, and `CODE.md` grows by
+files of 512 KiB holding 171,304 one-line functions, which without the cap
+would write 85 MB of `CODE.md` in 21 s, close in 2.6 s, and `CODE.md` grows by
 5,282 bytes, the eight file records, since the first file alone passes the
 cap.
 
@@ -1180,6 +1184,10 @@ provider credentials and model selection remain in the agent host.
 - New agents read `INDEX.md` before broad chronicle or repository exploration.
 - Retrieval uses the index to select the minimum relevant canonical context.
 - `TECH_DEBT.md` records known liabilities separately from tasks.
+- `CODE.md` records which code each task planned to touch and was observed to
+  touch; a reference is replaced or withdrawn, never deleted, and grants no
+  authorization by being observed.
+- Capturing a task's files and symbols never refuses or delays a write.
 - CodeGraph is consulted only after the project context is resolved.
 - Praukron remains fully usable without CodeGraph.
 - CodeGraph may enrich implementation understanding but never owns project state.
