@@ -596,8 +596,9 @@ resolving to its archived task.
 mapping reads and writes (ADR-088, ADR-089). Built: reading `CODE.md`, its
 validation and compilation into `references` and `artifacts` (T-CIL-MAP-01);
 the `praukron refs` lookup and the packet's `references` field
-(T-CIL-MAP-03); and the writes `ref add`, `ref set` and `ref history`
-(T-CIL-MAP-02).
+(T-CIL-MAP-03); the writes `ref add`, `ref set` and `ref history`
+(T-CIL-MAP-02); and the dashboard's Files and Symbols columns, Code References
+section and artifact records (T-CIL-MAP-04).
 
 A task–code reference says that one task relates to one code artifact: a file,
 or a symbol inside a file. References are authored records in
@@ -772,6 +773,20 @@ and prints each record, oldest first, exactly as it stands in `CODE.md`,
 separated by a blank line; `--json` returns `records` with each one's `id`,
 `source`, `revision` and `record`. It does not list records that replace the
 named one.
+
+The dashboard (`praukron dashboard`) reads the same compiled references. The
+task registry counts each task's current references in a Files column and a
+Symbols column, anchors included, and its search matches an exact or partial
+path or a symbol name of a current reference. Each task record carries a Code
+References section, shown also in the task dialog, grouped into planned files,
+planned symbols, observed files and observed symbols, with relation,
+authorization, verification, revision, provenance and the other tasks holding a
+current reference to the same artifact (three, then a link to the rest);
+unresolved, stale, replaced and withdrawn references are listed and marked.
+Audit's Code artifacts group gives each artifact its current path, its earlier
+paths from `Was`, the tasks that reference it and their decisions. The page
+embeds the reference list once, in its project data, plus the ids of the
+references that are no longer current.
 
 `validate` reports a malformed heading or a missing required field (the load
 fails, as for every record file); `duplicate-reference`,

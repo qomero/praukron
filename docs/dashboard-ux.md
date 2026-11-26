@@ -65,6 +65,15 @@ Current work / All work updates the cards,
 counts, column widths and ready/waiting summary together. On narrow screens the
 board scrolls horizontally inside a focusable strip.
 
+The task registry adds Files and Symbols columns: counts of each task's current
+task–code references (SPEC §2.9), anchors included, zero when there are none.
+Its search box also matches an exact or partial path or a symbol name; without
+JavaScript every task stays listed. A task record in Audit has a Code References
+section, which the task dialog shows as well, and each referenced file or symbol
+has a record in Audit's Code artifacts group (current path, earlier paths,
+tasks, decisions) that a reference opens in the dialog. Relation, authorization,
+verification and provenance values stay as recorded, in code type.
+
 Root blockers and the next gate with milestones sit beside one another below
 the board, stacking on phones. Five inspection tabs open Critical path, Phases,
 Task registry, Dependency graph (including drawings and sources), and Breakdown.
