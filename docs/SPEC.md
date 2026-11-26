@@ -874,7 +874,15 @@ when it is `WIP` or `BLOCKED` with a `Claimed at` that is an ancestor of, or
 equal to, `Head` (then every file of the capture is unresolved), or when it is
 `DONE` and its own captured records end inside this range, that is their
 `Head` is after `Base`, or is `Base` with no `Revision` (then only the files it
-recorded are unresolved). A task with no `Claimed at` overlaps nothing.
+recorded are unresolved). A task with no `Claimed at` overlaps nothing. This
+rule holds for a close and for `scope capture` without `--head`, which read the
+working tree, where several tasks may share one directory. When `scope capture`
+names both `--base` and `--head`, the caller vouches that the range is the
+task's own: no overlap is looked for, no record is unresolved, each record's
+`Evidence` says `range named by the caller`, and the reply's `capture` member
+has `rangeNamed: true`. A coordinator whose builders work in other worktrees
+claims their tasks at one commit, so their claims overlap; it captures each
+merged task this way, naming that task's own merged range (T-CIL-SCOPE-06).
 
 **Observed symbols, from the standard library's `ast` (ADR-092).** The same
 capture, in the same write, records the changed symbols of every changed

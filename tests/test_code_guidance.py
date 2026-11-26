@@ -79,6 +79,18 @@ class FilesAndSymbolsGuidance(unittest.TestCase):
             with self.subTest(surface=name):
                 self.assertIn("scope capture <task> --base <rev> --head <rev>", flat(SURFACES[name]()))
 
+    def test_a_named_range_is_said_to_be_trusted(self):
+        """AC-T-CIL-SCOPE-06-03: both revisions named, and why that range is trusted."""
+        agents = flat(SURFACES["AGENTS.md"]())
+        self.assertIn("--head <rev>`: naming both revisions vouches for its range", agents)
+        readme = flat(SURFACES["templates/chronicle/README.md"]())
+        self.assertIn("with both revisions named", readme)
+        self.assertIn("vouches that the range is that task's", readme)
+        self.assertIn("leave nothing unresolved", readme)
+        spec = flat(read("docs/SPEC.md"))
+        self.assertIn("names both `--base` and `--head`, the caller vouches that the range is the task's own", spec)
+        self.assertIn("A coordinator whose builders work in other worktrees", spec)
+
     def test_chronicle_readme_lists_code_md_and_its_writes(self):
         readme = flat(read("templates/chronicle/README.md"))
         authority = readme[readme.index("## Authority"):readme.index("## Working rules")]
