@@ -578,6 +578,112 @@ load fails, as for every record file); `duplicate-coordination-record`,
 the working files while an `ACTIVE` brief names it; a `CLOSED` brief keeps
 resolving to its archived task.
 
+### 2.9 Task–code references
+
+**Specified, not yet built.** This section fixes the record format that the
+task–code mapping will read and write (ADR-088, ADR-089). No command described
+here exists in the current release. Until it does, a task's optional `Files:`
+and `Symbols:` anchors (§2.5) are the only link from a task to code.
+
+A task–code reference says that one task relates to one code artifact: a file,
+or a symbol inside a file. References are authored records in
+`.praukron/chronicle/CODE.md`, one reference per record. They are authority
+like every other record: a graph provider never writes them, and removing a
+provider changes none of them. A task needs no references to be valid.
+
+```text
+## CR-T-PAY-03-01: Post a ledger entry
+- Task: T-PAY-03
+- Path: src/pay/ledger.py
+- Symbol: Ledger.post
+- Kind: method
+- Class: production
+- Relation: modifies
+- Scope: planned
+- Lifecycle: active
+- Verification: unverified
+- Authorization: proposed
+- Source: agent
+- Recorded: 2026-11-26 · claude/primary
+- Revision: 286b9a7
+```
+
+The identifier is `CR-` followed by the task's identifier and a two-digit
+sequence within that task, as a criterion's identifier follows its contract.
+The heading's title is free text on one line.
+
+| Field | Required | Value |
+| --- | --- | --- |
+| `Task` | yes | One task identifier, in the working files or an archive. |
+| `Path` | yes | A path relative to the repository root, with `/` separators. Absolute paths, a `..` segment, a backslash and a drive letter are errors. The file need not exist. |
+| `Repository` | no | Another repository's name, when the artifact is not in this one. Absent means this repository. |
+| `Symbol` | no | The symbol's qualified name inside `Path`, as the language writes it (`Ledger.post`). Absent means the reference is to the file. |
+| `Kind` | with `Symbol` | `function`, `method`, `class`, `interface`, `type`, `variable`, `constant`, `module`, `route`, `model`, `schema` or `other`. |
+| `Class` | no | `production`, `test`, `config`, `docs`, `migration` or `generated`. Absent means not classified. |
+| `Relation` | yes | `creates`, `modifies`, `deletes`, `reads`, `depends_on`, `verifies`, `documents` or `affects`. |
+| `Scope` | yes | `planned` (what the task expects to touch) or `observed` (what it did touch). |
+| `Lifecycle` | no | `planned`, `active`, `renamed`, `deleted` or `unresolved`. Absent means not stated. |
+| `Verification` | yes | `unverified`, `verified`, `disputed` or `stale`: whether the reference matches the code. |
+| `Authorization` | yes | `not_applicable`, `proposed`, `authorized`, `rejected` or `revoked`: whether the task may make the change. |
+| `Authorized by` | with `authorized` | The owner response (`R-`) or accepted ADR that grants it. |
+| `Source` | yes | `manual`, `agent`, `git_diff`, `static_analysis` or `graph_provider`. |
+| `Provider` | with `graph_provider` | The provider's name and version. |
+| `Recorded` | yes | A date, `·`, and who recorded it. |
+| `Revision` | no | The commit the reference was true at. |
+| `Base`, `Head` | no | The revisions an observed reference was captured between. |
+| `Lines` | no | `start-end`, a hint only; never an identity. |
+| `Confidence` | no | A number from 0 to 1. Absent means unknown; no default is ever supplied. |
+| `Was` | no | The earlier path, or `path#symbol`, of a renamed or moved artifact. |
+| `Replaces` | no | The reference this one replaces. The replaced record stays in the file. |
+| `Withdrawn` | no | A date and a reason. A withdrawn record stays in the file. |
+| `Evidence` | no | What shows the reference is true. |
+
+`Verification` and `Authorization` are independent: a verified reference is not
+thereby authorized, and an observed change is not thereby approved. `Relation`
+grants nothing. `Scope: observed` never replaces a `planned` reference; both
+stay. A reference is never deleted: it is replaced or withdrawn, so the history
+of an artifact survives its rename or deletion.
+
+An artifact is identified by its repository, its path and, for a symbol, its
+qualified name. A line range and a bare symbol name are never an identity. Two
+artifacts that share only a name stay two artifacts.
+
+A task's `Files:` and `Symbols:` anchors stay valid and are never rewritten.
+Each compiles as a planned reference with `Source: manual` and no relation; a
+`Symbols:` anchor names no file, so its artifact is `unresolved`.
+
+The compiled model lists every reference and, for each artifact, the tasks that
+reference it, so both directions are answered without reading `CODE.md`:
+
+```sh
+praukron refs T-PAY-03                    # the task's files and symbols
+praukron refs src/pay/ledger.py           # the tasks, decisions, criteria and assumptions for a file
+praukron refs src/pay/ledger.py#Ledger.post
+```
+
+`context <task>` and `retrieve <task>` carry the task's references: their
+counts, the first twelve, and the command that returns the rest. The paths and
+symbol names are the search terms an agent starts from.
+
+Agents write references through structured writes (§2.6), never by editing
+`CODE.md`:
+
+```sh
+praukron ref add --input -      # one reference; a planned change is `proposed` unless `authorizedBy` names its authority
+praukron ref set --input -      # verification, lifecycle, withdrawal, or a replacement
+```
+
+Both are also `batch apply` operations. No write sets `Authorization:
+authorized` without `Authorized by`. `archive` never moves `CODE.md`.
+
+`validate` reports a malformed heading or a missing required field (the load
+fails, as for every record file); `duplicate-reference`,
+`unknown-reference-task`, `invalid-reference-path`, `invalid-reference-value`
+(a field outside its allowed values), `symbol-without-kind`,
+`authorized-without-authority`, `provider-missing` and `unknown-replaced-reference`
+errors; and `repeated-reference` (the same task, artifact, relation and scope
+recorded twice and neither replaced) and `possible-secret` warnings.
+
 ## 3. Entry modes
 
 Praukron has exactly two entry modes.

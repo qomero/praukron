@@ -60,6 +60,17 @@ NOTIFY_CHANNELS = ("host", "none")
 CONVENTION_STATUSES = ("ACTIVE", "RETIRED")
 BRIEF_STATUSES = ("ACTIVE", "CLOSED")
 COORDINATION_ROLES = ("builder", "reviewer", "coordinator")
+# Task-code references in CODE.md (SPEC §2.9, ADR-088).
+REFERENCE_KINDS = ("function", "method", "class", "interface", "type", "variable", "constant",
+                   "module", "route", "model", "schema", "other")
+REFERENCE_CLASSES = ("production", "test", "config", "docs", "migration", "generated")
+REFERENCE_RELATIONS = ("creates", "modifies", "deletes", "reads", "depends_on", "verifies",
+                       "documents", "affects")
+REFERENCE_SCOPES = ("planned", "observed")
+REFERENCE_LIFECYCLES = ("planned", "active", "renamed", "deleted", "unresolved")
+REFERENCE_VERIFICATIONS = ("unverified", "verified", "disputed", "stale")
+REFERENCE_AUTHORIZATIONS = ("not_applicable", "proposed", "authorized", "rejected", "revoked")
+REFERENCE_SOURCES = ("manual", "agent", "git_diff", "static_analysis", "graph_provider")
 
 OBSTACLE_TYPES = (
     "DEPENDENCY_BLOCKER",
@@ -357,6 +368,99 @@ class Brief:
                 "authority": f"{self.source.file}#{self.id}"}
 
 
+def reference_path_problem(path: str | None) -> str | None:
+    """Why `path` is not a repository-relative path, or None when it is one.
+
+    The file need not exist; a reference may name what a task will create.
+    """
+    if not path:
+        return "the path is empty"
+    if "\\" in path:
+        return "the path contains a backslash; use '/'"
+    if path.startswith("/"):
+        return "the path is absolute"
+    if re.match(r"^[A-Za-z]:", path):
+        return "the path names a drive"
+    if ".." in path.split("/"):
+        return "the path leaves the repository root"
+    return None
+
+
+@dataclass
+class Reference:
+    """One task-code reference: a task related to a file or a symbol in it (SPEC §2.9).
+
+    Fields hold what was authored; absent optional fields stay None and are
+    never given a default. `confidence` is the authored text, read as a number
+    only when it is one.
+    """
+
+    id: str
+    title: str
+    task: str
+    path: str | None
+    relation: str | None
+    scope: str
+    verification: str | None
+    authorization: str | None
+    provenance: str  # the authored `Source:` field: manual, agent, ...
+    recorded: str | None
+    source: Source
+    repository: str | None = None
+    symbol: str | None = None
+    kind: str | None = None
+    code_class: str | None = None
+    lifecycle: str | None = None
+    authorized_by: str | None = None
+    provider: str | None = None
+    revision: str | None = None
+    base: str | None = None
+    head: str | None = None
+    lines: str | None = None
+    confidence: str | None = None
+    was: str | None = None
+    replaces: str | None = None
+    withdrawn: str | None = None
+    evidence: str | None = None
+    # Read from a task's `Files:` or `Symbols:` anchor, not from CODE.md.
+    legacy: bool = False
+
+    @property
+    def confidence_value(self) -> float | None:
+        """The confidence as a number in [0, 1], or None when absent or not one."""
+        if self.confidence is None:
+            return None
+        try:
+            value = float(self.confidence)
+        except ValueError:
+            return None
+        return value if 0 <= value <= 1 else None
+
+    @property
+    def artifact(self) -> tuple[str | None, str, str | None] | None:
+        """Repository, path and qualified name; None when it names no valid path.
+
+        A bare symbol name is never an identity, so a `Symbols:` anchor, which
+        names no file, has no artifact.
+        """
+        if self.path is None or reference_path_problem(self.path):
+            return None
+        return (self.repository, self.path, self.symbol)
+
+    def as_json(self) -> dict[str, object]:
+        return {
+            "id": self.id, "task": self.task, "repository": self.repository, "path": self.path,
+            "symbol": self.symbol, "kind": self.kind, "class": self.code_class,
+            "relation": self.relation, "scope": self.scope, "lifecycle": self.lifecycle,
+            "verification": self.verification, "authorization": self.authorization,
+            "authorizedBy": self.authorized_by, "source": self.provenance,
+            "provider": self.provider, "recorded": self.recorded, "revision": self.revision,
+            "base": self.base, "head": self.head, "lines": self.lines,
+            "confidence": self.confidence_value, "was": self.was, "replaces": self.replaces,
+            "withdrawn": self.withdrawn, "evidence": self.evidence, "legacy": self.legacy,
+        }
+
+
 @dataclass
 class Policy:
     """The assumption policy in force: groups reserved for the owner."""
@@ -534,6 +638,8 @@ class Project:
     conventions: list[Convention] = field(default_factory=list)
     briefs: list[Brief] = field(default_factory=list)
     change_requests: list[ChangeRequest] = field(default_factory=list)
+    # Authored records from CODE.md only; anchors are added when compiled.
+    references: list[Reference] = field(default_factory=list)
     # Exact bytes parsed for writable records; never serialized into compiled views.
     record_bytes: dict[str, bytes] = field(default_factory=dict, repr=False, compare=False)
     journal_validation: list[Finding] | None = field(default=None, repr=False, compare=False)
