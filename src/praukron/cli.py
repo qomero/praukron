@@ -464,6 +464,20 @@ def cmd_retrieve(root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_refs(root: Path, args: argparse.Namespace) -> int:
+    from . import refs
+
+    try:
+        result = refs.lookup(_load(root), args.target)
+    except refs.TargetError as error:
+        return _fail(str(error))
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(refs.render(result), end="")
+    return 0
+
+
 def _confirm(question: str) -> bool:
     """Ask on a terminal; anything but an explicit yes, or no terminal, is no."""
     if not sys.stdin.isatty():
@@ -723,6 +737,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="after the project context, add code structure from CodeGraph if installed",
     )
     fetch.set_defaults(handler=cmd_retrieve)
+
+    lookup = subparsers.add_parser(
+        "refs", help="a task's files and symbols, or the tasks that reference a file or symbol"
+    )
+    lookup.add_argument("target", help="a task id, a repository-relative path, or path#Qualified.symbol")
+    lookup.add_argument("--json", action="store_true")
+    lookup.set_defaults(handler=cmd_refs)
 
     graph_tool = subparsers.add_parser(
         "codegraph", help="optional CodeGraph integration: status, setup, doctor, uninit"

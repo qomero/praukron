@@ -1168,6 +1168,12 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
         "brief": brief.as_json() if brief else None,
         "conventions": [c.as_json() for c in conventions],
     }
+    # The task's files and symbols: counts, the first few, and the command
+    # that returns the rest (SPEC §2.9). Read from the compiled references;
+    # no graph provider is consulted.
+    from . import refs
+
+    packet["references"] = refs.summary(project, task_id)
     if task.done:
         packet["note"] = (
             f"{task.id} is already DONE. This packet is for review or audit, "
