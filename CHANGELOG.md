@@ -4,6 +4,121 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 4.0.0 — 2026-11-26
+
+This release links every task to the files and symbols it touched, and records
+them by itself when the task is closed: a task claimed and closed through the
+structured writes ends up with its changed files and Python symbols in
+`.praukron/chronicle/CODE.md` with no extra step. Version 3 is skipped. A
+version 3 was released once and withdrawn, and the archive still holds its
+record, so no 3.x identifier is used and this release follows 2.3.1 as 4.0.0.
+
+- Task–code references (SPEC §2.9) are typed links from a task to files and
+  symbols, kept as records in `.praukron/chronicle/CODE.md`. They are read,
+  validated and compiled into `project.json` as `references` and `artifacts`.
+  Each task's existing `Files:` and `Symbols:` anchors are also listed as planned
+  references with manual provenance and `legacy: true`; anchors are never
+  rewritten and every existing field compiles unchanged. A chronicle without
+  `CODE.md` stays valid, and `install.sh` installs the empty `CODE.md` template
+  when it is absent, never replacing one (T-CIL-MAP-01).
+- A task's observed files are captured from Git by themselves (ADR-092). In a Git
+  repository a structured write that claims a task (`task update` to `WIP`, alone
+  or in `batch apply`) records the current commit as `- Claimed at: <sha>`; a task
+  claimed again keeps its first. The write that sets the task `DONE` records, in
+  the same all-or-nothing write, every file changed since that commit, the
+  working tree and untracked files included, as observed references
+  (`Source: git_diff`, `Base`, `Head`, `Verification: verified`,
+  `Authorization: not_applicable`): added `creates`, modified `modifies`, deleted
+  `deletes` with `Lifecycle: deleted`, renamed `modifies` with `Was`. Files Git
+  ignores and `.praukron/` are not recorded, a file already recorded is not
+  recorded again, and a change another claimed task may have made is recorded
+  `Lifecycle: unresolved` with `unresolved attribution` in its evidence. Capture
+  never blocks: without Git, outside a repository, without a claim commit or
+  when Git fails, the write is unchanged and its reply's `capture` member says
+  why capture was skipped; otherwise `capture` gives how many files and symbols
+  were recorded (T-CIL-SCOPE-01).
+- Changed Python symbols are captured with their files. Each changed Python file
+  is parsed with the standard library's `ast`, the old text at `Base` and the new
+  text at `Head` or in the working tree, never run, and every function, async
+  function, class and method whose range holds a changed line is recorded as an
+  observed reference (`Source: static_analysis`, `Kind`, qualified `Symbol`,
+  `Lines` as a hint): `creates`, `modifies`, or `deletes` with
+  `Lifecycle: deleted` and `Revision: <Base>`. Another language, a file that does
+  not parse, a file over 512 KiB, a file past the capture's 4 MiB source budget
+  or its cap of 200 symbol records, or a capture with more than 200 changed
+  Python files keeps its file reference, whose evidence says its symbols are
+  unresolved, and the reply lists it in `capture.symbolsUnresolved`; no symbol is
+  recorded without a real name (T-CIL-SCOPE-02).
+- Capture leaves out untracked cache files a repository forgot to ignore. Besides
+  Git's own ignore rules, a short built-in list applies to untracked files only:
+  a file under a directory named `__pycache__`, `.pytest_cache`, `.mypy_cache`,
+  `.ruff_cache`, `.tox` or `node_modules` at any depth, and a file named
+  `.DS_Store` or `Thumbs.db` or ending in `.pyc` or `.pyo`. The reply's `capture`
+  gives the number left out as `untrackedLeftOut`, omitted when none were. A
+  tracked file is always recorded whatever its path, and `build`, `dist`,
+  `target` and `vendor` are not on the list (T-CIL-SCOPE-05).
+- `praukron scope capture <task> --base <rev> [--head <rev>]` makes the same
+  capture between named revisions. With both revisions named, the caller vouches
+  for the range, so the changes are attributed to the task even when other tasks
+  were claimed over it; each record's evidence says `range named by the caller`
+  and the reply's `capture` has `rangeNamed: true`. A coordinator whose builders
+  work in other worktrees, and so claims their tasks at one commit, captures each
+  merged task this way. The capture a `DONE` write makes, and `scope capture`
+  without `--head`, keep the overlap rule (T-CIL-SCOPE-06).
+- References are written and corrected through structured commands, never by
+  hand. `praukron ref add` appends one reference to `CODE.md`, creating the file
+  from its template header when absent, and assigns its `CR-<task>-<nn>`
+  identifier. `praukron ref set` changes a reference's verification, lifecycle or
+  evidence in place under `expectRevision`, or appends a record that withdraws or
+  replaces it while the earlier record stays byte for byte. Both are also
+  `batch apply` operations, and every record carries `Source` and
+  `Recorded: <date> · <who>` (an in-place `set` adds `Updated: <date> · <who>`).
+  A planned `creates`, `modifies` or `deletes` is written `proposed` unless
+  `authorizedBy` names an owner response or an accepted ADR. `praukron ref
+  history <CR-id>` prints a reference and every record it replaces, oldest first
+  (T-CIL-MAP-02).
+- `praukron refs <target>` looks up code from a task and tasks from code. For a
+  task it lists every file and symbol reference with relation, scope,
+  verification, authorization, revision, evidence and its `file#anchor`; for a
+  path or `path#Qualified.symbol` it names every task that holds a current
+  reference to it, with their governing ADRs, acceptance criteria and
+  assumptions. A reference is current while no record replaces it and it is not
+  withdrawn; `refs` lists every record and marks a superseded one
+  `replaced by CR-…`. `--json` prints JSON, and a path outside the repository is
+  refused. `context <task>` and `retrieve <task>` now carry a `references` field:
+  counts by scope, the first twelve current references, and the command that
+  returns the rest. No existing packet field changes, and no graph provider is
+  consulted (T-CIL-MAP-02, T-CIL-MAP-03).
+- The dashboard shows task–code references. The task registry has Files and
+  Symbols columns counting each task's current references, and its search also
+  finds tasks by an exact or partial path or a symbol name. Each task record in
+  Audit, and the task dialog that shows it, has a Code References section:
+  planned and observed files and symbols with relation, authorization,
+  verification, revision, provenance and up to three other tasks that reference
+  the same artifact; unresolved, stale, replaced and withdrawn references are
+  marked, not hidden. A new Code artifacts group in Audit gives each file or
+  symbol its current path, earlier paths (`Was`), referencing tasks and their
+  decisions. Every label is in English and Vietnamese, and the page reads
+  without JavaScript (T-CIL-MAP-04).
+- The installed guidance tells an agent how a task gets its files and symbols.
+  The `AGENTS.md` block, the `praukron-work` and `praukron-checkpoint`
+  workflows, the skill and the chronicle README say that a claimed task's
+  changed files and Python symbols are recorded by the write that sets it
+  `DONE`, to read that reply's `capture` and report a skip, and to record with
+  `praukron ref add` only what the tool cannot know: planned scope when a task is
+  created or claimed, the symbols of files `capture.symbolsUnresolved` lists, and
+  files a task reads, verifies or documents without changing them
+  (T-CIL-MAP-05).
+- The README, `docs/GUIDE.md` and `docs/SPEC.md` §2.9 describe task–code
+  references and their capture: the claim, the close and its `capture` reply,
+  `praukron refs` in both directions, the packet's `references` field,
+  correcting references with `ref set` and `ref history`, planned against
+  observed scope, the dashboard views, `scope capture`, and the limits (symbols
+  for Python only, unresolved attribution when two tasks are open over the same
+  commits, capture needing Git, no graph provider needed). The command, file and
+  task-field tables list `refs`, `ref add`, `ref set`, `ref history`,
+  `scope capture`, `CODE.md` and `Claimed at` (T-DOCS-CIL-01).
+
 ## 2.3.1 — 2026-11-10
 
 - The task dialog and the Audit task record show a schedule as labelled Start, End and Estimate values (Bắt đầu, Kết thúc, Ước tính in Vietnamese) instead of raw JSON. Fields a task does not record are hidden, and a task with no schedule still reads Unscheduled (T-DASH-SCHED-01).
