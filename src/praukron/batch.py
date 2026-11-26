@@ -10,7 +10,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Callable
 
-from . import acr, compile as compiler, contract, criterion, journal, mutate, task, task_update
+from . import acr, compile as compiler, contract, criterion, journal, mutate, ref, task, task_update
 from .layout import AUTHORITY_DIR
 from .model import Project
 from .snapshot import Snapshot
@@ -35,6 +35,11 @@ def _criterion_target(project, payload):
     return ("expectRevision", found[0].source) if found and not found[0].is_global else None
 
 
+def _reference_target(project, payload):
+    found = next((r for r in project.references if r.id == payload.get("id")), None)
+    return ("expectRevision", found.source) if found else None
+
+
 # Keyed by the command name, so an entry is that command's payload plus "op".
 OPERATIONS = {
     "journal append": Operation(journal.SCHEMA, journal.append),
@@ -43,6 +48,8 @@ OPERATIONS = {
     "contract add": Operation(contract.SCHEMA, contract.add, _task_target("expectTaskRevision", "task")),
     "task update": Operation(task_update.SCHEMA, task_update.update, _task_target("expectRevision", "id")),
     "acr add": Operation(acr.SCHEMA, acr.add),
+    "ref add": Operation(ref.ADD_SCHEMA, ref.add),
+    "ref set": Operation(ref.SET_SCHEMA, ref.set_reference, _reference_target),
 }
 PREVIOUS = "$previous"
 # Details of a staged section, which a caller retrying the whole batch cannot use.

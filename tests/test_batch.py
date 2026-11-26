@@ -376,7 +376,8 @@ class TestBatch(BatchCase):
         choices = batch.schema()["properties"]["operations"]["items"]["oneOf"]
         self.assertEqual([c["properties"]["op"]["enum"] for c in choices], [[name] for name in batch.OPERATIONS])
         self.assertEqual(sorted(batch.OPERATIONS), sorted(
-            ["journal append", "criterion set", "task add", "contract add", "task update", "acr add"]))
+            ["journal append", "criterion set", "task add", "contract add", "task update", "acr add",
+             "ref add", "ref set"]))
         for choice in choices:
             self.assertEqual(choice["required"][0], "op")
         for entry in batch.EXAMPLE["operations"]:
