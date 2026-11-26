@@ -854,7 +854,16 @@ Not recorded: anything Git's ignore rules ignore (`.gitignore`,
 `.git/info/exclude`, `core.excludesFile`), a tracked file they match
 included; anything under `.praukron/`; and a path a record cannot hold (not
 UTF-8, leading or trailing whitespace, a line break or a backslash), which the
-reply lists in `skippedPaths`. Praukron keeps no ignore list of its own.
+reply lists in `skippedPaths`. Besides Git's rules, Praukron keeps one short
+built-in list, applied to untracked files only, so that a repository with no
+ignore file still keeps caches out of a capture: a file under a directory
+named `__pycache__`, `.pytest_cache`, `.mypy_cache`, `.ruff_cache`, `.tox` or
+`node_modules` at any depth, and a file named `.DS_Store` or `Thumbs.db` or
+ending in `.pyc` or `.pyo`. The reply's `capture` member gives how many
+untracked files the list left out as `untrackedLeftOut`, omitted when none
+were. The list holds nothing else (`build`, `dist`, `target` and `vendor` are
+source directories in some projects), and a tracked file is always recorded,
+whatever its path, unless Git's own rules ignore it.
 
 A change is attributed to the task only when it lies between `Base` and
 `Head`, the working tree included. When another task may also have made it,

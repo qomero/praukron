@@ -372,6 +372,151 @@ class TestIgnored(ScopeCase):
 
 
 @unittest.skipIf(GIT is None, "git is not installed")
+class TestBuiltInList(ScopeCase):
+    """AC-T-CIL-SCOPE-05: untracked cache files are left out with no ignore file."""
+
+    LISTED = ["src/__pycache__/app.cpython-312.pyc", "deep/a/b/__pycache__/x.txt", ".pytest_cache/v/cache/nodeids",
+              "pkg/.mypy_cache/3.12/meta.json", ".ruff_cache/0.5/data", "sub/.tox/py312/log.txt",
+              "node_modules/lib/index.js", "web/app/node_modules/dep/package.json", ".DS_Store",
+              "docs/img/.DS_Store", "Thumbs.db", "assets/Thumbs.db", "loose.pyc", "src/mod.pyo"]
+
+    def setUp(self):
+        super().setUp()
+        # Git reads $XDG_CONFIG_HOME/git/ignore even with no global config; a
+        # developer's own ignore file must not stand in for the built-in list.
+        environment = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.dir / "xdg")})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def test_untracked_listed_files_are_left_out_and_counted(self):
+        """AC-T-CIL-SCOPE-05-01."""
+        self.repository({"src/app.py": "one\n"})
+        self.assertFalse((self.root / ".gitignore").exists())
+        self.claim()
+        for name in self.LISTED:
+            self.write(name, "cache\n")
+        self.write("src/app.py", "two\n")
+        self.write("src/new.py", "new\n")
+        result = self.close()
+        self.assertEqual(sorted(self.references()), ["src/app.py", "src/new.py"])
+        self.assertEqual(result["capture"]["untrackedLeftOut"], len(self.LISTED))
+        self.assertEqual(result["capture"]["files"], 2)
+
+    def test_the_count_is_omitted_when_nothing_is_left_out(self):
+        """AC-T-CIL-SCOPE-05-01."""
+        self.repository({"src/app.py": "one\n"})
+        self.claim()
+        self.write("src/app.py", "two\n")
+        self.write("src/cache.py", "a name that only looks like a cache\n")
+        self.write("src/pycache/x.pyc.txt", "not on the list\n")
+        result = self.close()
+        self.assertEqual(sorted(self.references()), ["src/app.py", "src/cache.py", "src/pycache/x.pyc.txt"])
+        self.assertNotIn("untrackedLeftOut", result["capture"])
+
+    def test_a_file_git_already_ignores_is_not_counted(self):
+        """AC-T-CIL-SCOPE-05-01: Git's rules keep working; only what they let through is counted."""
+        self.repository({".gitignore": "__pycache__/\n", "src/app.py": "one\n"})
+        self.claim()
+        self.write("src/__pycache__/app.cpython-312.pyc", "cache\n")
+        self.write(".DS_Store", "litter\n")
+        self.write("src/app.py", "two\n")
+        result = self.close()
+        self.assertEqual(list(self.references()), ["src/app.py"])
+        self.assertEqual(result["capture"]["untrackedLeftOut"], 1)
+
+    def test_a_tracked_file_on_the_list_is_recorded(self):
+        """AC-T-CIL-SCOPE-05-02."""
+        tracked = {"src/__pycache__/keep.pyc": "one\n", "node_modules/vendored/index.js": "one\n",
+                   ".DS_Store": "one\n", "tools/old.pyo": "one\n", "src/app.py": "one\n"}
+        self.repository(tracked)
+        self.claim()
+        for name in tracked:
+            if name != "src/app.py":
+                self.write(name, "two\n")
+        (self.root / "src/app.py").unlink()
+        self.write("Thumbs.db", "staged\n")
+        self.git("add", "Thumbs.db")
+        result = self.close()
+        found = self.references()
+        self.assertEqual(sorted(found), sorted(["src/__pycache__/keep.pyc", "node_modules/vendored/index.js",
+                                                ".DS_Store", "tools/old.pyo", "src/app.py", "Thumbs.db"]))
+        self.assertEqual(found["node_modules/vendored/index.js"].relation, "modifies")
+        self.assertEqual(found["Thumbs.db"].relation, "creates")
+        self.assertNotIn("untrackedLeftOut", result["capture"])
+
+    def test_a_listed_file_committed_during_the_task_is_recorded(self):
+        """AC-T-CIL-SCOPE-05-02: committed, it is tracked."""
+        self.repository({"src/app.py": "one\n"})
+        self.claim()
+        self.write("src/__pycache__/app.cpython-312.pyc", "committed\n")
+        self.commit("commit a cache file")
+        result = self.close()
+        self.assertEqual(list(self.references()), ["src/__pycache__/app.cpython-312.pyc"])
+        self.assertNotIn("untrackedLeftOut", result["capture"])
+
+    def test_build_dist_target_and_vendor_are_recorded(self):
+        """AC-T-CIL-SCOPE-05-03."""
+        self.repository({"src/app.py": "one\n"})
+        self.claim()
+        names = ["build/out.txt", "dist/bundle.js", "target/release/app", "vendor/lib/x.go",
+                 "src/build/gen.py", "a/dist/b.txt"]
+        for name in names:
+            self.write(name, "work\n")
+        result = self.close()
+        self.assertEqual(sorted(self.references()), sorted(names))
+        self.assertNotIn("untrackedLeftOut", result["capture"])
+
+    def test_named_revisions_capture_is_unaffected(self):
+        """AC-T-CIL-SCOPE-05-02: between two commits every file is tracked."""
+        base = self.repository({"src/app.py": "one\n"})
+        self.write("node_modules/dep/index.js", "committed\n")
+        self.write("src/app.py", "two\n")
+        head = self.commit("work")
+        found, _, left_out = scope.changes(self.root, base, head)
+        self.assertEqual([c.path for c in found], ["node_modules/dep/index.js", "src/app.py"])
+        self.assertEqual(left_out, 0)
+
+    def test_no_extra_git_call_when_nothing_is_untracked(self):
+        """The built-in list costs no Git call of its own."""
+        base = self.repository({"src/app.py": "one\n"})
+        calls = []
+        real = scope._run
+
+        def counting(root, *args, **kwargs):
+            calls.append(args[0])
+            return real(root, *args, **kwargs)
+
+        with mock.patch.object(scope, "_run", counting):
+            self.assertEqual(scope.changes(self.root, base, None), ([], [], 0))
+        self.assertEqual(calls, ["diff", "ls-files"])
+
+
+class TestNeverWork(unittest.TestCase):
+    """AC-T-CIL-SCOPE-05-01 and -03, on the path rule alone."""
+
+    def test_the_list_and_nothing_else(self):
+        for path in TestBuiltInList.LISTED + [".tox/x", "a/.ruff_cache/b"]:
+            with self.subTest(path=path):
+                self.assertTrue(scope.never_work(path))
+        for path in ["build/x", "dist/x", "target/x", "vendor/x", "__pycache__", "node_modules",
+                     "src/node_modules.py", "x.pyc.bak", "a/my__pycache__/b", ".DS_Store.txt", "README.md"]:
+            with self.subTest(path=path):
+                self.assertFalse(scope.never_work(path))
+
+    def test_spec_states_the_list_and_that_it_applies_to_untracked_files_only(self):
+        """AC-T-CIL-SCOPE-05-04."""
+        spec = (Path(__file__).resolve().parents[1] / "docs" / "SPEC.md").read_text(encoding="utf-8")
+        paragraph = next(p for p in spec.split("\n\n") if p.startswith("Not recorded:"))
+        text = " ".join(paragraph.split())
+        self.assertIn("untracked files only", text)
+        self.assertIn("a tracked file is always recorded", text)
+        self.assertIn("untrackedLeftOut", text)
+        for name in sorted(scope.CACHE_DIRS | scope.CACHE_FILES) + list(scope.CACHE_SUFFIXES):
+            with self.subTest(name=name):
+                self.assertIn(f"`{name}`", text)
+
+
+@unittest.skipIf(GIT is None, "git is not installed")
 class TestPlannedUnchanged(ScopeCase):
     """AC-T-CIL-SCOPE-01-04."""
 
