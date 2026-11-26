@@ -37,8 +37,9 @@ EXAMPLE_COMMANDS = {**COMMANDS, "batch apply": ("batch.apply", batch.schema())}
 # AGENTS.md on main before T-WRITE-GUIDE-01 (2.0.0 plus #36 and #37), LF-normalized, and the
 # net growth that task allows; T-WRITE-ACR-01 then adds the sixth command, its example and its rule,
 # and T-WRITE-BATCH-01 the batch command, its example and its rule; T-WRITE-GUIDE-02 the closing
-# and whole-lifecycle examples.
+# and whole-lifecycle examples; T-CIL-MAP-05 a task's files and symbols (AC-T-CIL-MAP-05-04).
 AGENTS_BASE_BYTES, AGENTS_BUDGET, ACR_BYTES, BATCH_BYTES, CLOSE_BYTES = 10800, 1200, 300, 400, 600
+CODE_BYTES = 500
 
 # What the AGENTS.md examples name, beside the shared fixture.
 EXTRA_MODULE = "\n## M-CORE — Core\n- Phase: P1\n- Outcome: The core works.\n"
@@ -217,7 +218,8 @@ class Guidance(unittest.TestCase):
 
     def test_agents_md_stays_within_its_byte_budget(self):
         size = len((ROOT / "AGENTS.md").read_bytes().replace(b"\r\n", b"\n"))
-        self.assertLessEqual(size - AGENTS_BASE_BYTES, AGENTS_BUDGET + ACR_BYTES + BATCH_BYTES + CLOSE_BYTES)
+        self.assertLessEqual(size - AGENTS_BASE_BYTES, AGENTS_BUDGET + ACR_BYTES + BATCH_BYTES + CLOSE_BYTES
+                             + CODE_BYTES)
 
     def test_every_installed_copy_comes_from_the_one_source(self):
         # The installer writes the Praukron block from the root AGENTS.md; no other copy exists to drift.

@@ -24,7 +24,9 @@ Mark it `WIP`, record the owner and claim date (`.praukron/praukron task update
 --input -`, which claims and dates it), and set `INTENT.md` to that one task
 before implementation. Its contract freezes at that moment; change it only
 through an accepted Acceptance Change Request (`acr add` records one for the
-owner). Keep intent at the exact execution point, especially
+owner). When you create or claim it, record with `.praukron/praukron ref add
+--input -` the files and symbols you already know it will touch
+(`"scope":"planned"`). Keep intent at the exact execution point, especially
 before a long-running step. When a material choice is made, accepted, or acted
 on, append its ADR immediately and link affected tasks. As truth changes, update the
 task (`task update`), its criterion states and evidence (`criterion set`), the
@@ -36,6 +38,17 @@ for a tool call, command, mutation, failure, or retry that could later explain
 an execution failure, a blocked gate, or a regression, naming the task it came
 from and what it affects. Summarize; never record secrets, credentials, or
 private reasoning.
+
+The files and Python symbols a task changes need nothing from you: in a Git
+repository, the claim notes the commit and the write that sets the task `DONE`
+records them as observed references. Read that reply's `capture` and say in
+your report when it was skipped, and why. Then `ref add` what it cannot know,
+as observed references: the symbols you changed in each file it lists in
+`symbolsUnresolved` (files that are not Python), and any file the task reads,
+verifies or documents without changing it. To find a task's code, or the tasks
+of a file or symbol, run `.praukron/praukron refs <task|path|path#symbol>` or
+read `references` in `context <task>` and `retrieve <task>`. Never edit
+`CODE.md` by hand; `ref set` changes or withdraws a reference.
 
 When a choice has no answer in authority, follow the assumption procedure in
 `AGENTS.md` and `docs/SPEC.md` §2.4: read the packet's `policy`; resolve it

@@ -537,4 +537,43 @@ mkdir -p "$optout/.local/bin" "$optout/project"
 test ! -e "$optout/.local/bin/praukron"
 grep -Fq '.praukron/praukron' "$optout/output"
 
+# A project installed before the guidance on a task's files and symbols
+# (AC-T-CIL-MAP-05-03): upgrading replaces what nobody edited, stages what
+# somebody did, and a task with no references stays valid.
+older="$fixture/before-refs"
+mkdir -p "$older"
+(cd "$root" && tar -cf - --exclude ./.git .) | (cd "$older" && tar -xf -)
+awk '/^Files and symbols: on create/ { skip = 1 } skip && /^$/ { skip = 0; next } !skip' \
+  "$root/AGENTS.md" > "$older/AGENTS.md"
+for file in .praukron/commands/praukron-work.md .praukron/commands/praukron-checkpoint.md \
+    .agents/skills/praukron/SKILL.md templates/chronicle/README.md; do
+  grep -Ev 'ref add|ref set|refs|symbolsUnresolved|scope capture|capture`|Python symbols' \
+    "$root/$file" > "$older/$file"
+done
+cmp "$root/install.sh" "$older/install.sh"
+refs="$fixture/refs-project"
+mkdir -p "$refs"
+"$older/install.sh" "$refs" --no-link >/dev/null
+if grep -Fq 'ref add' "$refs/AGENTS.md" "$refs/.praukron/commands/praukron-work.md"; then
+  echo "the earlier guidance already names ref add" >&2
+  exit 1
+fi
+printf '\n## T-001: Real work\n- Status: DONE\n- Phase: P-NONE\n- Validation: SYNTHETIC\n- Dependencies: none\n- AC: AC-T-001\n- Evidence: recorded\n- Governed by: none\n' >> "$refs/.praukron/chronicle/TASKS.md"
+printf '\n## AC-T-001 — Real work\n\n- `AC-T-001-01` — It exists. `INSPECTION` · `PASS`\n  - Evidence: it does.\n' >> "$refs/.praukron/chronicle/ACCEPTANCE.md"
+printf '\nMY OWN CHECKPOINT RULE\n' >> "$refs/.praukron/commands/praukron-checkpoint.md"
+cp "$refs/.praukron/commands/praukron-checkpoint.md" "$fixture/custom-checkpoint"
+"$root/install.sh" "$refs" --no-link > "$refs/output"
+for file in .praukron/commands/praukron-work.md .agents/skills/praukron/SKILL.md; do
+  cmp "$root/$file" "$refs/$file"
+done
+cmp "$root/templates/chronicle/README.md" "$refs/.praukron/chronicle/README.md"
+awk '/<!-- project-praukron:start -->/,/<!-- project-praukron:end -->/' "$root/AGENTS.md" > "$fixture/block-new"
+awk '/<!-- project-praukron:start -->/,/<!-- project-praukron:end -->/' "$refs/AGENTS.md" | cmp "$fixture/block-new" -
+cmp "$fixture/custom-checkpoint" "$refs/.praukron/commands/praukron-checkpoint.md"
+cmp "$root/.praukron/commands/praukron-checkpoint.md" \
+  "$refs/.praukron/upgrade/.praukron/commands/praukron-checkpoint.md"
+grep -Fq 'Guidance kept because it was edited' "$refs/output"
+(cd "$refs" && .praukron/praukron validate >/dev/null && .praukron/praukron refs T-001 > "$refs/refs-output")
+grep -Fq '0 references' "$refs/refs-output"
+
 echo 'installer smoke: pass'

@@ -102,6 +102,12 @@ question that an authored document answers.
   task's brief and the conventions it rests on; `context <task> --role
   coordinator` gives a coordinator its own. It is never archived, and a
   task with an `ACTIVE` brief stays in the working files.
+- `CODE.md` is the task-code references: the files and symbols each task plans
+  to touch or touched, one reference per record (SPEC §2.9). Setting a claimed
+  task `DONE` in a Git repository records its changed files and Python
+  symbols; agents add the rest through `praukron ref add` and change a
+  reference through `praukron ref set`, never by hand. A task needs no
+  references to be valid. `praukron refs` reads them by task, file or symbol.
 - `.praukron/compiled/STATE.md` and `.praukron/compiled/TASK_GRAPH.md` are
   views. They report authority and never override it.
 
@@ -146,7 +152,9 @@ question that an authored document answers.
     task's brief in `COORDINATION.md` before starting an agent on the task,
     points the agent at the task rather than at files outside the chronicle,
     keeps the brief's review round current, and closes the brief when the task
-    is merged or abandoned. Edit one section, then run `validate`.
+    is merged or abandoned. Edit one section, then run `validate`. For a task
+    built in another worktree, it records the merged change's files and
+    symbols with `praukron scope capture <task> --base <rev> --head <rev>`.
 
 ## Checkpoint trigger
 
