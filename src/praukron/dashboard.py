@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from .analytics import Report
 from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATIONS, Project, event_order
-from . import drawings, mermaid, review, i18n
+from . import compile as compiler, drawings, mermaid, refs, review, i18n
 
 
 def esc(value: object) -> str:
@@ -380,6 +380,13 @@ dialog .body { padding: 22px 24px 26px; }
 dialog h3 { margin: 0 0 6px; font-size: 18px; padding-right: 32px; }
 dialog dt { color: var(--muted); font-size: 12px; font-weight: 600; margin-top: 14px; }
 dialog dd { margin: 4px 0 0; }
+.code-refs h4 { margin: 14px 0 4px; font-size: 14px; }
+.code-refs tr.code-group th { padding-top: 12px; color: var(--ink); }
+.code-table { overflow-x: auto; }
+.code-table td, .code-table th { padding: 6px 8px; }
+.pill.ref-mark { color: var(--warn); border-style: dashed; }
+article.artifact { padding: 10px 0; border-bottom: 1px solid var(--line); }
+article.artifact h3 { margin: 0; font-size: 14px; }
 dialog button.close { position: sticky; top: 0; float: right; margin: 10px 10px 0 0; width: 32px; height: 32px;
   display: grid; place-items: center; background: none; border: 0; border-radius: 8px;
   color: var(--muted); cursor: pointer; }
@@ -489,6 +496,26 @@ function aggValue(entries) {
 }
 """
 
+# The registry search reads the embedded references; it adds no copy of them.
+# Which references are no longer current is decided by the renderer
+# (`refs.is_current`) and arrives as the ids to skip.
+CODE_FILTER_JS = """
+function codeIndex(references, notCurrent) {
+  const text = {};
+  references.forEach(r => {
+    if (notCurrent.has(r.id)) return;
+    const terms = [r.path, r.symbol, r.path && r.symbol ? r.path + '#' + r.symbol : ''].filter(Boolean);
+    text[r.task] = (text[r.task] || '') + ' ' + terms.join(' ').toLowerCase();
+  });
+  return text;
+}
+// A task passes a search when its ID, title, or a path or symbol it currently
+// references contains the query, whole or in part.
+function taskMatches(text, code, q) {
+  return !q || text.includes(q) || (code || '').includes(q);
+}
+"""
+
 _SCRIPT = """
 const DATA = JSON.parse(document.getElementById('project-data').textContent);
 const DIAGRAMS = JSON.parse(document.getElementById('diagram-data').textContent);
@@ -498,6 +525,8 @@ const NODE_KEY = Object.fromEntries(
 const byId = Object.fromEntries(DATA.tasks.map(t => [t.id, t]));
 const decisionById = Object.fromEntries(DATA.decisions.map(d => [d.id, d]));
 const eventById = Object.fromEntries(DATA.operations.events.map(e => [e.id, e]));
+const codeText = codeIndex(DATA.references || [],
+  new Set(JSON.parse(document.getElementById('code-not-current').textContent)));
 
 // Authored prose becomes markup here too, so it is escaped here too.
 const esc = value => String(value == null ? '' : value).replace(
@@ -513,6 +542,31 @@ function scheduleHtml(schedule) {
   return fields.length
     ? fields.map(([label, key]) => `<span class="note">${label}</span> ${esc(protectedText(schedule[key]))}`).join(' · ')
     : '<span class="note">Unscheduled</span>';
+}
+
+// The dialog shows a record that is already on the page, so it reads the same
+// without JavaScript; the copy keeps each text's original for the language switcher.
+function copyRecord(source, target) {
+  if (!source) return;
+  const copy = source.cloneNode(true);
+  copy.removeAttribute('id');
+  if (typeof uiNodes === 'function' && typeof textOrigins !== 'undefined') {
+    const copies = uiNodes(copy);
+    uiNodes(source).forEach((node, index) => {
+      const origin = textOrigins.get(node);
+      if (origin && copies[index]) textOrigins.set(copies[index], {...origin});
+    });
+  }
+  target.appendChild(copy);
+}
+
+function showArtifact(anchor) {
+  const dialog = document.getElementById('detail');
+  const body = dialog.querySelector('.body');
+  body.innerHTML = '';
+  copyRecord(document.getElementById(anchor), body);
+  dialog.setAttribute('aria-label', 'Code artifact');
+  if (!dialog.open) dialog.showModal();
 }
 
 function showTask(id) {
@@ -550,8 +604,15 @@ function showTask(id) {
       ${task.decisions.length ? `<dt>Decisions</dt><dd>${task.decisions.map(d => `<code>${esc(d)}</code>${decisionById[d] && decisionById[d].origin === 'RECONSTRUCTED' ? ' ' + pill('RECONSTRUCTED') : ''}`).join(', ')}</dd>` : ''}
       <dt>Schedule</dt><dd>${scheduleHtml(task.schedule)}</dd>
       <dt>Source</dt><dd><code>${esc(DATA.project.authority)}/${esc(task.source.file)} → ${esc(task.source.anchor)}</code></dd>
-    </dl>`;
-  document.getElementById('detail').showModal();
+    </dl><div class="detail-code"></div>`;
+  const record = document.getElementById('task-record-' + id);
+  const code = document.querySelector('#detail .detail-code');
+  const references = record && record.querySelector('.code-refs');
+  if (references) copyRecord(references, code);
+  else code.innerHTML = '<div class="code-refs"><h4>Code references</h4><p class="note">No file or symbol is referenced.</p></div>';
+  const dialog = document.getElementById('detail');
+  dialog.setAttribute('aria-label', 'Task details');
+  if (!dialog.open) dialog.showModal();
 }
 
 // A task opens from any element that names it: a table row, a link in the
@@ -559,6 +620,8 @@ function showTask(id) {
 document.addEventListener('click', event => {
   const opener = event.target.closest('[data-task]');
   if (opener) { event.preventDefault(); showTask(opener.dataset.task); }
+  const artifact = event.target.closest('[data-artifact]');
+  if (artifact) { event.preventDefault(); showArtifact(artifact.getAttribute('href').slice(1)); }
 });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -976,7 +1039,7 @@ const taskRows = [...document.querySelectorAll('#task-registry tbody tr[data-tas
 const taskSearch = document.getElementById('task-search');
 runRegistry = filterable(taskRows, [taskSearch], document.getElementById('task-shown'), row => {
   const q = taskSearch.value.trim().toLowerCase();
-  return (!q || row.dataset.text.includes(q)) && passes(byId[row.dataset.task]);
+  return taskMatches(row.dataset.text, codeText[row.dataset.task], q) && passes(byId[row.dataset.task]);
 });
 taskSearch.addEventListener('input', () => renderScoped());
 
@@ -1801,6 +1864,166 @@ def dependency_svg(tasks: dict) -> str:
             f'height="{max((y + 60 for x, y in positions.values()), default=80)}">'
             + ''.join(edges + nodes) + '</svg></div>')
 
+# How many other tasks a reference names before it points to the artifact's record.
+RELATED_TASKS = 3
+_CODE_GROUPS = (
+    ("planned", False, "Planned files"), ("planned", True, "Planned symbols"),
+    ("observed", False, "Observed files"), ("observed", True, "Observed symbols"),
+)
+
+
+def _artifact_text(path: str | None, symbol: str | None) -> str:
+    return f"{path}#{symbol}" if path and symbol else str(path or symbol or "")
+
+
+def _recorded_text(value: str | None) -> str:
+    """A `Recorded` value as the compiled model protects it: the date stays a
+    date, so it reads in the page's order; who recorded it is opaque."""
+    if not value:
+        return ""
+    match = re.fullmatch(r"(\d{4}-\d{2}-\d{2})(.*)", value, re.S)
+    if match:
+        return esc(match[1]) + (esc(i18n.verbatim(match[2])) if match[2] else "")
+    return esc(i18n.verbatim(value))
+
+
+class CodeIndex:
+    """The task-code references as the page shows them (SPEC §2.9).
+
+    Read from the compiled references once. A reference counts, filters and
+    relates tasks only while it is current (`refs.is_current`); the others are
+    listed and marked, never hidden. Each artifact gets one record in Audit,
+    which the task detail links to; nothing else repeats the reference list.
+    """
+
+    def __init__(self, project: Project, ref) -> None:
+        self.references = compiler.compiled_references(project)
+        self.superseded = refs.replaced_by(self.references)
+        self.ref = ref
+        self.by_task: dict[str, list] = {}
+        self.artifacts: dict[tuple, dict] = {}
+        for reference in self.references:
+            self.by_task.setdefault(reference.task, []).append(reference)
+            key = reference.artifact
+            if key is None:
+                continue
+            entry = self.artifacts.setdefault(key, {"anchor": f"artifact-{len(self.artifacts) + 1}",
+                                                    "references": [], "current": [], "was": []})
+            entry["references"].append(reference)
+            current = refs.is_current(reference, self.superseded)
+            if current and reference.task not in entry["current"]:
+                entry["current"].append(reference.task)
+            if reference.was and reference.was not in entry["was"]:
+                entry["was"].append(reference.was)
+
+    def current(self, reference) -> bool:
+        return refs.is_current(reference, self.superseded)
+
+    def counts(self, task_id: str) -> tuple[int, int]:
+        """Current file references and current symbol references, anchors included."""
+        found = [r for r in self.by_task.get(task_id, []) if self.current(r)]
+        return sum(1 for r in found if r.symbol is None), sum(1 for r in found if r.symbol is not None)
+
+    def not_current(self) -> list[str]:
+        """The ids the client must skip when it filters by path or symbol."""
+        return [r.id for r in self.references if not self.current(r)]
+
+    def _marks(self, reference) -> str:
+        marks = []
+        if reference.artifact is None or reference.lifecycle == "unresolved":
+            marks.append('<span class="pill ref-mark">Unresolved</span>')
+        if reference.verification == "stale":
+            marks.append('<span class="pill ref-mark">Stale</span>')
+        if reference.id in self.superseded:
+            marks.append(f'<span class="pill ref-mark">Replaced by</span> <code>{esc(self.superseded[reference.id])}</code>')
+        if reference.withdrawn:
+            marks.append(f'<span class="pill ref-mark">Withdrawn</span> {esc(i18n.verbatim(reference.withdrawn))}')
+        return "<br>".join(marks)
+
+    @staticmethod
+    def _value(value: str | None) -> str:
+        # Enumerated values, in code: never translated, and kept out of the
+        # language switcher's text list.
+        return f"<code>{esc(value)}</code>" if value else ""
+
+    def _link(self, entry: dict, body: str) -> str:
+        return f'<a href="#{entry["anchor"]}" data-artifact>{body}</a>'
+
+    def _row(self, reference) -> str:
+        name = f"<code>{esc(_artifact_text(reference.path, reference.symbol))}</code>"
+        entry = self.artifacts.get(reference.artifact) if reference.artifact else None
+        if entry:
+            name = self._link(entry, name)
+        if reference.repository:
+            name += f' <span class="note">{esc(i18n.verbatim(reference.repository))}</span>'
+        if not reference.legacy:
+            name += f' <span class="note"><code>{esc(reference.id)}</code></span>'
+        marks = self._marks(reference)
+        provenance = self._value(reference.provenance)
+        if reference.provider:
+            provenance += f" {esc(i18n.verbatim(reference.provider))}"
+        if reference.recorded:
+            provenance += " · " + _recorded_text(reference.recorded)
+        others = [t for t in (entry["current"] if entry else []) if t != reference.task]
+        # Spaces, not commas: a separator would be one more text for the switcher.
+        related = " ".join(self._task(t) for t in others[:RELATED_TASKS])
+        if len(others) > RELATED_TASKS:
+            # The artifact's record lists them all.
+            related += " " + self._link(entry, f"and {len(others) - RELATED_TASKS} more")
+        return (f'<tr><td>{name}{"<br>" + marks if marks else ""}</td>'
+                f"<td>{self._value(reference.relation)}</td><td>{self._value(reference.authorization)}</td>"
+                f"<td>{self._value(reference.verification)}</td><td>{self._value(reference.revision)}</td>"
+                f"<td>{provenance}</td><td>{related}</td></tr>")
+
+    @staticmethod
+    def _task(task_id: str) -> str:
+        return f'<a href="#task-record-{esc(task_id)}" data-task="{esc(task_id)}"><code>{esc(task_id)}</code></a>'
+
+    def task_section(self, task_id: str) -> str:
+        """The Code References section of one task record; the task dialog shows the same one.
+        A task with none gets no section: the page is large, and the dialog says so itself."""
+        found = self.by_task.get(task_id, [])
+        if not found:
+            return ""
+        body = ""
+        for scope, symbols, label in _CODE_GROUPS:
+            rows = [r for r in found if r.scope == scope and (r.symbol is not None) == symbols]
+            if rows:
+                body += f'<tr class="code-group"><th colspan="7">{label}</th></tr>' + "".join(self._row(r) for r in rows)
+        # A scope outside the allowed values is a validation error; the reference is still shown.
+        other = [r for r in found if r.scope not in ("planned", "observed")]
+        if other:
+            body += '<tr class="code-group"><th colspan="7">Other references</th></tr>' + "".join(self._row(r) for r in other)
+        return ('<div class="code-refs"><h4>Code references</h4><div class="code-table"><table><thead><tr>'
+                "<th>Artifact</th><th>Relation</th><th>Authorization</th><th>Verification</th><th>Revision</th>"
+                "<th>Provenance</th><th>Also referenced by</th></tr></thead><tbody>" + body + "</tbody></table></div></div>")
+
+    def artifact_records(self, tasks: dict) -> str:
+        """One record per artifact: its current and earlier paths, the tasks
+        that reference it, and their governing decisions."""
+        records = ""
+        for (repository, path, symbol), entry in self.artifacts.items():
+            holders = ""
+            for task_id in entry["current"]:
+                task = tasks.get(task_id)
+                decisions = ", ".join(f'<a href="#decision-{esc(d)}" data-record="decision-{esc(d)}">{esc(d)}</a>'
+                                      for d in (task["decisions"] if task else []))
+                holders += (f"<li>{self.ref(task_id)}"
+                            + (f" {_pill(task['status'])}" if task else "")
+                            + f'<br><span class="note">Decisions</span> {decisions or "none"}</li>')
+            earlier = sorted({r.task for r in entry["references"]} - set(entry["current"]))
+            records += (f'<article class="artifact" id="{entry["anchor"]}"><h3>'
+                        f'<code>{esc(_artifact_text(path, symbol))}</code></h3><dl>'
+                        f'<dt>Current path</dt><dd><code>{esc(path)}</code>'
+                        + (f' <span class="note">{esc(i18n.verbatim(repository))}</span>' if repository else "")
+                        + "</dd><dt>Was</dt><dd>"
+                        + (", ".join(f"<code>{esc(w)}</code>" for w in entry["was"]) or "none recorded")
+                        + f'</dd><dt>Tasks</dt><dd><ul class="plain">{holders or "<li>none</li>"}</ul></dd>'
+                        + (f'<dt>No longer current</dt><dd>{", ".join(self._task(t) for t in earlier)}</dd>' if earlier else "")
+                        + "</dl></article>")
+        return records
+
+
 _EVENT_SECTIONS = (
     ("tool-calls", "Tool calls", ("tool-call", "command")),
     ("mini-actions", "Mini-actions", ("action",)),
@@ -1859,6 +2082,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
             f' data-task="{esc(task_id)}"><code>{esc(task_id)}</code> {esc(task["title"])}</a>'
         )
 
+    code = CodeIndex(project, ref)
+
     def trace_link(task_id: str, label: str = "Open its operations trace") -> str:
         return (
             f'<a class="tracelink" href="#operations" data-focus="op-{esc(task_id)}">'
@@ -1883,13 +2108,14 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                 f'<td><code>{esc(task["id"])}</code></td>'
                 f"<td>{esc(task['title'])}</td><td>{esc(task['phase'])}</td>"
                 f'<td>{_pill(task["domain"], "domain")}</td>'
-                f"<td>{_pill(task['status'])}</td><td>{_pill(task['validation'])}</td></tr>"
+                f"<td>{_pill(task['status'])}</td><td>{_pill(task['validation'])}</td>"
+                + "".join(f'<td class="num">{count}</td>' for count in code.counts(task_id)) + "</tr>"
             )
-        return rows or '<tr><td colspan="6" class="note">Nothing here.</td></tr>'
+        return rows or '<tr><td colspan="8" class="note">Nothing here.</td></tr>'
 
     table_head = (
         "<thead><tr><th>Task</th><th>Title</th><th>Phase</th><th>Domain</th>"
-        "<th>Status</th><th>Validation</th></tr></thead>"
+        "<th>Status</th><th>Validation</th><th>Files</th><th>Symbols</th></tr></thead>"
     )
 
     event_occurrences: dict[str, int] = {}
@@ -2442,7 +2668,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     registry = panel("tasks", f"""
   <h2>All tasks</h2>
   <div class="controls">
-    <input type="search" id="task-search" placeholder="Search task ID or title…" aria-label="Search tasks">
+    <input type="search" id="task-search" placeholder="Search task ID, title, file or symbol…" aria-label="Search tasks">
     {select("task-domain", "Domain", present_domains)}
     {select("task-phase", "Phase", present_phases)}
     {select("task-status", "Status", present_statuses)}
@@ -2635,7 +2861,8 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                     + '<p>Acceptance: ' + (', '.join(f'<a href="#criterion-{esc(c["id"])}">{esc(c["id"])}</a>' for c in contract.get("criteria", [])) or 'none') + '</p>'
                     + '<p>Assumptions: ' + (', '.join(f'<a href="#assumption-{esc(a)}">{esc(a)}</a>' for a in task["assumptions"]) or 'none') + '</p>'
                     + '<p>Decisions: ' + (', '.join(f'<a href="#decision-{esc(d)}">{esc(d)}</a>' for d in task["decisions"]) or 'none') + '</p>'
-                    + source_link(task["source"]) + '</details>')
+                    + code.task_section(tid) + source_link(task["source"]) + '</details>')
+    artifact_records = code.artifact_records(tasks)
     contract_records = [*compiled["acceptance"].items(), *((c["id"], c) for c in compiled["invariants"])]
     acceptance_records = ''.join(
         f'<section><h3>{esc(cid)} — {esc(contract["title"])}</h3>'
@@ -2656,6 +2883,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                   + '<details class="group"><summary>Acceptance criteria and evidence</summary>'
                   + (acceptance_records or '<p>No acceptance criteria recorded.</p>') + '</details>'
                   + '<details class="group"><summary>Task records and implementation evidence</summary>' + records + '</details>'
+                  + '<details class="group" id="code-artifacts"><summary>Code artifacts</summary>'
+                  + '<p class="note">Each file and symbol a task references, with its earlier paths, the tasks that reference it and their decisions.</p>'
+                  + (artifact_records or '<p>No file or symbol is referenced.</p>') + '</details>'
                   + operations_panel
                   + '<details class="group" id="panel-execution"><summary>Execution diagnostics</summary>'
                   + failures_section + '<h2>Obstacles</h2><ul class="plain xf-list">'
@@ -2732,8 +2962,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 <script type="application/json" id="project-data">{embed(original_compiled)}</script>
 <script type="application/json" id="diagram-data">{embed(diagrams)}</script>
 <script type="application/json" id="node-map">{embed(node_map)}</script>
+<script type="application/json" id="code-not-current">{embed(code.not_current())}</script>
 <!--i18n-runtime-->
-<script>{FILTER_JS}{_SCRIPT}{SEARCH_JS}{_MISSION_SCRIPT}{review.script(interactive)}</script>
+<script>{FILTER_JS}{CODE_FILTER_JS}{_SCRIPT}{SEARCH_JS}{_MISSION_SCRIPT}{review.script(interactive)}</script>
 </body>
 </html>
 """

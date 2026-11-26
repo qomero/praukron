@@ -116,7 +116,7 @@ _VI = {
     'result. Use arrow keys or Tab to navigate.': 'kết quả. Dùng phím mũi tên hoặc Tab để di chuyển.',
     'task matches': 'công việc phù hợp',
     'Search decision ID or title…': 'Tìm mã hoặc tiêu đề quyết định…',
-    'Search task ID or title…': 'Tìm mã hoặc tiêu đề công việc…',
+    'Search task ID, title, file or symbol…': 'Tìm mã, tiêu đề, tệp hoặc ký hiệu của công việc…',
     'Search decisions': 'Tìm quyết định', 'Search tasks': 'Tìm công việc',
     'Search assumptions': 'Tìm giả định', 'Filter assumptions…': 'Lọc giả định…',
     'Workspaces': 'Không gian làm việc', 'Active filters': 'Bộ lọc đang dùng', 'Filtered by': 'Đang lọc theo',
@@ -406,6 +406,20 @@ _VI.update({
     'login (install gh and run': '(hãy cài gh và chạy',
     'no GitHub login: run': 'chưa đăng nhập GitHub: chạy',
     'a response records who gave it as the active': 'phản hồi ghi nhận người gửi bằng tài khoản đang đăng nhập qua',
+    # Task-code references in the task list, task detail and Audit (SPEC §2.9).
+    'Files': 'Tệp', 'Symbols': 'Ký hiệu',
+    'Code references': 'Tham chiếu mã', 'Code artifacts': 'Các thành phần mã', 'Code artifact': 'Thành phần mã',
+    'Planned files': 'Tệp dự kiến', 'Planned symbols': 'Ký hiệu dự kiến',
+    'Observed files': 'Tệp ghi nhận thực tế', 'Observed symbols': 'Ký hiệu ghi nhận thực tế',
+    'Other references': 'Tham chiếu khác', 'Artifact': 'Thành phần', 'Relation': 'Quan hệ',
+    'Authorization': 'Trạng thái cấp phép', 'Verification': 'Trạng thái xác minh', 'Revision': 'Phiên bản',
+    'Provenance': 'Nguồn gốc', 'Also referenced by': 'Cũng được tham chiếu bởi',
+    'Unresolved': 'Chưa xác định', 'Stale': 'Đã lỗi thời', 'Replaced by': 'Đã thay bằng', 'Withdrawn': 'Đã rút lại',
+    'No file or symbol is referenced.': 'Không tham chiếu tệp hoặc ký hiệu nào.',
+    'Each file and symbol a task references, with its earlier paths, the tasks that reference it and their decisions.':
+        'Mỗi tệp và ký hiệu được công việc tham chiếu, kèm đường dẫn trước đây, các công việc tham chiếu đến nó và quyết định của chúng.',
+    'and {count} more': 'và {count} công việc khác',
+    'Current path': 'Đường dẫn hiện tại', 'Was': 'Đường dẫn trước đây', 'No longer current': 'Không còn hiệu lực',
     'login': 'đăng nhập', 'Failed to fetch': 'Không kết nối được. Hãy mở lại liên kết từ máy chủ đang chạy.',
 })
 CATALOGUES = {
