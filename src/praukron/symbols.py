@@ -26,6 +26,9 @@ from pathlib import Path
 MAX_FILE_BYTES = 512 * 1024
 # A capture with more changed Python files than this extracts no symbols.
 MAX_FILES = 200
+# A capture reads at most this much Python source for symbols, both sides of
+# every file counted; files are taken in path order until the next would pass it.
+MAX_CAPTURE_BYTES = 4 * 1024 * 1024
 SUFFIXES = (".py", ".pyi")
 NO_EXTRACTOR = "no deterministic symbol extractor for this file type"
 # The nodes that can hold a statement, and so a definition.
@@ -206,52 +209,52 @@ def changed(old: bytes | None, new: bytes | None, old_ranges: Ranges = (), new_r
     return sorted(result, key=lambda c: (c.from_base, c.start, c.name))
 
 
-def read_blobs(git, root: Path, specs: list[str]) -> dict[str, bytes | int | None]:
-    """Each `rev:path` blob's bytes, its size when over the limit, or None when absent.
-
-    Two Git calls whatever the number of files: sizes first, so a file over
-    the limit is never read, then the contents of the rest.
-    """
+def blob_sizes(git, root: Path, specs: list[str]) -> dict[str, int | None]:
+    """Each `rev:path` blob's size, or None when it is absent or not a file; one Git call."""
     if not specs:
         return {}
     request = b"".join(s.encode("utf-8") + b"\n" for s in specs)
-    out: dict[str, bytes | int | None] = {}
+    out: dict[str, int | None] = {}
     checked = git(root, "cat-file", "--batch-check=%(objecttype) %(objectsize)", stdin=request).split(b"\n")
-    wanted: list[str] = []
     for spec, line in zip(specs, checked):
         parts = line.split()
-        if len(parts) != 2 or parts[0] != b"blob":
-            out[spec] = None
-            continue
-        size = int(parts[1])
-        if size > MAX_FILE_BYTES:
-            out[spec] = size
-        else:
-            wanted.append(spec)
-    if wanted:
-        data = git(root, "cat-file", "--batch", stdin=b"".join(s.encode("utf-8") + b"\n" for s in wanted))
-        at = 0
-        for spec in wanted:
-            end = data.index(b"\n", at)
-            header = data[at:end].split()
-            at = end + 1
-            if len(header) != 3:
-                out[spec] = None
-                continue
-            size = int(header[2])
-            out[spec] = data[at:at + size]
-            at += size + 1
+        out[spec] = int(parts[1]) if len(parts) == 2 and parts[0] == b"blob" else None
     return out
 
 
-def read_file(path: Path) -> bytes | int | None:
-    """A working-tree file's bytes, its size when over the limit, or None when absent."""
+def read_blobs(git, root: Path, specs: list[str]) -> dict[str, bytes | None]:
+    """Each `rev:path` blob's bytes, or None when absent; one Git call whatever their number."""
+    out: dict[str, bytes | None] = {}
+    if not specs:
+        return out
+    data = git(root, "cat-file", "--batch", stdin=b"".join(s.encode("utf-8") + b"\n" for s in specs))
+    at = 0
+    for spec in specs:
+        end = data.index(b"\n", at)
+        header = data[at:end].split()
+        at = end + 1
+        if len(header) != 3:
+            out[spec] = None
+            continue
+        size = int(header[2])
+        out[spec] = data[at:at + size]
+        at += size + 1
+    return out
+
+
+def file_size(path: Path) -> int | None:
+    """A working-tree file's size, or None when it is absent or not a regular file."""
     try:
         if path.is_symlink() or not path.is_file():
             return None
-        size = path.stat().st_size
-        if size > MAX_FILE_BYTES:
-            return size
+        return path.stat().st_size
+    except OSError:
+        return None
+
+
+def read_file(path: Path) -> bytes | None:
+    """A working-tree file's bytes, or None when it cannot be read."""
+    try:
         return path.read_bytes()
     except OSError:
         return None

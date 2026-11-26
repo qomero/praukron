@@ -922,12 +922,17 @@ file type`); a Python file that does not parse on a side it needs (`does not
 parse: <message> at line <n> at the base revision` or `at the head`); a file
 larger than 524288 bytes (512 KiB) on a side it needs, which is never read
 (`file larger than 524288 bytes`); every Python file of a capture with more
-than 200 changed Python files, none of which is read; and, when extraction
+than 200 changed Python files, none of which is read; the files past the
+capture's budget of 4194304 bytes (4 MiB) of Python source, both sides of
+every file counted (the text at `Base` and the text at `Head` or in the
+working tree): files are taken in path order, and once the next file would
+pass the budget, it and every later file are not read (`the capture's symbol
+budget of 4194304 bytes of Python source is spent`); and, when extraction
 fails, `symbol extraction failed: <error>`; a changed text for which Git reports
 no changed line (`git reported no changed lines for a changed text`). Only
-changed files are read: three Git calls (`cat-file --batch-check`, `cat-file
---batch`, then one `diff -U0`) whatever their number, and the working tree
-from disk. The reply's `capture` member also
+changed files are read, and sizes are taken before any text: three Git calls
+(`cat-file --batch-check`, `cat-file --batch`, then one `diff -U0`) whatever
+their number, and the working tree from disk. The reply's `capture` member also
 gives `files` and `symbols`, the records of each kind it wrote, besides
 `references`, their total.
 
@@ -940,7 +945,12 @@ this change took 0.08 s and wrote 50 records (21 KB). Symbol extraction is
 records. One file of 6,000 small functions (192 KiB) changed in one line
 costs 0.18 s of extraction, and one of 15,700 (510 KiB, just under the
 limit) 0.51 s, nearly all of it parsing both sides; a whole close of the
-first stays under the three seconds `TestWriteTime` allows.
+first stays under the three seconds `TestWriteTime` allows. Forty such files
+of 200 KiB, each changed in one line, close in 1.5 s: the budget admits ten
+and leaves thirty unresolved. The budget bounds reading and parsing (about
+2 s for 4 MiB of the densest source), not the number of records: eight added
+files of 512 KiB holding one-line functions write 171,304 symbol records
+(85 MB of `CODE.md`) in 21 s.
 
 Capture adds observed references only: it changes no planned or earlier
 record and writes `Authorization: not_applicable`, never `authorized`. It

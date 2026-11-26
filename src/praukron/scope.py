@@ -278,10 +278,6 @@ def _sides(root: Path, change: Change, base: str, head_commit: str, working_tree
     return old, new
 
 
-def _too_large(value) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool)
-
-
 def _hunks(root: Path, compared: list[Change], base: str, until: str | None) -> dict:
     """The changed line ranges on each side of each compared file, from one `git diff -U0`.
 
@@ -306,8 +302,9 @@ def changed_symbols(root: Path, found: list[Change], base: str, head_commit: str
     """The changed symbols of each changed file, and why a file's symbols are unresolved.
 
     Only changed files are read, a Python file only when it is within
-    `symbols.MAX_FILE_BYTES` on each side it needs, and none when the capture
-    holds more than `symbols.MAX_FILES` changed Python files. Never raises: a
+    `symbols.MAX_FILE_BYTES` on each side it needs and the capture's reading
+    stays within `symbols.MAX_CAPTURE_BYTES`, and none when the capture holds
+    more than `symbols.MAX_FILES` changed Python files. Never raises: a
     failure leaves the affected files unresolved with the reason.
     """
     result: dict[str, list[symbols.Changed]] = {}
@@ -319,19 +316,40 @@ def changed_symbols(root: Path, found: list[Change], base: str, head_commit: str
         return result, unresolved
     try:
         sides = {c.path: _sides(root, c, base, head_commit, working_tree) for c in python}
-        specs = [s for pair in sides.values() for s in pair if isinstance(s, str)]
-        blobs = symbols.read_blobs(_git, root, specs)
-        texts: dict[str, tuple[bytes | None, bytes | None]] = {}
+        sizes = symbols.blob_sizes(_git, root, [s for pair in sides.values() for s in pair if isinstance(s, str)])
+        sizes.update({s: symbols.file_size(s) for pair in sides.values() for s in pair if isinstance(s, Path)})
+        # Sizes first, so nothing over a limit is read: per file, then for the capture, in path order.
+        admitted: list[Change] = []
+        spent = 0
         for change in python:
+            needed = [s for s in sides[change.path] if s is not None]
+            if any(sizes.get(s) is None for s in needed):
+                unresolved[change.path] = "its text could not be read"
+                continue
+            large = [sizes[s] for s in needed if sizes[s] > symbols.MAX_FILE_BYTES]
+            if large:
+                unresolved[change.path] = f"file larger than {symbols.MAX_FILE_BYTES} bytes ({large[0]} bytes)"
+                continue
+            cost = sum(sizes[s] for s in needed)
+            if spent + cost > symbols.MAX_CAPTURE_BYTES:
+                reason = (f"the capture's symbol budget of {symbols.MAX_CAPTURE_BYTES} bytes of Python source "
+                          f"is spent")
+                for later in python[python.index(change):]:
+                    unresolved.setdefault(later.path, reason)
+                break
+            spent += cost
+            admitted.append(change)
+        blobs = symbols.read_blobs(_git, root, [s for c in admitted for s in sides[c.path] if isinstance(s, str)])
+        texts: dict[str, tuple[bytes | None, bytes | None]] = {}
+        for change in admitted:
             old_at, new_at = sides[change.path]
             old = blobs.get(old_at) if old_at else None
             new = symbols.read_file(new_at) if isinstance(new_at, Path) else (blobs.get(new_at) if new_at else None)
-            if _too_large(old) or _too_large(new):
-                size = old if _too_large(old) else new
-                unresolved[change.path] = f"file larger than {symbols.MAX_FILE_BYTES} bytes ({size} bytes)"
-                continue
             if (old_at and old is None) or (new_at and new is None):
                 unresolved[change.path] = "its text could not be read"
+                continue
+            if new is not None and len(new) > symbols.MAX_FILE_BYTES:  # grew after it was measured
+                unresolved[change.path] = f"file larger than {symbols.MAX_FILE_BYTES} bytes ({len(new)} bytes)"
                 continue
             texts[change.path] = (old, new)
         # Both sides of a changed text: Git names the changed lines, in one call for the capture.

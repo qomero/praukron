@@ -238,6 +238,7 @@ class TestWriteTime(SymbolCase):
     """A one-line change costs the change, not the file (review of PR #85)."""
 
     BOUND = 3.0  # seconds for the whole close; difflib took 17 s for the same change
+    MANY_BOUND = 6.0  # seconds for forty 200 KiB files, the budget admitting ten
 
     def test_a_one_line_change_in_a_long_file_closes_within_the_bound(self):
         text = "".join(f"def f{i}(a):\n    return a + 1\n\n\n" for i in range(6000))
@@ -250,6 +251,25 @@ class TestWriteTime(SymbolCase):
         self.assertEqual(sorted(self.symbols()), ["src/long.py#f3000"])
         self.assertEqual(result["capture"]["symbols"], 1)
         self.assertLess(elapsed, self.BOUND, f"close took {elapsed:.2f} s")
+
+    def test_many_mid_sized_files_close_within_the_bound(self):
+        # Forty files of about 200 KiB, each changed in one line: 16 MiB to read in all,
+        # of which the 4 MiB budget admits ten; the rest keep their file references.
+        def text(k: int, value: int) -> str:
+            return "".join(f"def f{k}_{i}(a):\n    return a + {value if i == 9 else 1}\n\n\n" for i in range(6000))
+        files = {f"src/m{k:02d}.py": text(k, 1) for k in range(40)}
+        self.repository(files)
+        self.claim()
+        for k in range(40):
+            self.write(f"src/m{k:02d}.py", text(k, 2))
+        start = time.perf_counter()
+        result = self.close()
+        elapsed = time.perf_counter() - start
+        admitted = sorted(files)[:symbols.MAX_CAPTURE_BYTES // (2 * len(text(0, 1)))]
+        self.assertEqual(sorted(self.symbols()), sorted(f"{p}#f{p[5:7].lstrip('0') or '0'}_9" for p in admitted))
+        self.assertEqual(len(self.files()), 40)
+        self.assertEqual(len(result["capture"]["symbolsUnresolved"]), 40 - len(admitted))
+        self.assertLess(elapsed, self.MANY_BOUND, f"close took {elapsed:.2f} s")
 
 
 @unittest.skipIf(GIT is None, "git is not installed")
@@ -297,6 +317,47 @@ class TestUnresolvedSymbols(SymbolCase):
         self.assertEqual(self.symbols(), {})
         self.assertIn("larger than 100 bytes", result["capture"]["symbolsUnresolved"][0]["reason"])
         self.assertIn("symbols unresolved: file larger than 100 bytes", self.files()["src/big.py"].evidence)
+
+    def budget_case(self):
+        """Three changed files and a tiny fourth, and the bytes each costs to read on both sides."""
+        old = {name: f"def {name[4]}():\n    return 1\n" + "#" * 50 * (i + 1) + "\n"
+               for i, name in enumerate(["src/a.py", "src/b.py", "src/c.py"])}
+        old["src/d.py"] = "def d():\n    return 1\n"
+        self.repository(old)
+        self.claim()
+        new = {name: text.replace("return 1", "return 2") for name, text in old.items()}
+        for name, text in new.items():
+            self.write(name, text)
+        return {name: len(old[name].encode()) + len(new[name].encode()) for name in sorted(old)}
+
+    def test_a_capture_just_under_the_budget_extracts_every_file(self):
+        cost = self.budget_case()
+        with mock.patch.object(symbols, "MAX_CAPTURE_BYTES", sum(cost.values())):
+            result = self.close()
+        self.assertEqual(sorted(self.symbols()), ["src/a.py#a", "src/b.py#b", "src/c.py#c", "src/d.py#d"])
+        self.assertNotIn("symbolsUnresolved", result["capture"])
+
+    def test_a_capture_over_the_budget_extracts_the_files_that_fit(self):
+        cost = self.budget_case()
+        read = []
+        real = symbols.read_blobs
+
+        def recording(git, root, specs):
+            read.extend(specs)
+            return real(git, root, specs)
+
+        # a and b fit; c would pass the budget, so c and the smaller d after it are not read.
+        budget = cost["src/a.py"] + cost["src/b.py"] + cost["src/c.py"] - 1
+        with mock.patch.object(symbols, "MAX_CAPTURE_BYTES", budget), \
+                mock.patch.object(symbols, "read_blobs", side_effect=recording):
+            result = self.close()
+        self.assertEqual(sorted(self.symbols()), ["src/a.py#a", "src/b.py#b"])
+        self.assertEqual(sorted(self.files()), ["src/a.py", "src/b.py", "src/c.py", "src/d.py"])
+        reason = f"the capture's symbol budget of {budget} bytes of Python source is spent"
+        self.assertEqual(result["capture"]["symbolsUnresolved"],
+                         [{"path": "src/c.py", "reason": reason}, {"path": "src/d.py", "reason": reason}])
+        self.assertIn(f"symbols unresolved: {reason}", self.files()["src/c.py"].evidence)
+        self.assertFalse([s for s in read if s.endswith(("c.py", "d.py"))], read)
 
     def test_a_capture_over_the_file_limit_extracts_no_symbol(self):
         self.repository({"src/a.py": "def a():\n    pass\n", "src/b.py": "def b():\n    pass\n"})
