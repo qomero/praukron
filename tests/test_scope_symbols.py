@@ -10,6 +10,7 @@ import ast
 import re
 import subprocess
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -209,6 +210,46 @@ class TestChangedSymbols(SymbolCase):
         self.assertEqual(self.symbols(), {})
         self.assertEqual(result["capture"]["symbols"], 0)
         self.assertNotIn("symbolsUnresolved", result["capture"])
+
+
+class TestHunks(unittest.TestCase):
+    """The changed lines come from Git's hunks, read by their counts."""
+
+    def test_hunk_bodies_are_skipped_by_count(self):
+        patch = (b"diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n"
+                 b"@@ -3 +3,2 @@\n-x = 1\n+++ b/not-a-file.py\n+@@ -9 +9 @@\n\\ No newline at end of file\n"
+                 b"@@ -10,0 +12 @@\n+y\n"
+                 b'diff --git "a/sp\\303\\274 \\"q\\".py" "b/sp\\303\\274 \\"q\\".py"\n'
+                 b'--- "a/sp\\303\\274 \\"q\\".py"\n+++ "b/sp\\303\\274 \\"q\\".py"\n@@ -1,2 +0,0 @@\n-a\n-b\n')
+        self.assertEqual(symbols.hunks(patch), {"a.py": ([(3, 3)], [(3, 4), (12, 12)]),
+                                                'sp\u00fc "q".py': ([(1, 2)], [])})
+
+    def test_a_symbol_is_touched_only_by_a_range_that_overlaps_it(self):
+        ranges = [(3, 4), (12, 12), (40, 60)]
+        cases = {(1, 2): False, (1, 3): True, (4, 11): True, (5, 11): False, (12, 12): True,
+                 (13, 39): False, (45, 46): True, (61, 90): False}
+        for (start, end), touched in cases.items():
+            with self.subTest(start=start, end=end):
+                self.assertEqual(symbols._touches(symbols.Symbol("s", "function", start, end), ranges), touched)
+
+
+@unittest.skipIf(GIT is None, "git is not installed")
+class TestWriteTime(SymbolCase):
+    """A one-line change costs the change, not the file (review of PR #85)."""
+
+    BOUND = 3.0  # seconds for the whole close; difflib took 17 s for the same change
+
+    def test_a_one_line_change_in_a_long_file_closes_within_the_bound(self):
+        text = "".join(f"def f{i}(a):\n    return a + 1\n\n\n" for i in range(6000))
+        self.repository({"src/long.py": text})
+        self.claim()
+        self.write("src/long.py", text.replace("def f3000(a):\n    return a + 1", "def f3000(a):\n    return a + 2"))
+        start = time.perf_counter()
+        result = self.close()
+        elapsed = time.perf_counter() - start
+        self.assertEqual(sorted(self.symbols()), ["src/long.py#f3000"])
+        self.assertEqual(result["capture"]["symbols"], 1)
+        self.assertLess(elapsed, self.BOUND, f"close took {elapsed:.2f} s")
 
 
 @unittest.skipIf(GIT is None, "git is not installed")

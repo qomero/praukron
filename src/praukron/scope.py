@@ -282,6 +282,25 @@ def _too_large(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _hunks(root: Path, compared: list[Change], base: str, until: str | None) -> dict:
+    """The changed line ranges on each side of each compared file, from one `git diff -U0`.
+
+    Git's own diff names the lines, so the cost grows with the change, not
+    with the file. Hunks are never merged across unchanged lines, every file
+    is compared as text, and the user's diff programs and prefixes are not
+    used. Renames are detected as in `changes`, so a renamed file's old side
+    is its old path.
+    """
+    if not compared:
+        return {}
+    paths = sorted({p for c in compared for p in (c.path, c.old_path) if p})
+    patch = _git(root, "--literal-pathspecs", "-c", "core.quotePath=false", "diff", "-U0",
+                 "--inter-hunk-context=0", "--no-color", "--no-ext-diff", "--no-textconv", "--text", "-M",
+                 "--relative", "--src-prefix=a/", "--dst-prefix=b/", base, *([until] if until else []),
+                 "--", *paths)
+    return symbols.hunks(patch)
+
+
 def changed_symbols(root: Path, found: list[Change], base: str, head_commit: str, *,
                     working_tree: bool) -> tuple[dict[str, list[symbols.Changed]], dict[str, str]]:
     """The changed symbols of each changed file, and why a file's symbols are unresolved.
@@ -302,6 +321,7 @@ def changed_symbols(root: Path, found: list[Change], base: str, head_commit: str
         sides = {c.path: _sides(root, c, base, head_commit, working_tree) for c in python}
         specs = [s for pair in sides.values() for s in pair if isinstance(s, str)]
         blobs = symbols.read_blobs(_git, root, specs)
+        texts: dict[str, tuple[bytes | None, bytes | None]] = {}
         for change in python:
             old_at, new_at = sides[change.path]
             old = blobs.get(old_at) if old_at else None
@@ -313,8 +333,20 @@ def changed_symbols(root: Path, found: list[Change], base: str, head_commit: str
             if (old_at and old is None) or (new_at and new is None):
                 unresolved[change.path] = "its text could not be read"
                 continue
+            texts[change.path] = (old, new)
+        # Both sides of a changed text: Git names the changed lines, in one call for the capture.
+        compared = [c for c in python if c.path in texts and None not in texts[c.path]
+                    and texts[c.path][0] != texts[c.path][1]]
+        ranges = _hunks(root, compared, base, None if working_tree else head_commit)
+        for change in python:
+            if change.path not in texts:
+                continue
+            old, new = texts[change.path]
+            if change in compared and change.path not in ranges:
+                unresolved[change.path] = "git reported no changed lines for a changed text"
+                continue
             try:
-                result[change.path] = symbols.changed(old, new)
+                result[change.path] = symbols.changed(old, new, *ranges.get(change.path, ((), ())))
             except symbols.Unresolved as error:
                 unresolved[change.path] = str(error)
     except Exception as error:  # symbol capture never blocks the file capture

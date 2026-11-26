@@ -17,7 +17,8 @@ leaves the file without symbols and says why, so capture never blocks a write.
 from __future__ import annotations
 
 import ast
-import difflib
+import bisect
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -103,30 +104,86 @@ def extract(source: bytes) -> dict[str, Symbol]:
     return found
 
 
-def _changed_lines(old: bytes, new: bytes) -> tuple[set[int], set[int]]:
-    """Changed 1-based line numbers on the old side and on the new side.
+Ranges = list  # sorted, non-overlapping (start, end) line ranges, 1-based and inclusive
 
-    A pure insertion changes only new lines and a pure deletion only old
-    lines, so a symbol is changed when either side's lines fall in its range.
+_HUNK = re.compile(rb"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+_ESCAPES = {ord("a"): 7, ord("b"): 8, ord("t"): 9, ord("n"): 10, ord("v"): 11, ord("f"): 12, ord("r"): 13,
+            ord('"'): 34, ord("\\"): 92}
+
+
+def _unquote(raw: bytes) -> bytes:
+    """A path as Git prints it in a patch header, C-style quoted or not."""
+    if not (raw.startswith(b'"') and raw.endswith(b'"') and len(raw) >= 2):
+        return raw
+    body, out, i = raw[1:-1], bytearray(), 0
+    while i < len(body):
+        byte = body[i]
+        if byte == 92 and i + 1 < len(body):
+            nxt = body[i + 1]
+            if 48 <= nxt <= 55:
+                out.append(int(body[i + 1:i + 4], 8))
+                i += 4
+                continue
+            out.append(_ESCAPES.get(nxt, nxt))
+            i += 2
+            continue
+        out.append(byte)
+        i += 1
+    return bytes(out)
+
+
+def hunks(patch: bytes) -> dict[str, tuple[Ranges, Ranges]]:
+    """The changed line ranges of each file in a `git diff -U0` patch, by new path.
+
+    Each hunk header gives the old side's range and the new side's; a side
+    with a count of zero changed no line there. Hunk bodies are skipped by
+    their counts, so a changed line that looks like a header is never read as
+    one. Paths are relative to the diff's root, `b/` prefix removed.
     """
-    matcher = difflib.SequenceMatcher(None, old.splitlines(), new.splitlines(), autojunk=False)
-    old_lines: set[int] = set()
-    new_lines: set[int] = set()
-    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
-        if tag != "equal":
-            old_lines.update(range(i1 + 1, i2 + 1))
-            new_lines.update(range(j1 + 1, j2 + 1))
-    return old_lines, new_lines
+    found: dict[str, tuple[Ranges, Ranges]] = {}
+    current: tuple[Ranges, Ranges] | None = None
+    remaining = 0
+    for line in patch.split(b"\n"):
+        if remaining:
+            if not line.startswith(b"\\"):
+                remaining -= 1
+            continue
+        if line.startswith(b"+++ "):
+            target = _unquote(line[4:])
+            current = None
+            if target.startswith(b"b/"):
+                current = found.setdefault(target[2:].decode("utf-8", "replace"), ([], []))
+            continue
+        match = _HUNK.match(line)
+        if match and current is not None:
+            a, b, c, d = (int(g) if g is not None else 1 for g in match.groups())
+            if b:
+                current[0].append((a, a + b - 1))
+            if d:
+                current[1].append((c, c + d - 1))
+            remaining = b + d
+    return found
 
 
-def _touches(symbol: Symbol, lines: set[int]) -> bool:
-    return any(symbol.start <= line <= symbol.end for line in lines)
+def _touches(symbol: Symbol, ranges: Ranges) -> bool:
+    """Whether a range overlaps the symbol's lines, by bisection.
+
+    Git's ranges for one side are sorted and do not overlap, so their ends
+    rise with their starts: the last range starting at or before the
+    symbol's end is the only one that can reach back into it.
+    """
+    i = bisect.bisect_right(ranges, (symbol.end, float("inf")))
+    return i > 0 and ranges[i - 1][1] >= symbol.start
 
 
-def changed(old: bytes | None, new: bytes | None) -> list[Changed]:
+def changed(old: bytes | None, new: bytes | None, old_ranges: Ranges = (), new_ranges: Ranges = ()) -> list[Changed]:
     """The symbols a change from `old` to `new` touches; None means the side is absent.
 
-    Raises Unresolved when a side that is needed does not parse.
+    `old_ranges` and `new_ranges` are the changed lines on each side, as Git
+    reports them. A symbol only in the new text is created and one only in the
+    old text deleted whatever the ranges; one in both is modified when a
+    changed line on either side falls in its range. Raises Unresolved when a
+    side that is needed does not parse.
     """
     try:
         before = extract(old) if old is not None else {}
@@ -136,7 +193,7 @@ def changed(old: bytes | None, new: bytes | None) -> list[Changed]:
         after = extract(new) if new is not None else {}
     except Unresolved as error:
         raise Unresolved(f"{error} at the head") from error
-    old_lines, new_lines = _changed_lines(old or b"", new or b"")
+    old_lines, new_lines = sorted(old_ranges), sorted(new_ranges)
     result: list[Changed] = []
     for name, symbol in after.items():
         if name not in before:

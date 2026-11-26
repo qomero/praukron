@@ -871,7 +871,11 @@ recorded are unresolved). A task with no `Claimed at` overlaps nothing.
 capture, in the same write, records the changed symbols of every changed
 Python file (`.py`, `.pyi`). The old text is read at `Base` and the new text
 at `Head`, or in the working tree when the capture runs to it; both are
-parsed, never imported or run, and compared line by line. A function, async
+parsed, never imported or run. The changed lines on each side come from one
+`git diff -U0` for the capture's Python files, compared as text with hunks
+never merged across unchanged lines, so the cost grows with the change and not
+with the file; an added file's lines are all new and a deleted file's all old.
+A function, async
 function, class or method whose source range, its decorators included,
 holds a changed line on its side is changed: present only in the new text it
 `creates`, only in the old text it `deletes` with `Lifecycle: deleted`, in
@@ -919,19 +923,24 @@ parse: <message> at line <n> at the base revision` or `at the head`); a file
 larger than 524288 bytes (512 KiB) on a side it needs, which is never read
 (`file larger than 524288 bytes`); every Python file of a capture with more
 than 200 changed Python files, none of which is read; and, when extraction
-fails, `symbol extraction failed: <error>`. Only changed files are read: two
-Git calls (`cat-file --batch-check`, then `cat-file --batch`) whatever their
-number, and the working tree from disk. The reply's `capture` member also
+fails, `symbol extraction failed: <error>`; a changed text for which Git reports
+no changed line (`git reported no changed lines for a changed text`). Only
+changed files are read: three Git calls (`cat-file --batch-check`, `cat-file
+--batch`, then one `diff -U0`) whatever their number, and the working tree
+from disk. The reply's `capture` member also
 gives `files` and `symbols`, the records of each kind it wrote, besides
 `references`, their total.
 
 Measured on 2026-11-26 (Python 3.14, macOS, median of nine runs): closing a
 task with fifty changed Python files, each of three classes of five methods
-and ten functions with ten of its symbols changed, takes 0.25 s and
+and ten functions with ten of its symbols changed, takes 0.23 s and
 writes 550 records (261 KB of `CODE.md`); the same close at `main` before
-this change took 0.09 s and wrote 50 records (21 KB). Symbol extraction is
-0.11 s of the difference; the rest is writing and validating 500 more
-records.
+this change took 0.08 s and wrote 50 records (21 KB). Symbol extraction is
+0.10 s of the difference; the rest is writing and validating 500 more
+records. One file of 6,000 small functions (192 KiB) changed in one line
+costs 0.18 s of extraction, and one of 15,700 (510 KiB, just under the
+limit) 0.51 s, nearly all of it parsing both sides; a whole close of the
+first stays under the three seconds `TestWriteTime` allows.
 
 Capture adds observed references only: it changes no planned or earlier
 record and writes `Authorization: not_applicable`, never `authorized`. It
