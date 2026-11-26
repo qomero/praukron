@@ -67,7 +67,7 @@ def section(page: str, task: str) -> str:
 
 def group(text: str, label: str) -> str:
     """The rows under one group heading, up to the next group or the table's end."""
-    start = text.index(f'<tr class="code-group"><th colspan="7">{label}</th></tr>')
+    start = text.index(f'<tr class="code-group"><th colspan="5">{label}</th></tr>')
     following = text.find('<tr class="code-group">', start + 1)
     return text[start:following if following > 0 else text.index("</tbody>", start)]
 
@@ -176,6 +176,27 @@ class TestFilter(CodeDashboardCase):
         self.assertEqual(island(page, "code-not-current"), ["CR-T-TWO-02", "CR-T-TWO-03", "CR-T-TWO-04"])
 
 
+class TestEmbeddedData(CodeDashboardCase):
+    """Page size: the page embeds each reference's search terms only (review of PR 83)."""
+
+    def test_embedded_references_carry_only_what_the_client_reads(self) -> None:
+        embedded = island(self.page(), "project-data")
+        self.assertNotIn("artifacts", embedded)
+        self.assertEqual({key for r in embedded["references"] for key in r}, {"id", "task", "path", "symbol"})
+        # A null symbol, and the absent path of a `Symbols:` anchor, are left out.
+        self.assertIn({"id": "CR-T-ONE-01", "task": "T-ONE", "path": "src/app/core.py"}, embedded["references"])
+        self.assertIn({"id": "T-ONE#Symbols:helper", "task": "T-ONE", "symbol": "helper"}, embedded["references"])
+        project = compiler.load(self.root)
+        compiled = compiler.as_json(project)
+        self.assertEqual([r["id"] for r in embedded["references"]], [r["id"] for r in compiled["references"]])
+        # project.json keeps every field and the artifacts.
+        written = json.loads(compiler.write(self.root, project).read_text(encoding="utf-8"))
+        self.assertEqual(written["references"], compiled["references"])
+        self.assertEqual(written["artifacts"], compiled["artifacts"])
+        self.assertIn("verification", written["references"][0])
+        self.assertIn("symbol", written["references"][0])
+
+
 class TestTaskDetail(CodeDashboardCase):
     """AC-T-CIL-MAP-04-03."""
 
@@ -183,11 +204,14 @@ class TestTaskDetail(CodeDashboardCase):
         text = section(self.page(), "T-ONE")
         self.assertIn("<h4>Code references</h4>", text)
         for label in ("Planned files", "Planned symbols", "Observed files", "Observed symbols"):
-            self.assertIn(f'<th colspan="7">{label}</th>', text)
+            self.assertIn(f'<th colspan="5">{label}</th>', text)
         head = text[:text.index("</thead>")]
-        for column in ("Artifact", "Relation", "Authorization", "Verification", "Revision",
-                       "Provenance", "Also referenced by"):
+        self.assertIn('<th>Artifact<br><span class="ref-note">Provenance</span></th>', head)
+        for column in ("Relation", "Authorization", "Verification", "Revision"):
             self.assertIn(f"<th>{column}</th>", head)
+        # Provenance and the other tasks are a note under the name, not columns.
+        self.assertIn('<span class="ref-also">Also referenced by</span>', text)
+        self.assertEqual(len(re.findall(r"<td>", rows(group(text, "Planned files"))[0])), 5)
         planned = rows(group(text, "Planned files"))
         first = visible(next(r for r in planned if "CR-T-ONE-01" in r))
         for value in ("src/app/core.py", "modifies", "proposed", "unverified", "286b9a7",
@@ -299,9 +323,9 @@ class TestLanguagesAndNoScript(CodeDashboardCase):
 
     def test_vietnamese_page_reads_translated_without_script(self) -> None:
         page = re.sub(r"<script\b.*?</script>", "", self.page("vi"), flags=re.S)
-        for text in ("<th>Tệp</th><th>Ký hiệu</th>", "<h4>Tham chiếu mã</h4>", '<th colspan="7">Tệp dự kiến</th>',
-                     '<th colspan="7">Ký hiệu ghi nhận thực tế</th>', "<th>Trạng thái cấp phép</th>",
-                     "<th>Trạng thái xác minh</th>", "<th>Nguồn gốc</th>", "Đã lỗi thời", "Chưa xác định",
+        for text in ("<th>Tệp</th><th>Ký hiệu</th>", "<h4>Tham chiếu mã</h4>", '<th colspan="5">Tệp dự kiến</th>',
+                     '<th colspan="5">Ký hiệu ghi nhận thực tế</th>', "<th>Trạng thái cấp phép</th>",
+                     "<th>Trạng thái xác minh</th>", '<span class="ref-note">Nguồn gốc</span>', "Cũng được tham chiếu bởi", "Đã lỗi thời", "Chưa xác định",
                      "Đã thay bằng", "Đường dẫn hiện tại", "Đường dẫn trước đây", "Các thành phần mã",
                      'placeholder="Tìm mã, tiêu đề, tệp hoặc ký hiệu của công việc…"'):
             self.assertIn(text, page)

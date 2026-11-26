@@ -356,7 +356,7 @@ class DashboardLanguageCase(AssumptionCase):
         before = copy.deepcopy(compiled)
         page = dashboard.render(project, analytics.report(project), compiled, lang='vi')
         self.assertEqual(compiled, before)
-        self.assertEqual(island(page, 'project-data'), before)
+        self.assertEqual(island(page, 'project-data'), dashboard.embedded_data(before))
         self.assertIn('Home Work Review &lt;script&gt;alert(1)&lt;/script&gt; &amp; "Evidence" 2026-10-18', page)
         visible = re.sub(r'<script\b.*?</script>', '', page, flags=re.S)
         self.assertNotIn('<script>alert(1)</script>', visible)

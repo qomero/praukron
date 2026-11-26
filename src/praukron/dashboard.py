@@ -383,7 +383,12 @@ dialog dd { margin: 4px 0 0; }
 .code-refs h4 { margin: 14px 0 4px; font-size: 14px; }
 .code-refs tr.code-group th { padding-top: 12px; color: var(--ink); }
 .code-table { overflow-x: auto; }
-.code-table td, .code-table th { padding: 6px 8px; }
+.code-table td, .code-table th { padding: 5px 6px; }
+.code-table td { font-size: 13px; }
+.code-table td:not(:first-child) { white-space: nowrap; }
+.code-table code { font-size: 12px; }
+.code-table td:first-child { overflow-wrap: anywhere; }
+.ref-note { color: var(--muted); font-size: 12px; line-height: 16px; font-weight: 400; }
 .pill.ref-mark { color: var(--warn); border-style: dashed; }
 article.artifact { padding: 10px 0; border-bottom: 1px solid var(--line); }
 article.artifact h3 { margin: 0; font-size: 14px; }
@@ -1827,6 +1832,19 @@ if (initialTarget && !initialTarget.classList.contains('panel')) reveal(initialT
 """
 
 
+def embedded_data(compiled: dict) -> dict:
+    """The project data the page embeds. The client reads only a reference's
+    `id`, `task`, `path` and `symbol` (`codeIndex`) and nothing of `artifacts`,
+    which the markup already shows, so the page carries no more of them;
+    `project.json` keeps every field."""
+    data = {key: value for key, value in compiled.items() if key != "artifacts"}
+    if "references" in compiled:
+        data["references"] = [
+            {key: reference[key] for key in ("id", "task", "path", "symbol") if reference.get(key) is not None}
+            for reference in compiled["references"]]
+    return data
+
+
 def source_link(source: dict) -> str:
     pointer = source["file"] + "#" + source["anchor"]
     return f'<a href="../chronicle/{quote(source["file"])}#{quote(source["anchor"])}">{esc(i18n.verbatim(pointer))}</a>'
@@ -1938,7 +1956,7 @@ class CodeIndex:
             marks.append(f'<span class="pill ref-mark">Replaced by</span> <code>{esc(self.superseded[reference.id])}</code>')
         if reference.withdrawn:
             marks.append(f'<span class="pill ref-mark">Withdrawn</span> {esc(i18n.verbatim(reference.withdrawn))}')
-        return "<br>".join(marks)
+        return " ".join(marks)
 
     @staticmethod
     def _value(value: str | None) -> str:
@@ -1970,10 +1988,14 @@ class CodeIndex:
         if len(others) > RELATED_TASKS:
             # The artifact's record lists them all.
             related += " " + self._link(entry, f"and {len(others) - RELATED_TASKS} more")
-        return (f'<tr><td>{name}{"<br>" + marks if marks else ""}</td>'
+        # Provenance and related tasks sit in a small note under the name, so a
+        # row is about as tall as the name and the table fits the dialog.
+        note = provenance
+        if related:
+            note += f' · <span class="ref-also">Also referenced by</span> {related}'
+        return (f'<tr><td>{name}{" " + marks if marks else ""}<div class="ref-note">{note}</div></td>'
                 f"<td>{self._value(reference.relation)}</td><td>{self._value(reference.authorization)}</td>"
-                f"<td>{self._value(reference.verification)}</td><td>{self._value(reference.revision)}</td>"
-                f"<td>{provenance}</td><td>{related}</td></tr>")
+                f"<td>{self._value(reference.verification)}</td><td>{self._value(reference.revision)}</td></tr>")
 
     @staticmethod
     def _task(task_id: str) -> str:
@@ -1989,14 +2011,14 @@ class CodeIndex:
         for scope, symbols, label in _CODE_GROUPS:
             rows = [r for r in found if r.scope == scope and (r.symbol is not None) == symbols]
             if rows:
-                body += f'<tr class="code-group"><th colspan="7">{label}</th></tr>' + "".join(self._row(r) for r in rows)
+                body += f'<tr class="code-group"><th colspan="5">{label}</th></tr>' + "".join(self._row(r) for r in rows)
         # A scope outside the allowed values is a validation error; the reference is still shown.
         other = [r for r in found if r.scope not in ("planned", "observed")]
         if other:
-            body += '<tr class="code-group"><th colspan="7">Other references</th></tr>' + "".join(self._row(r) for r in other)
+            body += '<tr class="code-group"><th colspan="5">Other references</th></tr>' + "".join(self._row(r) for r in other)
         return ('<div class="code-refs"><h4>Code references</h4><div class="code-table"><table><thead><tr>'
-                "<th>Artifact</th><th>Relation</th><th>Authorization</th><th>Verification</th><th>Revision</th>"
-                "<th>Provenance</th><th>Also referenced by</th></tr></thead><tbody>" + body + "</tbody></table></div></div>")
+                "<th>Artifact<br><span class=\"ref-note\">Provenance</span></th><th>Relation</th>"
+                "<th>Authorization</th><th>Verification</th><th>Revision</th></tr></thead><tbody>" + body + "</tbody></table></div></div>")
 
     def artifact_records(self, tasks: dict) -> str:
         """One record per artifact: its current and earlier paths, the tasks
@@ -2959,7 +2981,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
   <p id="search-status" role="status" aria-live="polite">Search by ID, title or recorded words.</p><ul id="search-results"></ul>
 </dialog>
 
-<script type="application/json" id="project-data">{embed(original_compiled)}</script>
+<script type="application/json" id="project-data">{embed(embedded_data(original_compiled))}</script>
 <script type="application/json" id="diagram-data">{embed(diagrams)}</script>
 <script type="application/json" id="node-map">{embed(node_map)}</script>
 <script type="application/json" id="code-not-current">{embed(code.not_current())}</script>

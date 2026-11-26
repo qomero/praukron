@@ -1129,7 +1129,8 @@ class TestDashboardTabs(FixtureCase):
     def test_the_embedded_project_is_the_compiled_project(self) -> None:
         start = self.html.index('id="project-data">') + len('id="project-data">')
         embedded = json.loads(self.html[start:self.html.index("</script>", start)].replace("<\\/", "</"))
-        self.assertEqual(embedded, self.compiled)
+        # The page embeds the compiled project, its code references cut to the search terms.
+        self.assertEqual(embedded, dashboard.embedded_data(self.compiled))
 
     def test_the_theme_is_explicit_persisted_and_falls_back_to_the_os(self) -> None:
         head = self.html.split("</head>", 1)[0]
