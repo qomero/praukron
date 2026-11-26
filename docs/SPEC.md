@@ -690,7 +690,17 @@ criterion by its identifier and state; `--json` also carries its text. `refs` re
 compiled references only: it writes nothing and runs no graph provider, so its
 answer is the same with or without one installed.
 
-`context <task>` and `retrieve <task>` carry the task's references in a
+A reference is superseded when another record names it in `Replaces`, and it
+is current when it is neither superseded nor withdrawn: a withdrawal or a
+replacement leaves the earlier record unchanged, so only its successor says it
+no longer holds. `refs` still lists every record, marking a superseded one
+`replaced by CR-…` (`replacedBy` in `--json`) and a withdrawn one with its
+`Withdrawn` value, and gives `current`, the number of current records. A path
+lookup's `tasks` names a task only while it has at least one current reference
+to the target; the other tasks' records stay under `references`, and the text
+lists them as no longer current.
+
+`context <task>` and `retrieve <task>` carry the task's current references in a
 `references` field: `total`, `counts` by scope (`planned`, `observed`), the
 `first` twelve (path, symbol, relation, scope, verification, authorization,
 revision, evidence and `authority`, the record's `file#anchor`; a key that is

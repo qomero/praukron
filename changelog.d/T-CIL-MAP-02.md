@@ -9,3 +9,7 @@
   `proposed` unless `authorizedBy` names an owner response or an accepted ADR; no payload field
   sets `Authorization` directly. `praukron ref history <CR-id>` prints a reference and every
   record it replaces, oldest first, unchanged (T-CIL-MAP-02).
+- `praukron refs`, the packet and `retrieve` read a reference as current only while no record
+  replaces it and it is not withdrawn: the packet's `references` counts and lists current ones,
+  `refs` lists every record and marks a superseded one `replaced by CR-…` (`replacedBy`), and a
+  path lookup names a task only while it holds a current reference (T-CIL-MAP-02).

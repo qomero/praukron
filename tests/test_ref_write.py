@@ -14,7 +14,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from praukron import batch, cli, compile as compiler, layout, mutate, ref, validate  # noqa: E402
+from praukron import analytics, batch, cli, compile as compiler, layout, mutate, ref, refs, validate  # noqa: E402
 from test_praukron import FixtureCase  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -406,6 +406,79 @@ class TestHistory(RefCase):
         self.assertEqual(json.loads(text)["records"][0]["record"], earlier.decode("utf-8"))
         code, text = self.run_cli("ref", "history", "CR-T-ONE-99", "--json")
         self.assertEqual((code, json.loads(text)["error"]["code"]), (1, "record-not-found"))
+
+
+class TestLookupAfterSupersede(RefCase):
+    """Review item 3: a replaced or withdrawn reference leaves the packet; `refs` lists it marked."""
+
+    def packet_paths(self, task: str = "T-ONE") -> set[str]:
+        packet = analytics.context(compiler.load(self.root), task)["references"]
+        return {e["path"] for e in packet["first"]}, packet
+
+    def retrieved(self, task: str = "T-ONE") -> dict:
+        code, text = self.run_cli("retrieve", task, "--json")
+        self.assertEqual(code, 0)
+        return json.loads(text)["references"][0]
+
+    def test_after_replace_the_packet_drops_the_old_artifact_and_refs_marks_it(self) -> None:
+        revision = self.added()["revision"]
+        result = self.set("CR-T-ONE-01", revision, replace={"path": "src/app/engine.py"})
+        paths, packet = self.packet_paths()
+        self.assertIn("src/app/engine.py", paths)
+        self.assertNotIn("src/app/core.py", paths)
+        self.assertNotIn("CR-T-ONE-01", {e["id"] for e in packet["first"]})
+        authored = [e for e in packet["first"] if e["id"].startswith("CR-")]
+        self.assertEqual([e["id"] for e in authored], [result["recordId"]])
+        self.assertNotIn("CR-T-ONE-01", {e["id"] for e in self.retrieved()["first"]})
+        code, text = self.run_cli("refs", "T-ONE", "--json")
+        listed = {r["id"]: r for r in json.loads(text)["references"]}
+        self.assertEqual(listed["CR-T-ONE-01"]["replacedBy"], result["recordId"])
+        self.assertNotIn("replacedBy", listed[result["recordId"]])
+        code, text = self.run_cli("refs", "T-ONE")
+        self.assertIn(f"replaced by {result['recordId']} — CODE.md#CR-T-ONE-01", text)
+
+    def test_after_withdraw_the_packet_drops_it_and_refs_marks_it(self) -> None:
+        revision = self.added(path="src/app/gone.py", symbol="Gone", kind="class")["revision"]
+        result = self.set("CR-T-ONE-01", revision, withdraw={"reason": "dropped"})
+        paths, packet = self.packet_paths()
+        self.assertNotIn("src/app/gone.py", paths)
+        self.assertEqual(packet["total"], len(packet["first"]))
+        self.assertFalse(any(e["id"].startswith("CR-") for e in self.retrieved()["first"]))
+        code, text = self.run_cli("refs", "T-ONE", "--json")
+        listed = {r["id"]: r for r in json.loads(text)["references"]}
+        self.assertEqual(listed["CR-T-ONE-01"]["replacedBy"], result["recordId"])
+        self.assertEqual(listed[result["recordId"]]["withdrawn"], f"{TODAY} · dropped")
+        code, text = self.run_cli("refs", "T-ONE")
+        self.assertIn(f"withdrawn {TODAY} · dropped", text)
+
+    def test_a_path_names_only_tasks_with_a_current_reference(self) -> None:
+        def file_reference(task: str) -> dict:
+            payload = planned(task=task, path="src/shared.py")
+            del payload["symbol"], payload["kind"]
+            result = ref.add(self.root, payload)
+            self.assertTrue(result["ok"], result)
+            return result
+
+        one = file_reference("T-ONE")
+        file_reference("T-TWO")
+        self.set("CR-T-ONE-01", one["revision"], withdraw={"reason": "no longer needed"})
+        code, text = self.run_cli("refs", "src/shared.py", "--json")
+        found = json.loads(text)
+        self.assertEqual([t["id"] for t in found["tasks"]], ["T-TWO"])
+        self.assertEqual({r["id"] for r in found["references"]}, {"CR-T-ONE-01", "CR-T-ONE-02", "CR-T-TWO-01"})
+        self.assertEqual(found["current"], 1)
+        code, text = self.run_cli("refs", "src/shared.py")
+        self.assertIn("No longer current (replaced or withdrawn):", text)
+        self.assertIn("T-ONE - src/shared.py", text)
+
+    def test_summary_counts_current_references_only(self) -> None:
+        first = self.added(scope="observed", source="git_diff")
+        self.added(path="src/b.py")
+        before = refs.summary(compiler.load(self.root), "T-ONE")
+        self.set("CR-T-ONE-01", first["revision"], withdraw={"reason": "x"})
+        after = refs.summary(compiler.load(self.root), "T-ONE")
+        self.assertEqual(after["total"], before["total"] - 1)
+        self.assertEqual(after["counts"]["observed"], before["counts"]["observed"] - 1)
 
 
 class TestBatchAndCli(RefCase):

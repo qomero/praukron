@@ -26,6 +26,24 @@ def _authority(reference: Reference) -> str:
     return f"{reference.source.file}#{reference.source.anchor}"
 
 
+def replaced_by(references: list[Reference]) -> dict[str, str]:
+    """Each superseded reference id and the record that names it in `Replaces`.
+
+    A withdrawal or replacement leaves the earlier record unchanged (SPEC §2.9),
+    so only its successor says that the earlier one no longer holds.
+    """
+    found: dict[str, str] = {}
+    for reference in references:
+        if reference.replaces and not reference.legacy:
+            found.setdefault(reference.replaces, reference.id)
+    return found
+
+
+def is_current(reference: Reference, superseded: dict[str, str]) -> bool:
+    """Neither superseded by another record nor withdrawn."""
+    return reference.id not in superseded and not reference.withdrawn
+
+
 def entry(reference: Reference) -> dict[str, object]:
     """One reference as an agent reads it in a packet: where to search, how the
     task relates to it, its state, and the record that says so."""
@@ -47,9 +65,13 @@ def entry(reference: Reference) -> dict[str, object]:
     return {key: value for key, value in found.items() if value is not None}
 
 
-def detail(reference: Reference) -> dict[str, object]:
-    """One reference with every compiled field and the record it comes from."""
-    return {**reference.as_json(), "authority": _authority(reference)}
+def detail(reference: Reference, superseded: dict[str, str] | None = None) -> dict[str, object]:
+    """One reference with every compiled field and the record it comes from,
+    and `replacedBy` when another record supersedes it."""
+    found = {**reference.as_json(), "authority": _authority(reference)}
+    if superseded and reference.id in superseded:
+        found["replacedBy"] = superseded[reference.id]
+    return found
 
 
 def for_task(project: Project, task_id: str,
@@ -66,8 +88,11 @@ def _counts(references: list[Reference]) -> dict[str, int]:
 def summary(project: Project, task_id: str, references: list[Reference] | None = None,
             limit: int = PACKET_REFERENCES) -> dict[str, object]:
     """What a task packet carries: the counts by scope, the first references,
-    and the command that returns all of them."""
-    found = for_task(project, task_id, references)
+    and the command that returns all of them. Only current references count:
+    a superseded or withdrawn one would send an agent to code the task dropped."""
+    every = compiler.compiled_references(project) if references is None else references
+    superseded = replaced_by(every)
+    found = [r for r in for_task(project, task_id, every) if is_current(r, superseded)]
     return {
         "total": len(found),
         "counts": _counts(found),
@@ -124,6 +149,7 @@ def lookup(project: Project, target: str) -> dict[str, object]:
     governing decisions, acceptance criteria and assumptions.
     """
     references = compiler.compiled_references(project)
+    superseded = replaced_by(references)
     task = project.task(target)
     if task is not None:
         found = for_task(project, task.id, references)
@@ -134,7 +160,8 @@ def lookup(project: Project, target: str) -> dict[str, object]:
                      "authority": _pointer(task.source)},
             "total": len(found),
             "counts": _counts(found),
-            "references": [detail(r) for r in found],
+            "current": sum(1 for r in found if is_current(r, superseded)),
+            "references": [detail(r, superseded) for r in found],
         }
     if _TASK_ID.fullmatch(target):
         raise TargetError(f"unknown-task: {target}: no such task")
@@ -145,7 +172,9 @@ def lookup(project: Project, target: str) -> dict[str, object]:
              if r.artifact is not None and r.repository is None and r.path == path
              and (symbol is None or r.symbol == symbol)]
     tasks = []
-    for task_id in dict.fromkeys(r.task for r in found):
+    # A task is named only while it still holds a current reference to the target;
+    # its superseded and withdrawn records stay under `references`.
+    for task_id in dict.fromkeys(r.task for r in found if is_current(r, superseded)):
         referencing = project.task(task_id)
         if referencing is None:
             tasks.append({"id": task_id, "missing": True,
@@ -167,7 +196,8 @@ def lookup(project: Project, target: str) -> dict[str, object]:
         "path": path,
         "symbol": symbol,
         "total": len(found),
-        "references": [detail(r) for r in found],
+        "current": sum(1 for r in found if is_current(r, superseded)),
+        "references": [detail(r, superseded) for r in found],
         "tasks": tasks,
     }
 
@@ -184,6 +214,8 @@ def line(reference: dict[str, object]) -> str:
     text = f"- {_artifact(reference)} · " + " · ".join(parts)
     if reference.get("revision"):
         text += f" · revision {reference['revision']}"
+    if reference.get("replacedBy"):
+        text += f" · replaced by {reference['replacedBy']}"
     if reference.get("withdrawn"):
         text += f" · withdrawn {reference['withdrawn']}"
     if reference.get("evidence"):
@@ -212,6 +244,7 @@ def render(result: dict[str, object]) -> str:
         return "\n".join(lines) + "\n"
     lines.append(f"{result['target']} — referenced by {len(result['tasks'])} tasks "
                  f"through {result['total']} references")
+    named = {task["id"] for task in result["tasks"]}
     for task in result["tasks"]:
         if task.get("missing"):
             lines += ["", f"{task['id']} — not found"]
@@ -224,4 +257,8 @@ def render(result: dict[str, object]) -> str:
             lines.append(f"  criterion {criterion['id']} [{criterion['state']}] — {criterion['authority']}")
         for assumption in task["assumptions"]:
             lines.append(f"  assumption {assumption['id']} [{assumption['status']}] {assumption['title']} — {assumption['authority']}")
+    dropped = [r for r in result["references"] if r["task"] not in named]
+    if dropped:
+        lines += ["", "No longer current (replaced or withdrawn):"]
+        lines += [f"  {r['task']} {line(r)}" for r in dropped]
     return "\n".join(lines) + "\n"
