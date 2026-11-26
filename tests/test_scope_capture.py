@@ -351,6 +351,106 @@ class TestAttribution(ScopeCase):
 
 
 @unittest.skipIf(GIT is None, "git is not installed")
+class TestNamedRange(ScopeCase):
+    """AC-T-CIL-SCOPE-06: a capture between two named revisions is attributed to its task."""
+
+    FILES = {"src/app.py": "def run():\n    return 1\n", "README.md": "readme\n"}
+
+    def setUp(self):
+        super().setUp()
+        environment = mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(self.dir / "xdg")})
+        environment.start()
+        self.addCleanup(environment.stop)
+
+    def siblings(self) -> str:
+        """Two tasks claimed at one commit, as a coordinator claims one per builder."""
+        base = self.repository(self.FILES)
+        self.claim("T-THREE", owner="agent/other")
+        self.claim()
+        self.assertEqual(self.task().claimed_at, base)
+        self.assertEqual(self.task("T-THREE").claimed_at, base)
+        return base
+
+    def change(self) -> None:
+        self.write("src/app.py", "def run():\n    return 2\n")
+        self.write("src/new.py", "def made():\n    return 3\n")
+
+    def cli(self, *args: str) -> dict:
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            code = cli.main(["-C", str(self.root), "scope", "capture", *args])
+        result = json.loads(out.getvalue())
+        self.assertEqual(code, 0, result)
+        return result
+
+    def records(self, task: str = "T-TWO") -> list:
+        return [r for r in self.project().references if r.task == task and r.scope == "observed"]
+
+    def assert_unresolved(self, found: list, other: str = "T-THREE") -> None:
+        self.assertTrue(found)
+        for record in found:
+            with self.subTest(record=record.id):
+                self.assertEqual(record.lifecycle, "unresolved")
+                self.assertIn(f"unresolved attribution: {other}", record.evidence)
+                self.assertNotIn(scope.NAMED, record.evidence)
+
+    def test_both_revisions_named_attributes_files_and_symbols_to_the_task(self):
+        """AC-T-CIL-SCOPE-06-01."""
+        base = self.siblings()
+        self.change()
+        head = self.commit("the builder's merged work")
+        result = self.cli("T-TWO", "--base", base, "--head", head)
+        self.assertEqual(result["capture"]["unresolved"], 0)
+        self.assertIs(result["capture"]["rangeNamed"], True)
+        found = self.records()
+        self.assertEqual(sorted({r.path for r in found}), ["src/app.py", "src/new.py"])
+        self.assertEqual(sorted(r.symbol for r in found if r.symbol), ["made", "run"])
+        for record in found:
+            with self.subTest(record=record.id):
+                self.assertIsNone(record.lifecycle)
+                self.assertNotIn("unresolved", record.evidence)
+                self.assertIn(scope.NAMED, record.evidence)
+                self.assertEqual((record.base, record.head), (base, head))
+
+    def test_a_named_range_ignores_a_closed_sibling_that_recorded_the_same_file(self):
+        """AC-T-CIL-SCOPE-06-01: a DONE task's captured files overlap no named range either."""
+        base = self.siblings()
+        self.write("src/app.py", "def run():\n    return 'three'\n")
+        self.close("T-THREE")
+        self.assertEqual(self.references("T-THREE")["src/app.py"].lifecycle, "unresolved")
+        head = self.commit("both tasks' work")
+        result = self.cli("T-TWO", "--base", base, "--head", "HEAD")
+        self.assertEqual(result["capture"]["unresolved"], 0)
+        record = self.references()["src/app.py"]
+        self.assertIsNone(record.lifecycle)
+        self.assertEqual(record.head, head)
+
+    def test_a_close_still_makes_overlapping_references_unresolved(self):
+        """AC-T-CIL-SCOPE-06-02."""
+        self.siblings()
+        self.change()
+        self.commit("work")
+        result = self.close()
+        self.assertNotIn("rangeNamed", result["capture"])
+        self.assertEqual(result["capture"]["unresolved"], len(self.records()))
+        self.assert_unresolved(self.records())
+
+    def test_a_capture_of_the_working_tree_still_makes_overlapping_references_unresolved(self):
+        """AC-T-CIL-SCOPE-06-02: --base without --head reads the working tree and keeps the rule."""
+        base = self.siblings()
+        self.change()
+        self.commit("committed part")
+        self.write("README.md", "uncommitted part\n")
+        result = self.cli("T-TWO", "--base", base)
+        self.assertIs(result["capture"]["workingTree"], True)
+        self.assertNotIn("rangeNamed", result["capture"])
+        found = self.records()
+        self.assertEqual(sorted({r.path for r in found}), ["README.md", "src/app.py", "src/new.py"])
+        self.assertEqual(result["capture"]["unresolved"], len(found))
+        self.assert_unresolved(found)
+
+
+@unittest.skipIf(GIT is None, "git is not installed")
 class TestIgnored(ScopeCase):
     """AC-T-CIL-SCOPE-01-03."""
 

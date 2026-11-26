@@ -40,6 +40,8 @@ _SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 # Statuses of a task that is claimed and not yet closed.
 _ACTIVE = ("WIP", "BLOCKED")
 _UNASSIGNED = {"unassigned", "none", "—", "-"}
+# Evidence of a capture whose two revisions the caller named (T-CIL-SCOPE-06).
+NAMED = "range named by the caller"
 _PAST = {"creates": "created", "modifies": "modified", "deletes": "deleted"}
 # Paths that are never a task's work, applied to untracked files only (SPEC
 # §2.9, T-CIL-SCOPE-05): a repository with no ignore file still keeps caches,
@@ -402,8 +404,14 @@ def _attribution(others: list[str]) -> str:
 
 
 def plan(project: Project, root: Path, task, base: str, head_commit: str, *, working_tree: bool,
-         actor: str) -> tuple[dict, dict, list[str]]:
+         actor: str, named: bool = False) -> tuple[dict, dict, list[str]]:
     """The CODE.md change for one capture, the reply's `capture` member, and the new ids.
+
+    `named` is true when the caller named both revisions (`scope capture
+    --base --head`, T-CIL-SCOPE-06): the caller vouches that the range is the
+    task's, so no overlap is looked for and nothing is unresolved; each
+    record's evidence says the range was named. Otherwise other tasks claimed
+    over the range make the records unresolved (`overlapping`).
 
     Raises GitUnavailable when Git cannot answer. Returns no change when every
     changed file and symbol is already recorded as observed for the task with
@@ -442,8 +450,8 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
         else:
             written += count
     involved =[c for c in found if c.path in fresh_files or c.path in fresh_symbols]
-    blame = overlapping(project, root, task.id, base, head_commit,
-                        {c.path for c in involved} | {c.old_path for c in involved if c.old_path})
+    blame = {} if named else overlapping(project, root, task.id, base, head_commit,
+                                         {c.path for c in involved} | {c.old_path for c in involved if c.old_path})
     sequence = int(ref._next_id(project, task.id).rsplit("-", 1)[1])
     today = dt.date.today().isoformat()
     records, ids = [], []
@@ -460,6 +468,8 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
         others = sorted(set(blame.get(change.path, []) + blame.get(change.old_path or "", [])))
         where = "the working tree at " if change.uncommitted else ""
         span = f"git diff {base[:12]} to {where}{head_commit[:12]}"
+        if named:
+            span += f" ({NAMED})"
         if change.path in fresh_files:
             fields = {"Task": task.id, "Path": change.path, "Relation": change.relation, "Scope": "observed"}
             if others:
@@ -508,6 +518,8 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
     info = {"status": "captured", "references": len(records), "files": files, "symbols": symbol_count,
             "base": base, "head": head_commit, "workingTree": working_tree,
             "alreadyRecorded": len(found) - len(fresh_files) + known, "unresolved": unresolved}
+    if named:
+        info["rangeNamed"] = True
     if unresolved_symbols:
         info["symbolsUnresolved"] = [{"path": p, "reason": r} for p, r in sorted(unresolved_symbols.items())]
     if skipped:
@@ -563,6 +575,11 @@ def at_close(project: Project, root: Path, task, owner: str | None) -> tuple[dic
 def capture(root: Path, task_id: str, base: str, until: str | None = None, *, dry_run: bool = False) -> dict:
     """`praukron scope capture`: the same capture between two named revisions.
 
+    With `until` named, the caller names both revisions and vouches for the
+    range, so the capture is attributed to the task with no overlap check
+    (T-CIL-SCOPE-06). Without it, the capture reads the working tree and
+    keeps the overlap rule of a close.
+
     It plans through the same code as a close and commits through the same
     transaction, so it is validated and refreshed like any structured write.
     """
@@ -579,7 +596,8 @@ def capture(root: Path, task_id: str, base: str, until: str | None = None, *, dr
             head_commit = resolve(root, until) if until else head(root)
             base_commit = resolve(root, base)
             planned, found, ids = plan(project, root, task, base_commit, head_commit,
-                                       working_tree=until is None, actor=actor(task.owner))
+                                       working_tree=until is None, actor=actor(task.owner),
+                                       named=until is not None)
         except GitUnavailable as error:
             raise mutate.WriteError("capture-failed", str(error), "base") from error
         info.update(found)

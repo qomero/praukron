@@ -197,20 +197,19 @@ Your preference is not an acceptance criterion.
 
 ## Coordinator
 
-When one agent or person runs others, keep how the work is run in
+When one agent or person runs others, keep how work is run in
 `.praukron/chronicle/COORDINATION.md`, never only in a session (ADR-075):
 `## CV-<id>` conventions (worker and reviewer rules, who builds or reviews, how
-an agent is started, how review rounds run) and one `## BR-<id>` brief per task
-(`Task`, `Status`, `Conventions` or `none`, then branch, base, reviewers, the
-current review round, and notes). A brief adds to the contract; it never
-restates or changes a criterion. `context <task>` and `retrieve <task>` hand
-both to the agent you start, so point it at the task and the chronicle, nothing
-else; after a lost session, `context <task> --role coordinator` returns your own
-conventions.
+agents start and review rounds run) and one `## BR-<id>` brief per task
+(`Task`, `Status`, `Conventions` or `none`, branch, base, reviewers, current
+review round, notes). A brief adds to the contract; it never restates or
+changes a criterion. `context <task>` and `retrieve <task>` hand both to an
+agent you start, so point it at the task and the chronicle only; after a lost
+session, `context <task> --role coordinator` returns your conventions.
 Edit one section at a time, run `validate`, and close a brief when its task is
 merged or abandoned. Never record a secret; name where it is found. Capture a
 task merged from another worktree with `scope capture <task> --base <rev> --head
-<rev>`.
+<rev>`: naming both revisions vouches for its range.
 
 ## Disagreement
 

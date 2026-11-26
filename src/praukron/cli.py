@@ -825,7 +825,8 @@ def build_parser() -> argparse.ArgumentParser:
                     "the task's Claimed at commit. Files already recorded are skipped. Output is one JSON line.")
     capture.add_argument("task", help="a T- task id")
     capture.add_argument("--base", required=True, help="the revision the task's work starts from")
-    capture.add_argument("--head", help="the revision it ends at; absent means the working tree")
+    capture.add_argument("--head", help="the revision it ends at; absent means the working tree. With "
+                         "--head named the caller vouches for the range: no other task's claim makes it unresolved")
     capture.add_argument("--dry-run", action="store_true", help="report the change without writing")
     capture.set_defaults(handler=scope.command)
 

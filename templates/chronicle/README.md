@@ -154,7 +154,9 @@ question that an authored document answers.
     keeps the brief's review round current, and closes the brief when the task
     is merged or abandoned. Edit one section, then run `validate`. For a task
     built in another worktree, it records the merged change's files and
-    symbols with `praukron scope capture <task> --base <rev> --head <rev>`.
+    symbols with both revisions named, `praukron scope capture <task> --base
+    <rev> --head <rev>`: the coordinator vouches that the range is that task's,
+    so other tasks claimed over it leave nothing unresolved.
 
 ## Checkpoint trigger
 
