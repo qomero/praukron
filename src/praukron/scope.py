@@ -41,6 +41,14 @@ _SHA = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 _ACTIVE = ("WIP", "BLOCKED")
 _UNASSIGNED = {"unassigned", "none", "—", "-"}
 _PAST = {"creates": "created", "modifies": "modified", "deletes": "deleted"}
+# Paths that are never a task's work, applied to untracked files only (SPEC
+# §2.9, T-CIL-SCOPE-05): a repository with no ignore file still keeps caches,
+# dependencies and operating-system litter out of a capture. A tracked file is
+# always recorded. Nothing broader: `build`, `dist`, `target` and `vendor` are
+# source directories in some projects.
+CACHE_DIRS = frozenset({"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox", "node_modules"})
+CACHE_FILES = frozenset({".DS_Store", "Thumbs.db"})
+CACHE_SUFFIXES = (".pyc", ".pyo")
 
 
 class GitUnavailable(Exception):
@@ -147,6 +155,13 @@ def _owned(path: str | None) -> bool:
     return path is not None and (path + "/").startswith(OWN_DIR)
 
 
+def never_work(path: str) -> bool:
+    """True when an untracked `path` is on the built-in list of non-work paths."""
+    *directories, name = path.split("/")
+    return (any(part in CACHE_DIRS for part in directories) or name in CACHE_FILES
+            or name.endswith(CACHE_SUFFIXES))
+
+
 def _name_status(fields: list[bytes], skipped: list[str]) -> list[Change]:
     found: list[Change] = []
     i = 0
@@ -169,26 +184,33 @@ def _name_status(fields: list[bytes], skipped: list[str]) -> list[Change]:
     return found
 
 
-def changes(root: Path, base: str, until: str | None) -> tuple[list[Change], list[str]]:
+def changes(root: Path, base: str, until: str | None) -> tuple[list[Change], list[str], int]:
     """Files changed from `base` to `until`, or to the working tree when `until` is None.
 
-    Returns the changes and the paths a record cannot hold. Git's own ignore
-    rules decide what is ignored; only `.praukron/` is excluded besides. A
-    working-tree capture with no change costs two Git calls.
+    Returns the changes, the paths a record cannot hold, and how many
+    untracked files the built-in list (`never_work`) left out. Git's own
+    ignore rules decide what is ignored; besides them only `.praukron/` and,
+    for untracked files, that list are excluded. A working-tree capture with
+    no change costs two Git calls.
     """
     diff = ("diff", "-z", "--name-status", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--relative")
     skipped: list[str] = []
     found = _name_status(_paths(_git(root, *diff, base, *([until] if until else []), "--")), skipped)
     untracked: set[str] = set()
+    left_out = 0
     if until is None:
         for raw in _paths(_git(root, "ls-files", "-z", "--others", "--exclude-standard")):
             path = _decode(raw, skipped)
-            if path is not None:
-                untracked.add(path)
-                found.append(Change("added", path))
+            if path is None or _owned(path):
+                continue
+            if never_work(path):
+                left_out += 1
+                continue
+            untracked.add(path)
+            found.append(Change("added", path))
     found = [c for c in found if not _owned(c.path)]
     if not found:
-        return [], skipped
+        return [], skipped, left_out
     # A tracked file can still match an ignore rule (a committed build output or
     # dependency); Git's rules say it is ignored, so it is not recorded either.
     listed = b"".join(c.path.encode("utf-8") + b"\0" for c in found)
@@ -207,7 +229,7 @@ def changes(root: Path, base: str, until: str | None) -> tuple[list[Change], lis
     unique: dict[str, Change] = {}
     for change in found:
         unique.setdefault(change.path, change)
-    return sorted(unique.values(), key=lambda c: c.path), skipped
+    return sorted(unique.values(), key=lambda c: c.path), skipped, left_out
 
 
 def _window(root: Path, base: str, head_commit: str) -> set[str]:
@@ -387,7 +409,7 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
     changed file and symbol is already recorded as observed for the task with
     the same relation, so a second capture adds only what is new.
     """
-    found, skipped = changes(root, base, None if working_tree else head_commit)
+    found, skipped, left_out = changes(root, base, None if working_tree else head_commit)
     observed = _observed(project, task.id)
     existing = {(r.path, r.relation) for r in observed if r.symbol is None}
     existing_symbols = {(r.path, r.symbol, r.relation) for r in observed if r.symbol is not None}
@@ -490,6 +512,8 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
         info["symbolsUnresolved"] = [{"path": p, "reason": r} for p, r in sorted(unresolved_symbols.items())]
     if skipped:
         info["skippedPaths"] = skipped
+    if left_out:
+        info["untrackedLeftOut"] = left_out
     if not records:
         return {}, info, []
     path = root / AUTHORITY_DIR / ref.FILE
