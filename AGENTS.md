@@ -10,10 +10,9 @@ compiled output: read it, never edit it, and never treat it as authority.
 
 Before reading broad repository context or the rest of `.praukron/chronicle/`:
 
-1. Read `.praukron/chronicle/INDEX.md`. It is generated from the chronicle and
-   says what matters now and where each record lives. If it is missing, run
-   `.praukron/praukron compile`. A write whose request names its record may
-   skip this step and go straight to `.praukron/praukron context <task>` for
+1. Read `.praukron/chronicle/INDEX.md`. It says what matters now and where
+   each record lives. If it is missing, run `.praukron/praukron compile`. A
+   write whose request names its record may skip this step and go straight to `.praukron/praukron context <task>` for
    the task the record belongs to.
 2. Identify your task: the one you were given, or one the index names as in
    flight or ready. Run `.praukron/praukron context` without a task only when
@@ -31,10 +30,10 @@ Before reading broad repository context or the rest of `.praukron/chronicle/`:
    CodeGraph is installed, `.praukron/praukron retrieve <task> --code` adds code
    structure after the records, never before them.
 
-Use the narrowest projection that answers the current question, and expand
+Use the narrowest projection that answers the question, and expand
 progressively: index, then the task packet, then `retrieve`, then the exact
 record, then the code. Never preload the chronicle in full, `TASK_GRAPH.md`, or
-`project.json`, and never re-read what the current packet already holds.
+`project.json`, and never re-read what the packet holds.
 
 `INDEX.md`, `.praukron/compiled/`, and `context` output are derived maps, not
 authority; never edit them. When one disagrees with a record, the record wins:
@@ -42,8 +41,7 @@ report the inconsistency rather than reconciling it silently. A packet's
 `problems` lists references that do not resolve.
 `.praukron/chronicle/README.md` explains how the records work.
 
-Use the repository's deterministic tool rather than re-deriving state by
-reading files:
+Use the deterministic tool rather than re-deriving state from files:
 
 ```sh
 .praukron/praukron status          # phase, progress, ready, blocked, gates, next
@@ -128,7 +126,7 @@ write its acceptance contract in
 `ACCEPTANCE.md`, and set the single `INTENT.md` entry. When a material project
 choice is made, accepted, or acted on, append its ADR to `.praukron/chronicle/ADR/`
 immediately and link affected tasks. Supersede decisions instead of overwriting
-them. Keep the compiled views synchronized.
+them.
 
 Files and symbols: on create or claim, `praukron ref add` those a task will
 touch (`Scope: planned`). In Git, setting a claimed task `DONE` records its
@@ -136,7 +134,9 @@ changed files and Python symbols; read the reply's `capture`, report a skip,
 then `ref add` symbols of its `symbolsUnresolved` files, and files read,
 verified or documented unchanged. `praukron refs` and packet `references` map
 tasks to code; `engine map <task>` adds the graph. Before changing existing
-code, ask `engine impact <task>`.
+code, ask `engine impact <task>`. `capture.warning` marks unresolved, unverified
+references (merged in, or another claim's): settle each by `ref set` or a
+capture with `--base` and `--head`, as after any squash, rebase or fast-forward.
 
 ## Assumptions and the owner
 
@@ -187,7 +187,7 @@ every finding. These block completion:
 ACCEPTANCE_FAILURE  INVARIANT_VIOLATION  REGRESSION  MISSING_EVIDENCE
 ```
 
-These are recorded and do not block completion:
+These do not block completion:
 
 ```text
 RISK  MAINTAINABILITY  ARCHITECTURE_PREFERENCE  STYLE  FUTURE_IMPROVEMENT
@@ -231,10 +231,9 @@ The goal is not agreement. The goal is that a disagreement is decidable.
 ## Checkpoint
 
 Checkpoint early enough to finish writing whenever the agent or host approaches
-any context, token, time, session, rate, or quota limit, including five-hour and
-seven-day windows, or before compaction or handoff. If no meter is exposed,
-checkpoint after each meaningful milestone, before a long-running step, and
-before ending. Preserve the active task, exact stopping point, unfinished work,
-and next action.
+any context, token, time, session, rate, or quota limit, or before compaction
+or handoff. Without a meter, checkpoint after each milestone, before a long
+step, and before ending. Preserve the active task, exact stopping point,
+unfinished work, and next action.
 
 <!-- project-praukron:end -->

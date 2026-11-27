@@ -390,6 +390,34 @@ def reference_findings(project: Project) -> list[Finding]:
                 "warning", "possible-secret",
                 f"{reference.id}: record text looks like it contains a credential; name where it is found instead",
                 where))
+    findings += _verified_unattributed(project)
+    return findings
+
+
+def _verified_unattributed(project: Project) -> list[Finding]:
+    """Captures written before T-SCOPE-ATTRIB-01: unresolved attribution recorded as verified.
+
+    A warning, never an error, so an installed chronicle keeps validating; one
+    per task, at its first such record."""
+    replaced = {r.replaces for r in project.references if r.replaces and not r.legacy}
+    by_task: dict[str, list] = {}
+    for reference in project.references:
+        if (reference.scope == "observed" and reference.lifecycle == "unresolved"
+                and reference.verification == "verified"
+                and reference.provenance in ("git_diff", "static_analysis")
+                and reference.id not in replaced and not reference.withdrawn):
+            by_task.setdefault(reference.task, []).append(reference)
+    findings = []
+    for task_id, held in by_task.items():
+        count = len(held)
+        findings.append(Finding(
+            "warning", "unattributed-verified-references",
+            f"{task_id}: {count} current {'reference is' if count == 1 else 'references are'} unresolved "
+            f"attribution but recorded Verification verified ({', '.join(r.id for r in held[:3])}"
+            f"{', …' if count > 3 else ''}); the task is not shown to have made these changes. Settle them with "
+            f"a named capture over the task's own range (`praukron scope capture {task_id} --base <rev> "
+            f"--head <rev>`) or with `praukron ref set` on each record (confirm with evidence, or withdraw)",
+            f"{held[0].source.file}#{held[0].id}"))
     return findings
 
 

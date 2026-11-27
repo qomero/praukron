@@ -4,6 +4,12 @@
 a reference's verification, lifecycle or evidence in place, or appends a record
 that withdraws or replaces it; the earlier record then stays byte for byte.
 `ref history` prints a reference and every record it replaces, unchanged.
+
+A `set` that settles an observed reference recorded as unresolved attribution
+(T-SCOPE-ATTRIB-01), by giving it any other lifecycle, needs evidence and is
+written as a successor that replaces it, so the unresolved record and its
+evidence stay as history. Such a reference is never set verified while it
+stays unresolved.
 """
 
 from __future__ import annotations
@@ -373,6 +379,7 @@ def set_reference(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
     root = root.resolve()
     operation = "ref.set"
     stale: dict = {}
+    settled: dict = {}
     try:
         mutate.validate_payload(payload, SET_SCHEMA)
         reference_id, expected = payload["id"], payload["expectRevision"]
@@ -421,6 +428,15 @@ def set_reference(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
                 raise mutate.WriteError("withdrawn-reference",
                                         f"{reference_id} is withdrawn", "id")
             fields = _record_fields(current.data)
+            unattributed = earlier.scope == "observed" and earlier.lifecycle == "unresolved"
+            if mode == "set" and unattributed:
+                if change.get("lifecycle", "unresolved") != "unresolved":
+                    return _settle(project, path, earlier, fields, change, payload)
+                if change.get("verification") == "verified":
+                    raise mutate.WriteError(
+                        "unresolved-attribution", f"{reference_id} is unresolved attribution and is never "
+                        "verified while it stays so; settle it with a lifecycle and evidence, or withdraw it",
+                        "set.verification")
             if mode == "set":
                 edits = _descriptive(change)
                 if all(fields.get(label) == value for label, value in edits.items()):
@@ -452,10 +468,28 @@ def set_reference(root: Path, payload: dict, *, dry_run: bool = False) -> dict:
             return mutate.Plan({path: _append(path, _render(successor_id, title, new))},
                                successor_id, f"{earlier.source.file}#{successor_id}")
 
+        def _settle(project: Project, path: Path, earlier: Reference, fields: dict, change: dict,
+                    payload: dict) -> mutate.Plan:
+            if "evidence" not in change:
+                raise mutate.WriteError(
+                    "settle-without-evidence", f"{reference_id} is unresolved attribution; settling it needs "
+                    "evidence that the task made the change", "set.evidence")
+            new = {label: value for label, value in fields.items()
+                   if label in ORDER and label not in ("Recorded", "Updated", "Replaces", "Withdrawn")}
+            new.update(_descriptive(change))
+            new["Verification"] = change.get("verification", "unverified")
+            date = payload.get("recordedOn", dt.date.today().isoformat())
+            new["Recorded"] = f"{date} · {payload['recordedBy']}"
+            new["Replaces"] = reference_id
+            successor_id = _next_id(project, earlier.task)
+            settled["id"] = successor_id
+            return mutate.Plan({path: _append(path, _render(successor_id, earlier.title, new))},
+                               successor_id, f"{earlier.source.file}#{successor_id}")
+
         result = mutate.transaction(root, operation, prepare, dry_run=dry_run)
     except mutate.WriteError as error:
         return mutate.refusal(operation, error)
-    if result.get("ok") and mode != "set":
+    if result.get("ok") and (mode != "set" or settled):
         result["replaces"] = reference_id
     if stale and not result.get("ok", True) and result.get("error", {}).get("code") == "stale-revision":
         result["error"].update(stale)
