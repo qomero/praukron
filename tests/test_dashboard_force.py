@@ -133,7 +133,7 @@ class ForceCase(ShellCase):
                    + "\nconst snap = () => [...L.nodes.values()].map(n => n.id + ':' + n.el.getAttribute('class')).join('|');"
                    + "\nconst ids = () => shListed().map(n => n.id);\n"
                    + "const R = {};\n" + body + "\nconsole.log(JSON.stringify(R));\n")
-        out = subprocess.run([NODE, "-e", program], capture_output=True, text=True, timeout=120)
+        out = subprocess.run([NODE, "-"], input=program, capture_output=True, text=True, timeout=120)
         self.assertEqual(out.returncode, 0, out.stderr[-3000:])
         return json.loads(out.stdout.strip().splitlines()[-1])
 

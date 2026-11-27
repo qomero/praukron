@@ -518,7 +518,7 @@ filters.status.clear(); pressed['lanes-decisions'] = false;
 const noDecisions = shown();
 console.log(JSON.stringify({all, done, noDecisions, edges: L.edges.map(e => [e.s, e.k, e.t])}));
 """
-        out = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=60)
+        out = subprocess.run(["node", "-"], input=program, capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         result = json.loads(out.stdout)
         every = sorted([t["id"] for t in self.compiled["tasks"]] + [d["id"] for d in self.compiled["decisions"]]
