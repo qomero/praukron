@@ -183,6 +183,8 @@ NEXT_STEP = {
     "authorization-not-applicable": "remove authorizedBy; only a planned creates, modifies or deletes is authorized",
     "replaced-reference": "act on the reference that replaced it (replacedBy)",
     "withdrawn-reference": "record a new reference with ref add instead",
+    "settle-without-evidence": "give set.evidence: why the task made this change, then retry",
+    "unresolved-attribution": "settle it with set.lifecycle and set.evidence, or withdraw it",
     "provenance-kept": "send only recordedBy (and recordedOn) with set; use replace to record a new origin",
 }
 

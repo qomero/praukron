@@ -162,6 +162,8 @@ def _history(project: Project, found: List[Reference], replaced: Dict[str, List[
             "phase": task.phase, "module": task.module,
             "date": date, "dated": basis, "authority": _pointer(task.source),
             "references": [_reference(r) for r in held],
+            # Only unattributed captures reach the target: not shown to be the task's change.
+            "attributionUnresolved": all(refs.unattributed(r) for r in held),
             "decisions": _decisions(project, task, replaced),
             "acceptance": _acceptance(project, task),
             "invariants": _invariants(project, task),
@@ -215,6 +217,7 @@ def why(project: Project, root: Path, target: str) -> Dict[str, Any]:
         result["nearest"] = nearest
     result["tasks"] = _history(project, explaining, replaced)
     result["references"] = len(explaining)
+    result["unresolved"] = sum(1 for r in explaining if refs.unattributed(r))
     result["notCurrent"] = [{"id": r.id, "task": r.task, "replacedBy": superseded.get(r.id),
                              "withdrawn": r.withdrawn, "authority": f"{r.source.file}#{r.source.anchor}"}
                             for r in every if not refs.is_current(r, superseded)
@@ -235,6 +238,8 @@ def _reference_line(item: Dict[str, Any]) -> str:
         parts.append(f"recorded {item['recorded']}")
     if item.get("evidence"):
         parts.append(f"evidence: {item['evidence']}")
+    if item.get("attribution") == refs.UNRESOLVED:
+        artifact = f"{refs.UNRESOLVED_TEXT}: {artifact}"
     return f"  reference {item['id']} {artifact} · " + " · ".join(parts) + f" — {item['authority']}"
 
 
@@ -262,6 +267,8 @@ def _task_lines(task: Dict[str, Any]) -> List[str]:
         marks.append("archived")
     when = f"since {task['date']} ({task['dated']})" if task["date"] else "undated"
     lineage = "/".join(filter(None, [task.get("phase"), task.get("module")]))
+    if task["attributionUnresolved"]:
+        marks.append("unresolved attribution only")
     lines = [f"{task['id']} — {task['title']} [{', '.join(marks)}] · {lineage} · {when} — {task['authority']}"]
     lines += [_reference_line(r) for r in task["references"]]
     for decision in task["decisions"]:
@@ -280,8 +287,10 @@ def _task_lines(task: Dict[str, Any]) -> List[str]:
 
 def _count(result: Dict[str, Any]) -> str:
     tasks, references = len(result["tasks"]), result["references"]
+    unresolved = (f" ({result['unresolved']} of them unresolved attribution)"
+                  if result.get("unresolved") else "")
     return (f"{tasks} {'task' if tasks == 1 else 'tasks'} through {references} "
-            f"{'reference' if references == 1 else 'references'}, oldest first")
+            f"{'reference' if references == 1 else 'references'}{unresolved}, oldest first")
 
 
 def render(result: Dict[str, Any]) -> str:

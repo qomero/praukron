@@ -470,7 +470,8 @@ def _task_map(index: Optional[Index], root: Path, graph: Dict[str, Any], task, f
     by_source: Dict[str, int] = {}
     for item in items:
         by_source[item["source"]] = by_source.get(item["source"], 0) + 1
-    counts: Dict[str, Any] = {"references": len(items), "bySource": by_source}
+    counts: Dict[str, Any] = {"references": len(items), "bySource": by_source,
+                              "attributionUnresolved": sum(1 for r in found if refs.unattributed(r))}
     if index is not None:
         counts.update({
             "matched": sum(1 for i in items if i["match"]["matched"]),
@@ -502,9 +503,11 @@ def _artifact_map(project: Project, index: Optional[Index], root: Path, graph: D
         else:
             entry.update({"title": known.title, "status": known.status})
         entry["references"] = [_reference_item(r) for r in touching if r.task == task_id]
+        entry["attributionUnresolved"] = all(refs.unattributed(r) for r in touching if r.task == task_id)
         tasks.append(entry)
     result: Dict[str, Any] = {"target": target, "kind": "symbol" if symbol else "file", "path": path,
-                              "symbol": symbol, "graph": graph, "sources": SOURCES, "tasks": tasks}
+                              "symbol": symbol, "graph": graph, "sources": SOURCES, "tasks": tasks,
+                              "attributionUnresolved": sum(1 for r in touching if refs.unattributed(r))}
     if index is None:
         return result
     found = match(index, root, path, symbol)
@@ -538,7 +541,10 @@ def _match_text(found: Dict[str, Any]) -> str:
 
 def _reference_text(item: Dict[str, Any]) -> List[str]:
     parts = [item.get("relation") or "—", item.get("scope") or "—", item.get("verification") or "—"]
-    text = f"  [{item['source']}] {refs._artifact(item)} · " + " · ".join(parts)
+    artifact = refs._artifact(item)
+    if item.get("attribution") == refs.UNRESOLVED:
+        artifact = f"{refs.UNRESOLVED_TEXT}: {artifact}"
+    text = f"  [{item['source']}] {artifact} · " + " · ".join(parts)
     if item.get("confidence") is not None:
         text += f" · confidence {item['confidence']}"
     if item.get("evidence"):
@@ -599,6 +605,8 @@ def render(result: Dict[str, Any]) -> str:
         lines += [f"{task['id']} — {task['title']} [{task['status']}]", _graph_line(graph)]
         sources = ", ".join(f"{n} {s}" for s, n in sorted(counts["bySource"].items()))
         summary = f"{counts['references']} current references" + (f" ({sources})" if sources else "")
+        if counts["attributionUnresolved"]:
+            summary += f", {counts['attributionUnresolved']} of them unresolved attribution"
         if graph["present"]:
             summary += (f"; {counts['matched']} match a node, {counts['unmatched']} do not; "
                         f"{counts['edgesAmong']} edges among them, {counts['edgesToNeighbours']} to neighbours, "
@@ -618,10 +626,13 @@ def render(result: Dict[str, Any]) -> str:
         lines += [result["target"], _graph_line(graph)]
         if "match" in result:
             lines.append(_match_text(result["match"]))
-        lines += ["", f"Tasks whose references touch it ({len(result['tasks'])})"]
+        lines += ["", f"Tasks whose references touch it ({len(result['tasks'])})"
+                  + (f"; {result['attributionUnresolved']} of their references are unresolved attribution"
+                     if result.get("attributionUnresolved") else "")]
         for task in result["tasks"]:
             title = "not found" if task.get("missing") else f"{task['title']} [{task['status']}]"
-            lines.append(f"{task['id']} — {title}")
+            lines.append(f"{task['id']} — {title}"
+                         + (f" — {refs.UNRESOLVED_TEXT}" if task.get("attributionUnresolved") else ""))
             lines += [line for item in task["references"] for line in _reference_text(item)]
         if not result["tasks"]:
             lines.append("  none")

@@ -246,6 +246,41 @@ def _is_ancestor(root: Path, commit: str, of: str) -> bool:
     return done.returncode == 0
 
 
+def merged_in(root: Path, base: str, head_commit: str) -> tuple[list[str], dict[str, list[str]]]:
+    """The merge commits of `base..head_commit` and the paths their other parents brought in.
+
+    Git's ancestry alone decides (T-SCOPE-ATTRIB-01): the first-parent chain of
+    the range is the line of work the capture is for, and every commit that
+    entered the range only through a merge's second or later parent is some
+    other line's work. Returns the merges on the first-parent chain, oldest
+    first, and for each path changed by such a commit (a merge commit's own
+    resolution is not counted) the merges that brought it in. Nothing is read
+    from commit messages or authors. Work of others that arrives without a
+    merge commit (a squash or rebase merge, a fast-forward) has no merge here
+    and cannot be told apart.
+    """
+    chain = _git(root, "rev-list", "--first-parent", "--parents", "--reverse", f"{base}..{head_commit}", "--")
+    merges = [parts for parts in (line.split() for line in chain.decode("ascii").splitlines()) if len(parts) > 2]
+    paths: dict[str, list[str]] = {}
+    for commit, first, *_ in merges:
+        # Commits reachable from this merge but from neither its first parent nor the base.
+        listed = _git(root, "log", "-z", "--no-merges", "--no-renames", "--name-only", "--format=",
+                      "--relative", commit, "--not", first, base, "--")
+        for raw in _paths(listed):
+            raw = raw.strip(b"\n")
+            if not raw:
+                continue
+            path = raw.decode("utf-8", "replace")
+            if commit not in paths.setdefault(path, []):
+                paths[path].append(commit)
+    return [m[0] for m in merges], paths
+
+
+def attributable(reference) -> bool:
+    """False for an observed reference recorded as unresolved attribution."""
+    return not (reference.scope == "observed" and reference.lifecycle == "unresolved")
+
+
 def _observed(project: Project, task_id: str) -> list:
     superseded = refs.replaced_by(project.references)
     return [r for r in project.references
@@ -398,9 +433,25 @@ def changed_symbols(root: Path, found: list[Change], base: str, head_commit: str
     return result, unresolved
 
 
-def _attribution(others: list[str]) -> str:
-    return (f"; unresolved attribution: {', '.join(others)} "
-            f"{'was' if len(others) == 1 else 'were'} also claimed over this range")
+def _attribution(others: list[str], merges: list[str]) -> str:
+    text = ""
+    if others:
+        text += (f"; unresolved attribution: {', '.join(others)} "
+                 f"{'was' if len(others) == 1 else 'were'} also claimed over this range")
+    if merges:
+        text += (f"; unresolved attribution: changed by commits merged in through "
+                 f"{', '.join(m[:12] for m in merges)}, not on this range's first-parent line")
+    return text
+
+
+def warning(task_id: str, count: int) -> str:
+    """The reply's one sentence when a capture wrote unattributed references."""
+    return (f"{count} {'reference is' if count == 1 else 'references are'} not attributed to {task_id}: "
+            f"another claimed task or a merged-in commit may have made the change, so "
+            f"{'it is' if count == 1 else 'they are'} recorded Lifecycle unresolved and Verification "
+            f"unverified, never as the task's work; settle them with a named capture over the task's own range "
+            f"(`praukron scope capture {task_id} --base <rev> --head <rev>`) or with `praukron ref set` on each "
+            f"record (confirm with evidence, or withdraw).")
 
 
 def plan(project: Project, root: Path, task, base: str, head_commit: str, *, working_tree: bool,
@@ -418,7 +469,12 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
     the same relation, so a second capture adds only what is new.
     """
     found, skipped, left_out = changes(root, base, None if working_tree else head_commit)
-    observed = _observed(project, task.id)
+    every_observed = _observed(project, task.id)
+    # A named capture settles the task's unresolved records: they never count as
+    # recorded, and the record written for the same artifact replaces each one.
+    settling = {} if not named else {
+        (r.path, r.symbol, r.relation): r.id for r in every_observed if not attributable(r)}
+    observed = [r for r in every_observed if not named or attributable(r)]
     existing = {(r.path, r.relation) for r in observed if r.symbol is None}
     existing_symbols = {(r.path, r.symbol, r.relation) for r in observed if r.symbol is not None}
     fresh_files = {c.path for c in found if (c.path, c.relation) not in existing}
@@ -452,55 +508,67 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
     involved =[c for c in found if c.path in fresh_files or c.path in fresh_symbols]
     blame = {} if named else overlapping(project, root, task.id, base, head_commit,
                                          {c.path for c in involved} | {c.old_path for c in involved if c.old_path})
+    merges, merged = ([], {}) if named or not involved else merged_in(root, base, head_commit)
     sequence = int(ref._next_id(project, task.id).rsplit("-", 1)[1])
     today = dt.date.today().isoformat()
     records, ids = [], []
     unresolved = files = symbol_count = 0
+    replaced: list[str] = []
+    contributing: set[str] = set()
 
-    def add(title: str, fields: dict) -> None:
+    def add(title: str, fields: dict, key: tuple) -> None:
         nonlocal sequence
         reference_id = f"CR-{task.id}-{sequence:02d}"
+        earlier = settling.pop(key, None)
+        if earlier:
+            fields["Replaces"] = earlier
+            fields["Evidence"] += f"; settles {earlier}, recorded unresolved"
+            replaced.append(earlier)
         records.append(ref._render(reference_id, title, fields))
         ids.append(reference_id)
         sequence += 1
 
     for change in involved:
         others = sorted(set(blame.get(change.path, []) + blame.get(change.old_path or "", [])))
+        via = [m for m in merges if m in merged.get(change.path, []) + merged.get(change.old_path or "", [])]
+        contributing.update(via)
+        doubt = bool(others or via)
         where = "the working tree at " if change.uncommitted else ""
         span = f"git diff {base[:12]} to {where}{head_commit[:12]}"
         if named:
             span += f" ({NAMED})"
         if change.path in fresh_files:
             fields = {"Task": task.id, "Path": change.path, "Relation": change.relation, "Scope": "observed"}
-            if others:
+            if doubt:
                 fields["Lifecycle"] = "unresolved"
                 unresolved += 1
             elif change.kind == "deleted":
                 fields["Lifecycle"] = "deleted"
-            fields.update({"Verification": "verified", "Authorization": "not_applicable", "Source": "git_diff",
+            # An unattributed change is never verified as the task's (T-SCOPE-ATTRIB-01).
+            fields.update({"Verification": "unverified" if doubt else "verified",
+                           "Authorization": "not_applicable", "Source": "git_diff",
                            "Recorded": f"{today} · {actor}"})
             if not change.uncommitted:
                 fields["Revision"] = head_commit
             fields.update({"Base": base, "Head": head_commit})
             if change.old_path:
                 fields["Was"] = change.old_path
-            evidence = f"{span}: {change.kind}"
-            if others:
-                evidence += _attribution(others)
+            evidence = f"{span}: {change.kind}" + _attribution(others, via)
             if change.path in unresolved_symbols:
                 evidence += f"; symbols unresolved: {unresolved_symbols[change.path]}"
             fields["Evidence"] = evidence
-            add(f"{change.path} ({change.kind}{' from ' + change.old_path if change.old_path else ''})", fields)
+            add(f"{change.path} ({change.kind}{' from ' + change.old_path if change.old_path else ''})", fields,
+                (change.path, None, change.relation))
             files += 1
         for path, item in fresh_symbols.get(change.path, []):
             fields = {"Task": task.id, "Path": path, "Symbol": item.name, "Kind": item.kind,
                       "Relation": item.relation, "Scope": "observed"}
-            if others:
+            if doubt:
                 fields["Lifecycle"] = "unresolved"
                 unresolved += 1
             elif item.relation == "deletes":
                 fields["Lifecycle"] = "deleted"
-            fields.update({"Verification": "verified", "Authorization": "not_applicable",
+            fields.update({"Verification": "unverified" if doubt else "verified", "Authorization": "not_applicable",
                            "Source": "static_analysis", "Recorded": f"{today} · {actor}"})
             # A deleted symbol's name is true at the base; any other at the head commit,
             # unless its file's change is only in the working tree.
@@ -509,17 +577,24 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
             elif not change.uncommitted:
                 fields["Revision"] = head_commit
             fields.update({"Base": base, "Head": head_commit, "Lines": f"{item.start}-{item.end}"})
-            evidence = f"{span}: {item.kind} {item.name} {_PAST[item.relation]} (Python ast)"
-            if others:
-                evidence += _attribution(others)
-            fields["Evidence"] = evidence
-            add(f"{path}#{item.name} ({_PAST[item.relation]})", fields)
+            fields["Evidence"] = (f"{span}: {item.kind} {item.name} {_PAST[item.relation]} (Python ast)"
+                                  + _attribution(others, via))
+            add(f"{path}#{item.name} ({_PAST[item.relation]})", fields, (path, item.name, item.relation))
             symbol_count += 1
     info = {"status": "captured", "references": len(records), "files": files, "symbols": symbol_count,
             "base": base, "head": head_commit, "workingTree": working_tree,
             "alreadyRecorded": len(found) - len(fresh_files) + known, "unresolved": unresolved}
     if named:
         info["rangeNamed"] = True
+        if replaced:
+            info["settled"] = replaced
+        if settling:
+            info["stillUnresolved"] = sorted(set(settling.values()))
+    if merges:
+        info["merges"] = [m[:12] for m in merges]
+        info["mergesInvolved"] = [m[:12] for m in merges if m in contributing]
+    if unresolved:
+        info["warning"] = warning(task.id, unresolved)
     if unresolved_symbols:
         info["symbolsUnresolved"] = [{"path": p, "reason": r} for p, r in sorted(unresolved_symbols.items())]
     if skipped:

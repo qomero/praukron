@@ -1039,20 +1039,48 @@ The file record's evidence then reads `git diff 5be9fe2df06e to 6fa5a5fbe6ab
 - **Git cannot tell two open tasks apart.** If another task in the same
   working tree is still `WIP` or `BLOCKED` and was claimed at a commit the
   closing task's range includes, every file of the closing task is recorded
-  with `Lifecycle: unresolved`, and its evidence names the other task:
-  `git diff 885ca55f42d1 to the working tree at 885ca55f42d1: added; unresolved
-  attribution: T-BILL-03 was also claimed over this range`. If a task already
-  closed and captured files inside the range, only those files are unresolved.
-  Once you know whose change it was, record that with `ref set` (for example
-  `"set":{"lifecycle":"active","evidence":"made by T-BILL-04"}`) or withdraw
-  it. To avoid it, work one task per worktree and capture each merged task with
-  both `--base` and `--head` named (see *Naming both ends* above): a named range
-  is attributed to the task and nothing in it is unresolved. A close, and
-  `scope capture` without `--head`, keep the rule.
-- **Pulls and merges count.** A file that arrives through a pull or a merge
-  between a task's claim and its close is attributed to that task, because it
-  lies in the same range of commits. Close a task before you pull other work
-  in, or withdraw what is not yours afterwards.
+  with `Lifecycle: unresolved` and `Verification: unverified`, never
+  `verified`, and its evidence names the other task: `git diff 885ca55f42d1 to
+  the working tree at 885ca55f42d1: added; unresolved attribution: T-BILL-03
+  was also claimed over this range`. If a task already closed and captured
+  files inside the range, only those files are unresolved.
+- **A merge commit marks other work.** When the range of a close (or of
+  `scope capture` without `--head`) holds merge commits, every file and symbol
+  changed by a commit that entered only through a merge's second or later
+  parent is recorded the same way, unresolved and unverified, whether or not
+  another task is claimed; its evidence names the merges by short id:
+  `unresolved attribution: changed by commits merged in through 3f2a9c81d0e4,
+  not on this range's first-parent line`. Git's own ancestry decides (the
+  first-parent line of the range is the task's line of work); commit messages
+  and authors are never read. Files changed on the first-parent line, or only
+  in the working tree, are recorded as before.
+- **An unresolved reference is not the task's.** The reply's `capture` then
+  carries `unresolved` (the count), `merges` (the merge commits found, short
+  ids) and one `warning` sentence saying the references are not attributed and
+  how to settle them; the `DONE` write itself still succeeds. `praukron why`,
+  `praukron engine map`, `praukron refs` and the task packet (`context`,
+  `retrieve`) mark each one `UNRESOLVED ATTRIBUTION` in text and
+  `"attribution":"unresolved"` in JSON, and their counts say how many there
+  are; a task that reaches a file only through such references is marked as
+  such, never listed as a plain reference of the task.
+- **Settle an unresolved reference** in one of two ways. Capture the task's
+  own range with both `--base` and `--head` named (see *Naming both ends*
+  above): every record it writes for the same file or symbol replaces the
+  unresolved one (`settled` in the reply), and `stillUnresolved` lists what the
+  range does not hold. Or use `ref set` on each record: confirm it with a
+  lifecycle and evidence (for example
+  `"set":{"lifecycle":"active","verification":"verified","evidence":"made by T-BILL-04"}`),
+  which appends a successor that replaces it, so the unresolved record stays as
+  history, or withdraw it. `ref set` never sets an unresolved reference
+  `verified` in place. `praukron validate` warns, once per task, about
+  references an older Praukron recorded unresolved and yet verified.
+- **What Git's shape cannot show.** Work of others that arrives without a
+  merge commit (a squash merge, a rebase merge, a fast-forward of a branch)
+  lies on the first-parent line and cannot be told apart from the task's own
+  commits. A task closed in a checkout that took other work that way must be
+  captured with a named range over its own commits; otherwise those files are
+  recorded as its work. Better still, work one task per worktree and close it
+  before pulling other work in.
 - **Capture needs Git.** Outside a repository, without `git` on the path, in a
   repository with no commit, for a task without `Claimed at`, or when a Git
   command fails or takes more than 20 seconds, the write still succeeds and the

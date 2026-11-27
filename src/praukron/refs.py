@@ -44,6 +44,17 @@ def is_current(reference: Reference, superseded: dict[str, str]) -> bool:
     return reference.id not in superseded and not reference.withdrawn
 
 
+# How an observed reference whose change no capture could attribute is marked
+# in every listing (T-SCOPE-ATTRIB-01): it may be another line of work's change.
+UNRESOLVED = "unresolved"
+UNRESOLVED_TEXT = "UNRESOLVED ATTRIBUTION, not shown to be this task's change"
+
+
+def unattributed(reference: Reference) -> bool:
+    """True for an observed reference recorded with `Lifecycle: unresolved`."""
+    return reference.scope == "observed" and reference.lifecycle == "unresolved"
+
+
 def entry(reference: Reference) -> dict[str, object]:
     """One reference as an agent reads it in a packet: where to search, how the
     task relates to it, its state, and the record that says so."""
@@ -61,6 +72,8 @@ def entry(reference: Reference) -> dict[str, object]:
     }
     if reference.withdrawn:
         found["withdrawn"] = reference.withdrawn
+    if unattributed(reference):
+        found["attribution"] = UNRESOLVED
     # An absent key means not recorded: nulls would be half of every entry.
     return {key: value for key, value in found.items() if value is not None}
 
@@ -69,6 +82,8 @@ def detail(reference: Reference, superseded: dict[str, str] | None = None) -> di
     """One reference with every compiled field and the record it comes from,
     and `replacedBy` when another record supersedes it."""
     found = {**reference.as_json(), "authority": _authority(reference)}
+    if unattributed(reference):
+        found["attribution"] = UNRESOLVED
     if superseded and reference.id in superseded:
         found["replacedBy"] = superseded[reference.id]
     return found
@@ -82,7 +97,20 @@ def for_task(project: Project, task_id: str,
 
 
 def _counts(references: list[Reference]) -> dict[str, int]:
-    return {scope: sum(1 for r in references if r.scope == scope) for scope in ("planned", "observed")}
+    counts = {scope: sum(1 for r in references if r.scope == scope) for scope in ("planned", "observed")}
+    # Present only when some are: a task without any keeps the shape it always had.
+    unresolved = sum(1 for r in references if unattributed(r))
+    if unresolved:
+        counts["unresolved"] = unresolved
+    return counts
+
+
+def counts_text(counts: dict[str, int]) -> str:
+    """`N planned, M observed`, and how many of them are unresolved attribution."""
+    text = f"{counts['planned']} planned, {counts['observed']} observed"
+    if counts.get("unresolved"):
+        text += f" ({counts['unresolved']} of them unresolved attribution)"
+    return text
 
 
 def summary(project: Project, task_id: str, references: list[Reference] | None = None,
@@ -153,13 +181,19 @@ def lookup(project: Project, target: str) -> dict[str, object]:
     task = project.task(target)
     if task is not None:
         found = for_task(project, task.id, references)
+        counts = _counts(found)
+        counts.pop("unresolved", None)
+        unresolved = sum(1 for r in found if is_current(r, superseded) and unattributed(r))
+        if unresolved:
+            counts["unresolved"] = unresolved
         return {
             "target": target,
             "kind": "task",
             "task": {"id": task.id, "title": task.title, "status": task.status,
                      "authority": _pointer(task.source)},
             "total": len(found),
-            "counts": _counts(found),
+            # Unresolved counts only what still holds: a settled or withdrawn record is history.
+            "counts": counts,
             "current": sum(1 for r in found if is_current(r, superseded)),
             "references": [detail(r, superseded) for r in found],
         }
@@ -180,12 +214,16 @@ def lookup(project: Project, target: str) -> dict[str, object]:
             tasks.append({"id": task_id, "missing": True,
                           "references": [r.id for r in found if r.task == task_id]})
             continue
+        held = [r for r in found if r.task == task_id and is_current(r, superseded)]
         tasks.append({
             "id": referencing.id,
             "title": referencing.title,
             "status": referencing.status,
             "authority": _pointer(referencing.source),
             "references": [r.id for r in found if r.task == task_id],
+            # Every current reference of the task to the target is unattributed:
+            # the task is not shown to have touched it.
+            "attributionUnresolved": all(unattributed(r) for r in held),
             "decisions": _decisions(project, referencing),
             "acceptance": _criteria(project, referencing),
             "assumptions": _assumptions(project, task_id),
@@ -197,6 +235,7 @@ def lookup(project: Project, target: str) -> dict[str, object]:
         "symbol": symbol,
         "total": len(found),
         "current": sum(1 for r in found if is_current(r, superseded)),
+        "unresolved": sum(1 for r in found if is_current(r, superseded) and unattributed(r)),
         "references": [detail(r, superseded) for r in found],
         "tasks": tasks,
     }
@@ -212,6 +251,8 @@ def line(reference: dict[str, object]) -> str:
     """One reference on one line, for people and for `retrieve`'s text."""
     parts = [str(reference.get(k) or "—") for k in ("relation", "scope", "verification", "authorization")]
     text = f"- {_artifact(reference)} · " + " · ".join(parts)
+    if reference.get("attribution") == UNRESOLVED:
+        text = f"- {UNRESOLVED_TEXT}: {_artifact(reference)} · " + " · ".join(parts)
     if reference.get("revision"):
         text += f" · revision {reference['revision']}"
     if reference.get("replacedBy"):
@@ -226,7 +267,7 @@ def line(reference: dict[str, object]) -> str:
 def render_summary(task_id: str, packed: dict[str, object]) -> list[str]:
     counts = packed["counts"]
     lines = [f"## REFERENCES · {task_id} — compiled from CODE.md and the task's anchors",
-             f"_{packed['total']} references: {counts['planned']} planned, {counts['observed']} observed_", ""]
+             f"_{packed['total']} references: {counts_text(counts)}_", ""]
     lines += [line(r) for r in packed["first"]] or ["No file or symbol is referenced."]
     if packed["rest"]:
         lines += ["", f"{packed['total'] - len(packed['first'])} more: `{packed['rest']}`"]
@@ -239,17 +280,19 @@ def render(result: dict[str, object]) -> str:
         task = result["task"]
         counts = result["counts"]
         lines += [f"{task['id']} — {task['title']} [{task['status']}] — {task['authority']}",
-                  f"  {result['total']} references: {counts['planned']} planned, {counts['observed']} observed"]
+                  f"  {result['total']} references: {counts_text(counts)}"]
         lines += [f"  {line(r)}" for r in result["references"]]
         return "\n".join(lines) + "\n"
     lines.append(f"{result['target']} — referenced by {len(result['tasks'])} tasks "
-                 f"through {result['total']} references")
+                 f"through {result['total']} references"
+                 + (f", {result['unresolved']} of them unresolved attribution" if result.get("unresolved") else ""))
     named = {task["id"] for task in result["tasks"]}
     for task in result["tasks"]:
         if task.get("missing"):
             lines += ["", f"{task['id']} — not found"]
             continue
-        lines += ["", f"{task['id']} — {task['title']} [{task['status']}] — {task['authority']}"]
+        lines += ["", f"{task['id']} — {task['title']} [{task['status']}] — {task['authority']}"
+                  + (f" — {UNRESOLVED_TEXT}" if task.get("attributionUnresolved") else "")]
         lines += [f"  {line(r)}" for r in result["references"] if r["task"] == task["id"]]
         for decision in task["decisions"]:
             lines.append(f"  decision {decision['id']} [{decision['status']}] {decision['title']} — {decision['authority']}")

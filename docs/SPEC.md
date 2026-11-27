@@ -298,7 +298,7 @@ record these commands do not cover.
 | `praukron task update` | `TASKS.md`, `CODE.md` at `DONE` | `Status`, `Owner`, `Claimed`, `Evidence`, `Validation` of one task; appends to `Governed by` (ADR-068, ADR-074); `Claimed at` when it claims, and the observed references it captures when it closes (§2.9, ADR-092) |
 | `praukron acr add` | `ACCEPTANCE.md` | appends one `### ACR-<n>` request to the `## Acceptance Change Requests` log (ADR-076) |
 | `praukron ref add` | `CODE.md` | appends one task–code reference, creating the file from its template header when absent (§2.9) |
-| `praukron ref set` | `CODE.md` | one reference's verification, lifecycle or evidence in place, or an appended record that withdraws or replaces it (§2.9) |
+| `praukron ref set` | `CODE.md` | one reference's verification, lifecycle or evidence in place, or an appended record that withdraws or replaces it; settling an unresolved attribution always appends (§2.9) |
 | `praukron batch apply` | the files its operations write | runs several of the writes above in order under one lock, one validation and one refresh; all or nothing (ADR-077) |
 
 With `INDEX.md` (generated), `respond` (`RESPONSES.md`, ADR-055), `scope
@@ -372,7 +372,8 @@ again.
   `{"status":"kept","commit":…}` for a task claimed before, or
   `{"status":"skipped","reason":…}`; at a close `{"status":"captured",
   "references":<n written>,"base":…,"head":…,"workingTree":true,
-  "alreadyRecorded":<n>,"unresolved":<n>}`, with `skippedPaths` for a path a
+  "alreadyRecorded":<n>,"unresolved":<n>}`, with `merges` and one `warning`
+sentence when a reference is unresolved (§2.9), `skippedPaths` for a path a
   record cannot hold, or `skipped` with its reason. Capture is skipped, and the
   write is otherwise exactly as without it, when `git` is not on the path, the
   project is not in a Git working tree, the repository has no commit, the task
@@ -883,8 +884,9 @@ whatever its path, unless Git's own rules ignore it.
 A change is attributed to the task only when it lies between `Base` and
 `Head`, the working tree included. When another task may also have made it,
 Git alone cannot tell the two apart, and the record says so instead of
-guessing: `Lifecycle: unresolved`, and `Evidence` ends `unresolved
-attribution: <task> was also claimed over this range`. Another task overlaps
+guessing: `Lifecycle: unresolved` and `Verification: unverified`, never
+`verified`, and `Evidence` ends `unresolved attribution: <task> was also
+claimed over this range`. Another task overlaps
 when it is `WIP` or `BLOCKED` with a `Claimed at` that is an ancestor of, or
 equal to, `Head` (then every file of the capture is unresolved), or when it is
 `DONE` and its own captured records end inside this range, that is their
@@ -898,6 +900,54 @@ task's own: no overlap is looked for, no record is unresolved, each record's
 has `rangeNamed: true`. A coordinator whose builders work in other worktrees
 claims their tasks at one commit, so their claims overlap; it captures each
 merged task this way, naming that task's own merged range (T-CIL-SCOPE-06).
+
+**Merged-in work (T-SCOPE-ATTRIB-01).** The same two captures, a close and
+`scope capture` without `--head`, also read the range's shape from Git's
+ancestry alone: the first-parent line of `Base..Head` is the task's line of
+work, and a commit that entered the range only through a merge's second or
+later parent is another line's. Every file and symbol whose path such a
+commit changed (the merge commit's own resolution not counted) is recorded
+`Lifecycle: unresolved` and `Verification: unverified`, whether or not any
+other task is claimed, and its `Evidence` ends `unresolved attribution:
+changed by commits merged in through <merge>, …, not on this range's
+first-parent line`, naming each merge by its first twelve hex characters. A
+path changed only by first-parent, non-merge commits, or only in the working
+tree, is recorded as above. Commit messages and authors are never read. A
+named capture is unchanged: merges or not, its records are verified.
+
+When a capture writes an unresolved reference, its reply's `capture` member
+carries `unresolved` (the count), `merges` (every merge on the first-parent
+line, short ids) and `mergesInvolved` (those that brought in a recorded path),
+and one `warning` sentence: the references are not attributed to the task, and
+they are settled by a named capture over the task's own range or by `ref set`
+on each record. The write still succeeds; capture never blocks it. A listing
+never presents an unresolved observed reference as a plain reference of its
+task: `refs`, `why`, `engine map` and the task packet (`context`, `retrieve`)
+mark it `"attribution": "unresolved"` in JSON and `UNRESOLVED ATTRIBUTION` in
+text, give their count (`counts.unresolved` in `refs` and the packet, present
+when not zero; `unresolved` in `why`; `attributionUnresolved` in `engine
+map`), and mark a task that reaches the target only through such references
+with `attributionUnresolved: true`.
+
+Settling. A named capture over the task's range writes, for each file or
+symbol it records with the same relation, a record that `Replaces` the
+unresolved one; its reply lists those as `settled` and what stays unresolved as
+`stillUnresolved`. `ref set` with `set.lifecycle` other than `unresolved`
+settles one record: it needs `set.evidence` (`settle-without-evidence`), and is
+written as a successor that `Replaces` the record, which stays unchanged as
+history, with the record's `Source` and the new `Recorded`. `ref set` never
+sets an unresolved observed reference `verified` while it stays unresolved
+(`unresolved-attribution`); `withdraw` works as for any reference. `validate`
+warns once per task (`unattributed-verified-references`), never errs, about
+current `git_diff` or `static_analysis` references an earlier capture wrote
+with `Lifecycle: unresolved` and `Verification: verified`, with their count
+and the two ways to settle them.
+
+The limit that stays: work of others that arrives without a merge commit (a
+squash merge, a rebase merge, a fast-forward of a branch) lies on the
+first-parent line and cannot be told apart by Git's shape alone. A task
+closed in a checkout that took other work must therefore be captured with a
+named range over its own commits.
 
 **Observed symbols, from the standard library's `ast` (ADR-092).** The same
 capture, in the same write, records the changed symbols of every changed
