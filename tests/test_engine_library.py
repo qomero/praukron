@@ -21,6 +21,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
@@ -162,6 +163,49 @@ class RealLibraryTest(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(json.loads(target.read_text(encoding="utf-8")), document)
         self.assertIn(f"{counts['nodes']} nodes and {counts['edges']} edges", out)
+
+    def test_map_joins_the_index_to_task_references_by_source(self) -> None:
+        """AC-T-GRAPH-JOIN-01-01, -02 and -04 on an index the library wrote."""
+        from test_code_references import reference
+
+        (self.chronicle / "CODE.md").write_text("# Code references\n\n" + "\n".join([
+            reference("CR-T-ONE-01", "T-ONE", "pkg/service.py", Symbol="Catalog.add", Kind="method",
+                      Scope="observed", Source="git_diff", Verification="verified"),
+            reference("CR-T-ONE-02", "T-ONE", "pkg/util.py", Symbol="normalize", Kind="function",
+                      Scope="observed", Source="static_analysis", Verification="verified"),
+            reference("CR-T-ONE-03", "T-ONE", "web/format.js", Symbol="renderRow", Kind="function"),
+            reference("CR-T-ONE-04", "T-ONE", "pkg/util.py", Symbol="removed_helper", Kind="function"),
+        ]), encoding="utf-8")
+        self.before = snapshot(self.chronicle)
+        self.assertEqual(run(self.root, "engine", "index")[0], 0)
+
+        code, out, err = run(self.root, "engine", "map", "T-ONE", "--json")
+        self.assertEqual((code, err), (0, ""))
+        result = json.loads(out)
+        self.assertTrue(result["graph"]["present"])
+        match = {r["id"]: r["match"] for r in result["references"]}
+        self.assertEqual({i: m["matched"] for i, m in match.items()},
+                         {"CR-T-ONE-01": True, "CR-T-ONE-02": True, "CR-T-ONE-03": True, "CR-T-ONE-04": False})
+        self.assertEqual(match["CR-T-ONE-04"]["reason"], "symbol-absent")
+        among = {(e["from"].get("symbol"), e["to"].get("symbol"), e["kind"]) for e in result["edges"] if e["among"]}
+        self.assertIn(("Catalog.add", "normalize", "call"), among)
+        self.assertTrue(all(e["source"] == "engine" for e in result["edges"]))
+        self.assertTrue(all(u["source"] == "engine-unresolved" for u in result["unresolved"]))
+        self.assertTrue(result["unresolved"], "the fixture calls names the engine cannot place")
+
+        code, out, err = run(self.root, "engine", "map", "pkg/util.py#normalize", "--json")
+        self.assertEqual((code, err), (0, ""))
+        symbol = json.loads(out)
+        self.assertEqual([t["id"] for t in symbol["tasks"]], ["T-ONE"])
+        callers = {e["from"].get("symbol") for e in symbol["edges"] if e["to"].get("symbol") == "normalize"}
+        self.assertTrue({"Catalog.add", "slug"} <= callers, callers)
+
+        # The same index, read where no library is: only sqlite3 is needed.
+        with mock.patch.dict(os.environ, {engine.ENV_VAR: ""}), \
+                mock.patch.object(engine, "_cdll", side_effect=AssertionError("the library was loaded")):
+            code, again, err = run(self.root, "engine", "map", "T-ONE", "--json")
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads(again)["edges"], result["edges"])
 
     def test_a_failing_call_is_one_line(self) -> None:
         library = engine.load(Path(os.environ[engine.ENV_VAR]))

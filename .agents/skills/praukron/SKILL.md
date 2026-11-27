@@ -26,7 +26,9 @@ Claim a task before changing code: in Git, setting it `DONE` then records its
 changed files and Python symbols; report a skipped `capture`. Record the rest
 with `praukron ref add`: planned scope when you know it at the start, symbols
 in the reply's `symbolsUnresolved` files, and files only read, verified or
-documented. `praukron refs` finds a task's code or a file's tasks.
+documented. `praukron refs` finds a task's code or a file's tasks, and
+`praukron engine map` adds the graph: `ref add` what you read behind an edge it
+leaves unresolved, with source `agent` and `evidence`.
 When a choice has no answer in authority, follow the assumption procedure in
 `AGENTS.md`: record an assumption before relying on it, stop for the owner on a
 reserved choice, and never edit `RESPONSES.md`.

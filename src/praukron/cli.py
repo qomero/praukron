@@ -493,6 +493,20 @@ def cmd_engine(root: Path, args: argparse.Namespace) -> int:
     no other command loads it or reads its index."""
     from . import engine
 
+    if args.action == "map":
+        # Reads the index with sqlite3 alone; locating the library loads nothing.
+        from . import codemap, refs
+
+        try:
+            result = codemap.code_map(_load(root), root, args.target, engine.index_path(root),
+                                      engine.locate(root).present)
+        except refs.TargetError as error:
+            return _fail(str(error))
+        if args.json:
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        else:
+            print(codemap.render(result), end="")
+        return 0
     return engine.command(root, args)
 
 
@@ -767,7 +781,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     embedded = subparsers.add_parser(
         "engine",
-        help="optional embedded graph library: status, index, export (derived output, never authority)",
+        help="optional embedded graph library: status, index, export, map (derived output, never authority)",
     )
     embedded_commands = embedded.add_subparsers(dest="action", required=True)
     engine_status = embedded_commands.add_parser(
@@ -783,6 +797,12 @@ def build_parser() -> argparse.ArgumentParser:
     engine_export.add_argument(
         "-o", "--output", default=None, metavar="FILE", help="write it here instead of standard output"
     )
+    engine_map = embedded_commands.add_parser(
+        "map", help="a task's code with its graph neighbours, or the tasks and neighbours of a file or symbol, "
+                    "each item labelled by source"
+    )
+    engine_map.add_argument("target", help="a task id, a repository-relative path, or path#Qualified.symbol")
+    engine_map.add_argument("--json", action="store_true")
     embedded.set_defaults(handler=cmd_engine)
 
     journal = subparsers.add_parser("journal", help="append governed journal entries")

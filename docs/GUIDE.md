@@ -594,6 +594,8 @@ praukron engine index             # index this repository, or refresh it after e
 praukron engine index --full      # re-read every file
 praukron engine export            # the whole graph as one JSON document on standard output
 praukron engine export --output graph.json
+praukron engine map T-BILL-01     # a task's code with its graph neighbours, by source
+praukron engine map src/billing/invoice.py#Invoice.total --json   # a symbol's tasks and neighbours
 ```
 
 Praukron looks for the library in one place, and the first match wins:
@@ -626,6 +628,32 @@ changed. `export` reads that index, and its `counts` are the library's own:
 files, symbols, nodes, edges, and import, non-import and resolved edges. The
 document also names its `source` (`graph-library`), the library it came from,
 and the repository.
+
+`engine map` joins that index to the task-code references. Given a task it
+lists the files and symbols the task touched, the engine nodes each matches,
+the resolved edges among them and to their direct neighbours, the edges the
+engine left unresolved from them, and the references that match no node, with
+the reason (`not-indexed`, `file-absent`, `symbol-absent`, `no-path`,
+`other-repository`). Given a path, or `path#Qualified.symbol`, it lists the
+tasks whose references touch it and its neighbours. Every item names its
+source, and the sources are never merged:
+
+- `engine`: a node or edge the engine resolved;
+- `engine-unresolved`: an edge to a name the engine could not place. That is
+  unknown, not "no relation": an agent reads the code and records what it
+  finds with `ref add` and `"source":"agent"`, with its evidence;
+- `reference:git_diff` and `reference:static_analysis` (recorded by Git
+  capture), `reference:agent`, `reference:manual` (by hand): the references as
+  recorded, each with its verification state.
+
+A reference matches by its path, then by its name inside the file
+(`Class.method`, `outer.inner`); a name written with the engine's module
+prefix or with `::` is read as the name inside the file, and a bare member
+name matches when one member of the file has it. `map` reads the index with
+Python's `sqlite3` alone, read only, so an index written on another machine
+is readable where no library is installed. With no index it answers from the
+references alone, says that no graph is present, and succeeds. It writes
+nothing: no engine node or edge reaches the chronicle.
 
 ### Which code each task touched
 
