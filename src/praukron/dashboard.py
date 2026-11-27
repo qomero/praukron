@@ -16,8 +16,8 @@ import re
 from urllib.parse import quote
 
 from .analytics import Report
-from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATIONS, Project, event_order
-from . import compile as compiler, drawings, mermaid, refs, review, i18n
+from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATION_STATES, Project, event_order
+from . import authority, compile as compiler, drawings, mermaid, refs, review, i18n
 
 
 def esc(value: object) -> str:
@@ -233,7 +233,7 @@ details.more-rows > summary { cursor: pointer; font-size: 13px; color: var(--acc
        list-style: none; border-radius: var(--radius-s); }
 details.more-rows > summary::-webkit-details-marker { display: none; }
 .c-DONE, .c-HUMAN_VERIFIED { --mark: var(--good); }
-.c-WIP, .c-AI_REVIEWED { --mark: var(--wip); }
+.c-WIP, .c-AI_REVIEWED, .c-DELEGATE_VERIFIED { --mark: var(--wip); }
 .c-BLOCKED { --mark: var(--bad); }
 .c-TODO, .c-UNTESTED { --mark: var(--todo); }
 .c-SYNTHETIC { --mark: var(--warn); }
@@ -273,7 +273,7 @@ td.num { text-align: right; white-space: nowrap; }
         letter-spacing: 0.01em; vertical-align: 1px; }
 .pill.DONE, .pill.GREEN, .pill.PASS, .pill.COMPLETE, .pill.HUMAN_VERIFIED { color: var(--good);
         border-color: color-mix(in srgb, var(--good) 55%, transparent); }
-.pill.WIP, .pill.ACTIVE, .pill.AI_REVIEWED { color: var(--wip);
+.pill.WIP, .pill.ACTIVE, .pill.AI_REVIEWED, .pill.DELEGATE_VERIFIED { color: var(--wip);
         border-color: color-mix(in srgb, var(--wip) 55%, transparent); }
 .pill.EXIT_PENDING, .pill.SYNTHETIC, .pill.HIGH { color: var(--warn);
         border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
@@ -1145,7 +1145,7 @@ def _count_card(label: str, value: object, note: str = "", alert: bool = False,
 
 # Stacks read left to right as progress: finished work first.
 _STATUS_STACK = ("DONE", "WIP", "BLOCKED", "TODO")
-_VALIDATION_STACK = ("HUMAN_VERIFIED", "AI_REVIEWED", "SYNTHETIC", "UNTESTED")
+_VALIDATION_STACK = ("HUMAN_VERIFIED", "DELEGATE_VERIFIED", "AI_REVIEWED", "SYNTHETIC", "UNTESTED")
 _MODULE_ROWS = 8
 
 
@@ -2592,7 +2592,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     )
     present_statuses = [s for s in STATUSES if any(t["status"] == s for t in compiled["tasks"])]
     present_validations = [
-        v for v in VALIDATIONS if any(t["validation"] == v for t in compiled["tasks"])
+        v for v in VALIDATION_STATES if any(t["validation"] == v for t in compiled["tasks"])
     ]
     present_domains = [d for d in DOMAINS if any(t["domain"] == d for t in compiled["tasks"])]
     total_all = len(compiled["tasks"])
@@ -2868,7 +2868,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
            '<p class="respond-hint">This page is read-only. To answer, run <code>praukron dashboard --serve</code>.</p>')
         + '<p id="needs-filtered" hidden><span></span><button data-xf-clear>Show all</button></p>'
         + ('<p class="note">Nothing waits for you.</p>' if not review_count else '')
-        + review_body + '</div>')
+        + review_body + '</div>'
+        # Its own place: what agents may do on the owner's authority (AUTHORITY.md).
+        + authority.section(project, interactive))
     records = ''
     for tid, task in tasks.items():
         contract = compiled["acceptance"].get(task["ac"], {})

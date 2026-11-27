@@ -320,6 +320,8 @@ had_chronicle=0
 for file in THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE COORDINATION CODE TECH_DEBT ASSUMPTIONS RESPONSES; do
   copy_new "$source_dir/templates/chronicle/$file.md" "$target/$chronicle/$file.md"
 done
+# What the owner grants agents: installed when absent, never replaced.
+copy_new "$source_dir/templates/chronicle/AUTHORITY.md" "$target/$chronicle/AUTHORITY.md"
 copy_new "$source_dir/templates/chronicle/ADR/README.md" "$target/$chronicle/ADR/README.md"
 install_guidance "$source_dir/templates/chronicle/README.md" "$chronicle/README.md"
 
@@ -338,7 +340,7 @@ install_guidance "$source_dir/.agents/skills/praukron/SKILL.md" \
 # never runs a stale compiler against a current chronicle.
 mkdir -p "$target/$runtime/praukron"
 for module in __init__ layout model parse domain freeze validate analytics views index compile snapshot migrate \
-  mermaid drawings mission review i18n dashboard retrieve refs codegraph engine codemap impact why respond mutate journal task symbols scope task_update contract criterion acr ref batch archive archive_recovery serve cli; do
+  mermaid drawings mission review i18n dashboard retrieve refs codegraph engine codemap impact why authority respond mutate journal task symbols scope task_update contract criterion acr ref batch archive archive_recovery serve cli; do
   cp "$source_dir/src/praukron/$module.py" "$target/$runtime/praukron/$module.py"
 done
 cp "$source_dir/VERSION" "$target/$runtime/VERSION"

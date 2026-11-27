@@ -280,6 +280,10 @@ def cmd_explain(root: Path, args: argparse.Namespace) -> int:
         print("\n  Blockers")
         for blocker in detail["blockers"]:
             print(f"    {blocker['type']}: {blocker['detail']}")
+    if detail.get("verifications"):
+        print("\n  Verification")
+        for item in detail["verifications"]:
+            print(f"    {item['response']} {item['date']}: {item['text']}")
     print(f"\n  Evidence: {detail['evidence'] or 'none recorded'}")
     print(f"  Source:   {detail['source']['file']} → {detail['source']['anchor']}")
     return 0
@@ -410,6 +414,25 @@ def cmd_respond(root: Path, args: argparse.Namespace) -> int:
     if args.by:
         return _fail("--by is no longer accepted: a response records the active `gh` login (ADR-060)")
     verify = False
+    if args.delegate is not None:
+        # An agent verifying on the owner's authority (AUTHORITY.md): no terminal is
+        # needed, and the record names the agent, the owner and the grant.
+        if args.batch or args.action != "VERIFY" or not args.target:
+            return _fail("--delegate applies only to `respond <task> VERIFY`")
+        if args.date:
+            return _fail("a delegated VERIFY is dated today: --date is not accepted with --delegate")
+        try:
+            text = Path(args.text_file).read_text(encoding="utf-8") if args.text_file else mutate.read_stdin_text()
+        except (OSError, ValueError) as error:
+            return _fail(f"cannot read what was verified: {error}")
+        try:
+            ids = respond.append(root, [respond.Item(args.target, "VERIFY", text)], via="cli",
+                                 delegate=args.delegate)
+        except respond.RespondError as error:
+            return _fail(str(error))
+        print(f"Recorded {', '.join(ids)} in RESPONSES.md: VERIFY of {args.target} by delegate "
+              f"{args.delegate.strip()} on the owner's authority; set its Validation to DELEGATE_VERIFIED.")
+        return 0
     if args.batch:
         try:
             entries = json.loads(Path(args.batch).read_text(encoding="utf-8"))
@@ -448,6 +471,54 @@ def cmd_respond(root: Path, args: argparse.Namespace) -> int:
         return _fail(str(error))
     print(f"Recorded {', '.join(ids)} in RESPONSES.md; compiled views refreshed.")
     return 0
+
+
+def _in_person() -> bool:
+    """The interactive check VERIFY uses. It does not stop a program imitating a terminal."""
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def cmd_authority(root: Path, args: argparse.Namespace) -> int:
+    """What agents may do on the owner's authority: list, grant, revoke (AUTHORITY.md)."""
+    from . import authority, respond
+
+    if args.authority_command is None:
+        project = _load(root)
+        data = authority.view(project, authority.today())
+        if args.json:
+            print(json.dumps(data, indent=2, ensure_ascii=False))
+        else:
+            print(authority.render(data), end="")
+        return 0
+    if not _in_person():
+        return _fail(f"a grant or revocation is recorded only by the owner in person: run `praukron authority "
+                     f"{args.authority_command}` yourself at a terminal, or use `praukron dashboard --serve`; "
+                     "an agent never records one")
+    try:
+        login = respond.identity()
+        if args.authority_command == "grant":
+            until = args.until or "none (until revoked)"
+            print(f"Granting {args.capability} to {args.delegate} for scope {args.scope}, until {until}, "
+                  f"as GitHub user {login}.")
+            if args.scope.strip().lower() == authority.PROJECT_SCOPE:
+                print("This grant covers the WHOLE PROJECT.")
+            if not args.until:
+                print("This grant has NO END: it holds until you revoke it.")
+            typed = input("Type grant to confirm: ").strip()
+            if typed != "grant":
+                return _fail("not confirmed; nothing was recorded")
+            made = authority.grant(root, args.capability, args.scope, args.delegate, args.until, via="cli")
+            print(f"Recorded {made} in {authority.FILE}; compiled views refreshed.")
+            return 0
+        print(f"Revoking {args.grant} as GitHub user {login}.")
+        typed = input(f"Type {args.grant} to confirm: ").strip()
+        if typed != args.grant:
+            return _fail("not confirmed; nothing was recorded")
+        made = authority.revoke(root, args.grant, via="cli")
+        print(f"Revoked {made} in {authority.FILE}; the grant stays readable; compiled views refreshed.")
+        return 0
+    except (EOFError, respond.RespondError, authority.AuthorityError) as error:
+        return _fail(str(error) or "cancelled")
 
 
 def cmd_retrieve(root: Path, args: argparse.Namespace) -> int:
@@ -935,7 +1006,24 @@ def build_parser() -> argparse.ArgumentParser:
     answer.add_argument("--batch", help="a JSON list of {target, action, text}, written all or nothing")
     answer.add_argument("--via", default="cli", help="how it arrived: cli, dashboard, or relayed by …")
     answer.add_argument("--date", help="YYYY-MM-DD; defaults to today")
+    answer.add_argument("--delegate", metavar="AGENT",
+                        help="VERIFY as this agent on the owner's authority, under a grant of verify "
+                             "in AUTHORITY.md; never for a task the agent built")
     answer.set_defaults(handler=cmd_respond)
+
+    granted = subparsers.add_parser(
+        "authority", help="what agents may do on the owner's authority: list, or (owner, in person) grant and revoke")
+    granted.add_argument("--json", action="store_true")
+    granted_commands = granted.add_subparsers(dest="authority_command")
+    give = granted_commands.add_parser("grant", help="owner only, in person: switch a capability on for an agent")
+    give.add_argument("capability", help="the capability, e.g. verify")
+    give.add_argument("--scope", required=True,
+                      help="`project` for the whole project, or task, module and phase ids, comma-separated")
+    give.add_argument("--delegate", required=True, help="the agent the grant is for")
+    give.add_argument("--until", help="YYYY-MM-DD the grant ends; absent means it holds until revoked")
+    take = granted_commands.add_parser("revoke", help="owner only, in person: end a grant now")
+    take.add_argument("grant", help="an AG- grant id")
+    granted.set_defaults(handler=cmd_authority)
 
     shelve = subparsers.add_parser(
         "archive",

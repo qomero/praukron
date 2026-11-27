@@ -47,6 +47,8 @@ from .model import (
     REFERENCE_VERIFICATIONS,
     STATUSES,
     VALIDATIONS,
+    VALIDATION_STATES,
+    VERIFIED_STATES,
     Finding,
     Project,
     reference_path_problem,
@@ -421,6 +423,107 @@ def _verified_unattributed(project: Project) -> list[Finding]:
     return findings
 
 
+_DAY = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def authority_findings(project: Project) -> list[Finding]:
+    """Grants in AUTHORITY.md, verifications made under them, DELEGATE_VERIFIED."""
+    from .authority import IN_PERSON, PROJECT_SCOPE, built, capability, same_name
+
+    findings: list[Finding] = []
+    known = ({t.id for t in project.tasks} | {m.id for m in project.modules}
+             | {p.id for p in project.phases})
+    seen: set[str] = set()
+    for g in project.grants:
+        where = f"{g.source.file}#{g.id}"
+
+        def error(code: str, message: str) -> None:
+            findings.append(Finding("error", code, f"{g.id}: {message}", where))
+
+        if g.id in seen:
+            error("duplicate-grant", "the grant is defined more than once")
+        seen.add(g.id)
+        found = capability(g.capability)
+        if found is None or found.kind != "grant":
+            error("unknown-capability", f"'{g.capability}' is not a capability that can be granted")
+        if not g.scope:
+            error("grant-without-scope", "states no Scope; the whole project is never assumed: write "
+                                         "`project` or name tasks, modules or phases")
+        elif any(s.lower() == PROJECT_SCOPE for s in g.scope) and len(g.scope) > 1:
+            error("invalid-grant-scope", "Scope is either `project` or a list of tasks, modules and phases")
+        elif not g.whole_project:
+            unknown = [s for s in g.scope if s not in known]
+            if unknown:
+                error("invalid-grant-scope", f"Scope names {', '.join(unknown)}, which is not a task, module or phase")
+        if not g.delegate:
+            error("incomplete-grant", "names no Delegate")
+        if not g.granted_by:
+            error("incomplete-grant", "names no Granted by")
+        elif not project.is_owner(g.granted_by):
+            error("grant-not-from-owner", f"Granted by {g.granted_by}, who is not named in an ACCEPTED ADR's Owners")
+        if not g.date or not _DAY.match(g.date):
+            error("incomplete-grant", "has no Date as YYYY-MM-DD")
+        if g.until is not None and (not _DAY.match(g.until) or (g.date and g.until < g.date)):
+            error("invalid-grant-until", f"Until '{g.until}' is not a YYYY-MM-DD date on or after its Date")
+        if g.via not in IN_PERSON:
+            error("grant-not-in-person", f"Via '{g.via}' is not {' or '.join(IN_PERSON)}: a grant arrives only "
+                                         "from the owner in person")
+        if g.revoked or g.revoked_by or g.revoked_via:
+            if not (g.revoked and _DAY.match(g.revoked)) or (g.date and g.revoked < g.date):
+                error("invalid-revocation", "Revoked is not a YYYY-MM-DD date on or after its Date")
+            if not g.revoked_by or not project.is_owner(g.revoked_by):
+                error("revocation-not-from-owner", "Revoked by names no login in an ACCEPTED ADR's Owners")
+            if g.revoked_via not in IN_PERSON:
+                error("revocation-not-in-person", f"Revoked via '{g.revoked_via}' is not {' or '.join(IN_PERSON)}")
+
+    for r in project.responses:
+        if not r.delegated:
+            continue
+        where = f"{r.source.file}#{r.id}"
+
+        def error(code: str, message: str) -> None:
+            findings.append(Finding("error", code, f"{r.id}: {message}", where))
+
+        task = project.task(r.target)
+        g = project.grant(r.grant or "")
+        if r.action != VERIFY:
+            error("invalid-delegation", "only VERIFY is recorded on the owner's authority")
+        if not r.delegate or not r.grant:
+            error("invalid-delegation", "a delegated VERIFY names both its Delegate and its Grant")
+        if r.grant and g is None:
+            error("unknown-delegation", f"rests on {r.grant}, which is not a grant in AUTHORITY.md")
+            continue
+        if g is None or task is None:
+            continue
+        if g.capability != "verify":
+            error("delegation-wrong-capability", f"{g.id} grants {g.capability}, not verify")
+        if not same_name(g.delegate, r.delegate):
+            error("delegation-wrong-delegate", f"{g.id} is for {g.delegate}, not {r.delegate}")
+        if not g.covers(task):
+            error("delegation-does-not-cover", f"{g.id} does not cover {task.id}")
+        if not (r.date and g.in_force_on(r.date)):
+            error("delegation-not-in-force", f"{g.id} was not in force on {r.date}")
+        if r.on_authority_of and g.granted_by and not same_name(r.on_authority_of, g.granted_by):
+            error("invalid-delegation", f"On authority of {r.on_authority_of}, but {g.id} was granted by {g.granted_by}")
+        if r.delegate and built(task, r.delegate):
+            error("delegate-built-task", f"{r.delegate} built {task.id} (Owner: {task.owner}); "
+                                         "the one who verifies is never the one who built")
+
+    for task in project.tasks:
+        if task.validation != "DELEGATE_VERIFIED":
+            continue
+        where = f"{task.source.file}#{task.id}"
+        if not project.verified_by_delegate(task.id):
+            findings.append(Finding("error", "delegate-verification-without-response",
+                                    "DELEGATE_VERIFIED needs a VERIFY a delegate recorded under a grant "
+                                    f"(`praukron respond {task.id} VERIFY --delegate <agent>`)", where))
+        elif project.verified_by_owner(task.id):
+            findings.append(Finding("warning", "delegate-verification-superseded",
+                                    "the owner has since verified in person; set Validation to HUMAN_VERIFIED",
+                                    where))
+    return findings
+
+
 _RECORD_ID = re.compile(r"^(ADR-[0-9]+|AC-[A-Za-z0-9.\-]+|T-[A-Za-z0-9.\-]+)$")
 
 
@@ -534,9 +637,10 @@ def assumption_findings(project: Project) -> list[Finding]:
         if task.authority not in TASK_AUTHORITIES:
             findings.append(Finding("error", "invalid-task-authority",
                                     f"'{task.authority}' is not a task authority; use owner", where))
-        elif task.done and task.validation != "HUMAN_VERIFIED":
+        elif task.done and task.validation not in VERIFIED_STATES:
             findings.append(Finding("error", "owner-task-not-verified",
-                                    "an Authority: owner task is DONE only with HUMAN_VERIFIED", where))
+                                    "an Authority: owner task is DONE only with HUMAN_VERIFIED "
+                                    "or DELEGATE_VERIFIED", where))
         if task.owner_held and task.validation == "HUMAN_VERIFIED" and not project.verified_by_owner(task.id):
             command = f".praukron/praukron respond {task.id} verify"
             windows_command = f".praukron/praukron.cmd respond {task.id} verify"
@@ -549,6 +653,8 @@ def assumption_findings(project: Project) -> list[Finding]:
                                     "establish that owner declaration first if missing. "
                                     "Only the owner may do this, never an agent.", where,
                                     owner_action=(command, windows_command)))
+
+    findings += authority_findings(project)
 
     named_owners = [decision for decision in project.decisions if decision.owners is not None]
     for decision in named_owners:
@@ -786,7 +892,7 @@ def check(project: Project, *, snapshot: Snapshot | None = None) -> list[Finding
 
         if task.status not in STATUSES:
             error("invalid-status", f"'{task.status}' is not a known status", where)
-        if task.validation not in VALIDATIONS:
+        if task.validation not in VALIDATION_STATES:
             error(
                 "invalid-validation",
                 f"'{task.validation}' is not a known validation state",

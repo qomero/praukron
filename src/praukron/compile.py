@@ -20,6 +20,7 @@ from .parse import (
     parse_acceptance,
     parse_change_requests,
     parse_assumptions,
+    parse_authority,
     parse_coordination,
     parse_decisions,
     parse_modules,
@@ -176,13 +177,15 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
         change_requests=_change_requests(authority, phases),
         # CODE.md never moves to an archive, so a reference keeps resolving (SPEC §2.9).
         references=parse_references(authority / "CODE.md"),
+        # Grants never move to an archive, like responses (AUTHORITY.md).
+        grants=parse_authority(authority / "AUTHORITY.md"),
     )
     # Only authored record files, including archives; never generated INDEX.md.
     dated_sources = {item.source.file for items in (
         project.tasks, project.phases, project.modules, project.decisions,
         project.assumptions, project.responses, project.events, project.debts,
         list(project.contracts.values()), project.change_requests,
-        project.conventions, project.briefs, project.references,
+        project.conventions, project.briefs, project.references, project.grants,
     ) for item in items}
     dated_sources.update(entry["source"]["file"] for entry in project.journal)
     dated_sources.update(("INTENT.md", "HANDOFF.md", "THESIS.md"))
@@ -203,6 +206,12 @@ def load(root: Path, *, authority: Path | SnapshotPath | None = None) -> Project
             project.current_phase = standing[-1].id
             break
     return project
+
+
+def agent_authority(project: Project) -> dict[str, object]:
+    from . import authority
+
+    return authority.view(project)
 
 
 def as_json(project: Project) -> dict[str, object]:
@@ -367,11 +376,15 @@ def as_json(project: Project) -> dict[str, object]:
         # Assumptions hold no authority; responses are the owner's words as
         # written; the policy in force is read from its ADR (ADR-054, ADR-057).
         "assumptions": [assumption_json(project, a) for a in project.assumptions],
-        "responses": [{**response.as_json(), "fromOwner": project.is_owner(response.by)}
+        # A delegate's VERIFY carries the owner's login in By but is never the owner's own.
+        "responses": [{**response.as_json(),
+                       "fromOwner": project.is_owner(response.by) and not response.delegated}
                       for response in project.responses],
         "owners": {"logins": project.owners,
                    "decision": project.owners_decision.id if project.owners_decision else None},
         "policy": project.policy.as_json(),
+        # What agents may do on the owner's authority: grants and the policy (AUTHORITY.md).
+        "agentAuthority": agent_authority(project),
         # Derived diagnostics; nothing here changes a status (ADR-054).
         "assumptionReport": report.assumptions,
         "criticalPath": report.critical_path,

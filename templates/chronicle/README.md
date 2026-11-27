@@ -13,12 +13,14 @@ review, advice, and continuity between people as well as agents.
 ```text
 .praukron/chronicle/   authored by people and agents; the only source of truth
                       (except INDEX.md, which Praukron generates, and
-                      RESPONSES.md, which `praukron respond` appends to;
+                      RESPONSES.md, which `praukron respond` appends to,
+                      and AUTHORITY.md, which only `praukron authority`
+                      writes, for the owner in person;
                       archive/<phase>/ holds closed phases' tasks, contracts,
                       assumptions, debt, trace events and journal entries,
                       moved there by `praukron archive`, and is authority like
-                      the rest; RESPONSES.md, COORDINATION.md and ADR/ are
-                      never archived)
+                      the rest; RESPONSES.md, AUTHORITY.md, COORDINATION.md
+                      and ADR/ are never archived)
 .praukron/compiled/    compiled by Praukron; safe to delete and regenerate
 ```
 
@@ -93,7 +95,15 @@ question that an authored document answers.
   assumption holds no authority; the records it is applied in do.
 - `RESPONSES.md` is the owner's input, verbatim and append-only. Agents read and
   reconcile it and never edit it. `By:` is the active GitHub CLI login, never a
-  typed name; an agent never issues `VERIFY`.
+  typed name; an agent never issues `VERIFY` unless a grant in `AUTHORITY.md`
+  names it, and then only with `--delegate`, for a task it did not build.
+- `AUTHORITY.md` is what the owner lets agents do on the owner's authority: one
+  `## AG-<nn>` grant per capability given, with its scope (`project`, or tasks,
+  modules and phases), delegate, granting login, date, end (or `none`) and
+  revocation. Only the owner records a grant or a revocation, in person, with
+  `praukron authority` at a terminal or from `praukron dashboard --serve`. A
+  verification under a grant is `DELEGATE_VERIFIED`, never `HUMAN_VERIFIED`.
+  Absent, nothing is granted.
 - `COORDINATION.md` is optional: a coordinator's standing conventions
   (`## CV-<id>`) and one brief per task (`## BR-<id>`), so that how agents are
   run survives the loss of any session (ADR-075). It is authority below

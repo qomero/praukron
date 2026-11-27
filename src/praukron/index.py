@@ -217,6 +217,18 @@ def render(project: Project, report: Report, root) -> str:
         lines.append("- none linked to current work → ADR/README.md")
 
     handoff = _section(project.handoff, "Next action") or project.handoff
+    if project.grants:
+        # What agents may do on the owner's authority; the date decides which hold today.
+        lines += ["", "## Agent authority", ""]
+        for g in project.grants:
+            if g.revoked:
+                continue
+            scope = "WHOLE PROJECT" if g.whole_project else ", ".join(g.scope) or "no scope"
+            end = f"until {g.until}" if g.until else "NO END"
+            lines.append(f"- {g.id} · {g.capability} · delegate {g.delegate} · {scope} · {end} → AUTHORITY.md#{g.id}")
+        revoked = sum(1 for g in project.grants if g.revoked)
+        if revoked:
+            lines.append(f"- revoked: {revoked} → `praukron authority`")
     lines += ["", "## Handoff", "", _excerpt(handoff, 300) or "No handoff recorded.", "", "→ HANDOFF.md"]
 
     lines += ["", "## Recent changes", ""]

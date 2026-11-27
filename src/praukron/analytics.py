@@ -172,7 +172,7 @@ def describe(metrics: dict[str, object], report: "Report") -> dict[str, str]:
     coverage = metrics["validationCoverage"]
     counts = metrics["validationBreakdown"]
     project = report.project
-    done = [t for t in project.execution_tasks if t.done and t.validation not in ("AI_REVIEWED", "HUMAN_VERIFIED")]
+    done = [t for t in project.execution_tasks if t.done and t.validation not in ("AI_REVIEWED", "DELEGATE_VERIFIED", "HUMAN_VERIFIED")]
     with_evidence = sum(1 for t in done if exercised(project, t))
     lines = {
         "acceptanceStarted": (
@@ -187,6 +187,8 @@ def describe(metrics: dict[str, object], report: "Report") -> dict[str, str]:
         "reviewed": (
             f"{coverage['done']} / {coverage['total']} execution tasks AI_REVIEWED or HUMAN_VERIFIED"
             f" · SYNTHETIC {counts.get('SYNTHETIC', 0)} · UNTESTED {counts.get('UNTESTED', 0)}"
+            # Counted apart, never as HUMAN_VERIFIED: verified on the owner's authority.
+            + (f" · DELEGATE_VERIFIED {counts['DELEGATE_VERIFIED']}" if counts.get("DELEGATE_VERIFIED") else "")
         ),
         "unreviewed": (
             f"{len(done)} done without review, {with_evidence} of them with exercised evidence"
@@ -882,7 +884,28 @@ def explain(project: Project, task_id: str) -> dict[str, object]:
         "decisions": task.decisions,
         "schedule": task.schedule.as_json(),
         "source": task.source.as_json(),
+        # Who verified it: the owner in person, or a delegate on the owner's authority.
+        **({"verifications": _verifications(project, task.id)}
+           if task.owner_held and _verifications(project, task.id) else {}),
     }
+
+
+def _authority_recorded(project: Project) -> bool:
+    from .authority import FILE
+
+    return bool(project.grants) or (Path(project.root) / layout.AUTHORITY_DIR / FILE).is_file()
+
+
+def _capabilities(project: Project, task) -> list[dict[str, object]]:
+    from .authority import capabilities_for
+
+    return capabilities_for(project, task)
+
+
+def _verifications(project: Project, task_id: str) -> list[dict[str, object]]:
+    from .authority import verifications
+
+    return verifications(project, task_id)
 
 
 def _relevant(narrative: str, task_id: str) -> str | None:
@@ -1174,6 +1197,13 @@ def context(project: Project, task_id: str | None, role: str = "builder") -> dic
     from . import refs
 
     packet["references"] = refs.summary(project, task_id)
+    # Every capability an agent can be given and whether it is on for this task,
+    # once the chronicle has AUTHORITY.md; without it nothing is granted.
+    if _authority_recorded(project):
+        packet["capabilities"] = _capabilities(project, task)
+    verified = _verifications(project, task.id) if task.owner_held else []
+    if verified:
+        packet["task"]["verifications"] = verified
     if task.done:
         packet["note"] = (
             f"{task.id} is already DONE. This packet is for review or audit, "

@@ -1184,8 +1184,32 @@ praukron respond A-12 CONFIRM --text-file note.md
 ```
 
 An agent reconciles each response on its next turn; only the owner named in
-an ADR's `Owners:` can verify. The ticks are visible but disabled on the
-static page.
+an ADR's `Owners:` can verify, unless the owner has granted an agent `verify`.
+The ticks are visible but disabled on the static page.
+
+#### Agent authority
+
+**Agent authority**, on Review and in `praukron authority`, lists what agents
+may do on your authority: each capability, whether it is on, who set it and
+when. To let a reviewing agent verify owner tasks it did not build, grant it
+`verify` yourself, at a terminal (or with the served page's **Grant** form):
+
+```sh
+praukron authority grant verify --scope M-CORE --delegate "reviewer-agent" --until 2026-12-31
+praukron authority grant verify --scope project --delegate "reviewer-agent"   # whole project, no end
+praukron authority revoke AG-01
+```
+
+A scope is always stated: `project`, or task, module and phase ids. A grant
+with no `--until` holds until you revoke it; the list marks it, and a
+whole-project grant, so neither goes unnoticed. The agent then runs
+`praukron respond <task> VERIFY --delegate "reviewer-agent"`; the response
+names the agent, your login and the grant, and the task becomes
+`DELEGATE_VERIFIED`, never `HUMAN_VERIFIED`. It is refused for a task the
+agent built, and once the grant ends or is revoked. Verify the task yourself
+later and it becomes `HUMAN_VERIFIED`. A grant is refused unless it comes
+from you in person; the terminal check does not stop a program that imitates
+a terminal. See SPEC §2.11.
 
 ### Execution and operations
 

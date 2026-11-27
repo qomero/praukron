@@ -174,7 +174,8 @@ an acceptance criterion.
 
 Completion and confidence stay separate. A task can be `DONE` and still be
 `UNTESTED`; only a named human may record `HUMAN_VERIFIED`, and only against
-manual evidence.
+manual evidence. An agent the owner has granted `verify` may verify an owner
+task it did not build; that is `DELEGATE_VERIFIED`, shown and counted apart.
 
 <p align="center">
   <img src="docs/assets/dashboard-contract.png" alt="A task detail dialog shows dependencies, three acceptance criteria (not run, pass, fail), the obstacle they cause, decisions, schedule, source, a path to the full record in Audit, and the code references the task planned, one of which another task also references." width="640">
@@ -697,6 +698,8 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron dashboard --serve` | Serve the dashboard on `127.0.0.1` behind a per-session token so the owner can answer from Review: response forms, one-click Verify/Confirm ticks and atomic "Approve selected". |
 | `praukron dashboard --lang vi` | Render the dashboard in Vietnamese; overrides the optional `Language:` field in `THESIS.md`. Also works with `--serve`. |
 | `praukron respond <target> <action>` | Owner only: append `CONFIRM`, `REVISE`, `REJECT`, `GUIDE` or `VERIFY` for an assumption or task to `RESPONSES.md`, signed with the active `gh` login; `--batch` writes several, all or nothing. |
+| `praukron respond <task> VERIFY --delegate "<agent>"` | An agent under a grant of `verify` in `AUTHORITY.md`: records `VERIFY` of an `Authority: owner` task it did not build, naming itself, the owner whose authority it rests on and the grant; the task becomes `DELEGATE_VERIFIED`, never `HUMAN_VERIFIED`. Refused without a grant in force. |
+| `praukron authority` | Lists what agents may do on the owner's authority: every capability, its state, who set it and when (`--json`). `authority grant <capability> --scope <project\|ids> --delegate "<agent>" [--until DATE]` and `authority revoke <AG-id>`: owner only, in person, at a terminal or from `praukron dashboard --serve`. |
 | `praukron migrate` | Moves a chronicle written under an earlier layout into the current one. |
 
 The eight write commands, from `task add` to `ref set`, take a JSON payload
@@ -782,7 +785,7 @@ into why the model is shaped this way.
 
 **Implemented and tested.** The compiler and its twenty-two commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1223 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1241 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 
