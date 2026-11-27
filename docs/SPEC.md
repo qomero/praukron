@@ -55,6 +55,7 @@ one compiled `compiled/` directory. Only the first is authoritative.
 | `TECH_DEBT.md` | Known technical debt: what each compromise costs, its trigger, its exit condition, and its lineage |
 | `COORDINATION.md` | Optional. A coordinator's standing conventions and per-task briefs (§2.8); never archived |
 | `CODE.md` | Task–code references: the files and symbols each task planned to touch and was observed to touch (§2.9); never archived |
+| `AUTHORITY.md` | Optional. What the owner lets agents do on the owner's authority: one grant per capability given, and its revocation (§2.11); written only by `praukron authority`, never archived |
 | `archive/<phase>/` | Closed records moved verbatim by `praukron archive` (§2.7); authority, immutable to the write commands |
 | `INDEX.md` | **Generated.** The routing layer an agent reads first: what matters now and where each record lives |
 
@@ -1148,6 +1149,131 @@ asks the reader to record the conclusion, and writes nothing.
 **Unknown is not absence.** An edge whose target the engine could not resolve
 is exported with `target: null` and the referenced `name`. A reader must treat
 it as an unknown relation, never as the absence of one.
+
+### 2.11 Agent authority
+
+One setting says what agents may do on the owner's authority. `praukron
+authority` (and `--json`) lists every capability an agent can be given, its
+present state, who set it and when; the dashboard's Review tab carries the same
+list under **Agent authority**. Capabilities are a table in the runtime
+(`authority.CAPABILITIES`), so a new one is a table entry, not a new mechanism.
+There are two:
+
+| Capability | Kind | Switched by | What an agent may do under it |
+|---|---|---|---|
+| `verify` | grant | `praukron authority grant` / `revoke` | record `VERIFY` of an `Authority: owner` task it did not build |
+| `assumptions` | policy | the ACCEPTED ADR with `Policy: assumptions` (§2.4) | assume a choice unless its group is reserved |
+
+The assumption policy is only listed here: its `Reserved:` groups and
+`Notify:` are read from its ADR, unchanged, and it is changed only by
+superseding that ADR.
+
+**Grants.** A capability of kind `grant` is on for a task while a grant in
+`AUTHORITY.md` covers it, and off once that grant ends or is revoked. Each
+grant is one record:
+
+```markdown
+## AG-01: verify for reviewer-agent
+- Capability: verify
+- Scope: M-CORE, T-EXPORT-01
+- Delegate: reviewer-agent
+- Granted by: github-login
+- Date: 2026-11-27
+- Until: none
+- Via: cli
+```
+
+It names one capability; a scope that is always stated, either `project` for
+the whole project or one or more task, module and phase ids (a task is covered
+when its id, its module or its phase is named); the delegate, the agent the
+grant is for; the granting login, the active `gh` login, read and never typed,
+which must be named in an ACCEPTED ADR's `Owners:`; the date; and its end,
+`Until: <YYYY-MM-DD>` or `Until: none` for a grant that holds until it is
+revoked. `Via` is `cli` or `dashboard`. A revocation adds `Revoked:`,
+`Revoked by:` and `Revoked via:` to the grant and changes nothing else, so the
+earlier state stays readable. The list makes a grant for the whole project and
+a grant with no end stand out. A chronicle without `AUTHORITY.md` is valid and
+grants nothing. Grants are never archived.
+
+```sh
+praukron authority                                       # the list
+praukron authority grant verify --scope T-EXPORT-01 --delegate "reviewer-agent" --until 2026-12-31
+praukron authority grant verify --scope project --delegate "reviewer-agent"   # whole project, no end
+praukron authority revoke AG-01
+```
+
+**Only the owner, in person.** `praukron authority grant` and `revoke` run
+only at an interactive terminal, and ask the owner to confirm; the served
+dashboard (`praukron dashboard --serve`) offers the same two writes. Nothing
+else records or widens a grant: no structured write or batch reaches
+`AUTHORITY.md`, a write relayed by an agent is refused, and `validate` reports
+a grant whose `Via` is anything but `cli` or `dashboard`. This matters because
+the owner's `gh` login is active on the machine where agents run: a relayed
+write would carry the owner's name. The interactive check is the one `VERIFY`
+uses (both standard input and output are terminals). It does not stop a
+program that imitates a terminal, and it does not stop an agent that edits
+`AUTHORITY.md` by hand or serves the dashboard itself; the record makes such a
+grant visible, as any edit to the chronicle is, but cannot prevent it. A grant
+that `validate` rejects (a granter outside `Owners:`, a `Via` other than in
+person) never switches a capability on.
+
+**Verifying under a grant.** An agent named by a grant of `verify` in force
+that covers an `Authority: owner` task may verify it, unless it built the task:
+
+```sh
+praukron respond T-EXPORT-01 VERIFY --delegate "reviewer-agent" < what-i-verified.txt
+```
+
+The one who verifies is never the one who built: the write is refused when the
+delegate's name equals the task's `Owner:` or appears in it, compared without
+case and surrounding space. Names are declared by agents; the record makes a
+false name visible and does not prevent one. Without a grant in force, after
+its end, or after its revocation, the write is refused with the capability's
+name and the command that switches it on; verifications made while it was in
+force keep their record. Without `--delegate`, `VERIFY` behaves as before: the
+owner, at a terminal or from the served dashboard.
+
+The response keeps `By:` as the active `gh` login and adds who acted
+(`Delegate:`), on whose authority (`On authority of:`, the grant's granting
+login) and under which grant (`Grant:`), with a `Via:` that starts with
+`delegate`, so it cannot be read as the owner's own verification:
+
+```markdown
+## R-12: T-EXPORT-01 VERIFY
+- By: github-login
+- Date: 2026-11-28
+- Via: delegate (cli)
+- Delegate: reviewer-agent
+- On authority of: github-login
+- Grant: AG-01
+
+> Ran the export against the staging data; the files match.
+```
+
+A delegated `VERIFY` is dated today. The agent then sets the task's
+`Validation: DELEGATE_VERIFIED`, a state of its own that no command sets, as
+for `HUMAN_VERIFIED`. It satisfies what owner verification is required for: an
+`Authority: owner` task may be `DONE` with `HUMAN_VERIFIED` or
+`DELEGATE_VERIFIED`, and so may the gate it verifies. It is shown and counted
+apart from `HUMAN_VERIFIED` everywhere (`explain`, `context`, `retrieve`, the
+dashboard, `status`); validation coverage still counts `AI_REVIEWED` and
+`HUMAN_VERIFIED` only. When the owner later verifies in person, `validate`
+warns until the task's validation is set to `HUMAN_VERIFIED`.
+
+**Packets.** `context <task>` carries `capabilities`: each capability, whether
+it is on for the task, and the grants in force; and, for an owner task,
+`task.verifications`, each marked `owner` or `delegate`. `retrieve <task>`
+adds the grants in force and the task's `VERIFY` records, each labelled with
+who verified on whose authority.
+
+**Validation.** Errors: a grant with an unknown capability, no scope, a scope
+naming no task, module or phase, a granter or revoker not named in `Owners:`,
+an end before its date, or a `Via` other than `cli` or `dashboard`; a
+delegated `VERIFY` whose grant does not exist, grants another capability or
+another delegate, does not cover the task, or was not in force on its date
+(on the day of a revocation it still counts, since a date cannot order the
+two); a delegated `VERIFY` whose delegate built the task; and
+`DELEGATE_VERIFIED` without a delegated `VERIFY`.
 
 ## 3. Entry modes
 
