@@ -1040,6 +1040,21 @@ labels every item with its source: `engine`, `engine-unresolved`, or
 `reference:<Source>`. It writes nothing. Without an index it answers from the
 references alone and says that no graph is present.
 
+**Impact.** `praukron engine impact <task>` (ADR-103) reads the index the same
+way to answer what a planned change runs into. From the task's current
+references it follows resolved edges backwards to the code that calls or
+depends on them, to a stated depth (`--depth`, default 2), carrying each
+edge's mark on every path; `--exact` follows `exact` edges only. It lists the
+tasks whose current references lie on the code reached and their decisions,
+frozen criteria and inherited invariants, grouped by decision with the
+shortest path to each; the task's own decisions are listed apart. A reference
+with no node and an unresolved edge on followed code make further reach
+unknown on that item; the answer never presents unknown reach as none.
+Without an index it covers only the code the task references and says that
+reach through the graph is unknown. It is the list of what the change must be
+checked against, not a verdict: it makes no statement that a conflict exists,
+asks the reader to record the conclusion, and writes nothing.
+
 **Unknown is not absence.** An edge whose target the engine could not resolve
 is exported with `target: null` and the referenced `name`. A reader must treat
 it as an unknown relation, never as the absence of one.

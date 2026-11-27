@@ -374,9 +374,12 @@ tasks and decisions behind it, and what a planned change will run into, the
 code within its reach and the decisions attached to that code. The first is
 answered: `praukron why <path|path#symbol|directory>` lists the tasks that
 touched the code, oldest first, with the decisions behind them, their
-criteria and invariants, from the chronicle alone. The second is planned; it
-will list what a change must be checked against, and it will not decide
-whether the change conflicts.
+criteria and invariants, from the chronicle alone. The second is answered
+too: `praukron engine impact <task>` follows the task's files and symbols
+through the graph to the code that calls or depends on them, the tasks that
+produced that code, and their decisions, frozen criteria and invariants. It
+lists what the change must be checked against and does not decide whether the
+change conflicts; the reader records the conclusion.
 
 References say which task touched which file and symbol. They do not say how
 that code relates to the rest: what a function calls, what calls it, what a
@@ -435,7 +438,7 @@ of a task's symbol unresolved, `engine map` and the agent's work instructions
 tell the agent to read the code and record what it finds with `ref add` and
 source `agent`.
 
-Four commands exist today:
+Five commands exist today:
 
 ```sh
 praukron engine status     # is a library present, which engine commit and interface version
@@ -443,12 +446,27 @@ praukron engine index      # build or refresh .praukron/engine/graph.db
 praukron engine export     # the whole graph as one JSON document
 praukron engine map <task|path|path#symbol> [--json]
                            # a task's code and its neighbours, or a symbol's tasks, by source
+praukron engine impact <task> [--depth N] [--exact] [--json]
+                           # what the task's change runs into, grouped by decision
 ```
 
 `engine map` labels every item by its source: `engine`, `engine-unresolved`,
 or `reference:` and the reference's own source. Below the task or path it
 names, it says which index it read and when that index was built. Without an
 index it answers from the references alone and says that no graph is present.
+
+`engine impact` starts from the task's references, planned and observed, and
+follows the edges into them backwards, two steps unless `--depth` says
+otherwise, and says how many nodes it reached. Every path carries the marks of
+its edges; `--exact` follows `exact` edges only. It groups what it reached by
+decision: for each, the tasks and code through which the change reaches it,
+with the shortest path spelled out, then their frozen criteria and invariants.
+The task's own decisions are listed apart, a superseded decision is shown as
+superseded, and each link says how its reference was recorded. A reference
+with no node, or an unresolved edge on the code it follows, makes further
+reach unknown, and the answer says so on the item. Without an index it covers
+only the code the task references and says that reach through the graph is
+unknown.
 
 What is not there yet, and the limits of what is:
 
@@ -468,9 +486,8 @@ What is not there yet, and the limits of what is:
   sample found 28 of 30 resolved call edges right and 2 wrong, 14 of 30
   unresolved edges to be misses inside the workspace, and 7 of 30 definitions
   with a shortened qualified name. The engine marks each edge `exact` or
-  `likely`, and `engine map` shows which.
-- **Planned, in this order:** what a planned change runs into (the impact
-  answer); symbols of TypeScript and Rust, then the other bundled languages,
+  `likely`, and `engine map` and `engine impact` show which.
+- **Planned, in this order:** symbols of TypeScript and Rust, then the other bundled languages,
   recorded at a task's close; a view of the map in the dashboard; a built-in
   search fallback; the library delivered by the installer and the release; a
   container fallback for machines without the native library, and a
@@ -672,6 +689,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron engine index` | Index this repository with the graph library into `.praukron/engine/graph.db` (derived, ignored by Git, never authority), or refresh it after edits; `--full` re-reads every file. |
 | `praukron engine export` | The whole graph, every node and edge with kinds, paths and lines and the library's own counts, as one JSON document on standard output or to `--output <file>`. |
 | `praukron engine map <task\|path\|path#symbol>` | A task's files and symbols with the engine nodes they match, the resolved edges among them and to their direct neighbours, and the edges the engine left unresolved; or the tasks and neighbours of a file or symbol. Every item names its source (`engine`, `engine-unresolved`, `reference:<Source>`). Reads the index with `sqlite3` alone, needs no library, and without an index answers from the references alone; `--json` |
+| `praukron engine impact <task>` | What a planned change runs into: from the task's files and symbols, the code that calls or depends on them to `--depth N` steps (default 2; `--exact` follows `exact` edges only), the tasks whose references lie on that code, and their decisions, frozen criteria and invariants, grouped by decision with the shortest path to each. Unknown reach is marked on its item; without an index it covers only the task's own code. A list to check the change against, not a verdict; `--json`. |
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
 | `praukron graph` | The six Mermaid views of the same state. |

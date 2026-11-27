@@ -51,6 +51,11 @@ read `references` in `context <task>` and `retrieve <task>`;
 `.praukron/praukron engine map <task>` adds the graph where an index exists.
 An edge it leaves unresolved on your task's symbol is unknown, not absent: read
 the code and `ref add` what you find with `"source":"agent"` and `evidence`.
+Before you change existing code, run `.praukron/praukron engine impact <task>`:
+the code that calls or depends on your task's files and symbols, the tasks on
+that code, and their decisions, frozen criteria and invariants. It is what the
+change must be checked against, not a verdict: check each item, treat reach it
+marks unknown as unknown, and record your conclusion before you build.
 Never edit `CODE.md` by hand; `ref set` changes or withdraws a reference.
 
 When a choice has no answer in authority, follow the assumption procedure in
