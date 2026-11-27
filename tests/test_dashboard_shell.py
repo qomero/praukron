@@ -279,9 +279,11 @@ class TestShell(ShellCase):
         page = self.page()
         work = page.split('id="panel-work"', 1)[1].split('id="panel-review"', 1)[0]
         self.assertLess(work.index('id="lanes"'), work.index("<h2>Execution</h2>"))
-        # Later views have no control yet.
-        for later in ("Force", "3D", 'data-view="force"', 'data-view="3d"', ">Code<"):
-            self.assertNotIn(later, page.split('id="lanes"', 1)[1].split("</section>", 1)[0])
+        # Lanes and Force have a control (T-DASH-FORCE-01); later views have none yet.
+        section = page.split('id="lanes"', 1)[1].split("</section>", 1)[0]
+        self.assertIn('data-view="lanes" aria-pressed="true"', section)
+        for later in ("3D", 'data-view="3d"', ">Code<"):
+            self.assertNotIn(later, section)
 
 
 class TestLanes(ShellCase):
@@ -330,7 +332,8 @@ class TestLanes(ShellCase):
 
     def test_the_view_opens_framed_on_the_current_phase(self) -> None:
         self.assertEqual(shell.lanes(self.compiled)["current"], "P2")
-        self.assertIn("lBuild(); lFitPhase(SHELL.lanes.current);", shell.SCRIPT)
+        self.assertIn("if (!shState.built) { lBuild(); shDrawView(); }", shell.SCRIPT)
+        self.assertIn("if (force) lFit(); else lFitPhase(SHELL.lanes.current);", shell.SCRIPT)
 
 
 class TestWaiting(ShellCase):
@@ -460,7 +463,7 @@ class TestKeysAndWords(ShellCase):
         handler = script.split("// --- Keys, outside text fields", 1)[1]
         self.assertIn("target.closest('input, textarea, select')", handler)
         for key in ("s: () => shToggle('side')", "b: () => shToggle('bottom')", "W: () => shToggle('waiting')",
-                    "f: shFocusMode", "'1': () => shOpenLanes(shState.sel)", "Escape:"):
+                    "f: shFocusMode", "'1': () => shOpenLanes(shState.sel, 'lanes')", "Escape:"):
             self.assertIn(key, handler)
         for key in ("case 'ArrowLeft':", "case 'ArrowRight':", "case 'ArrowUp': case 'ArrowDown':", "case 'Enter':"):
             self.assertIn(key, script)

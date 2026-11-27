@@ -526,10 +526,20 @@ _VI.update({
     'Focus: hide every panel; press again to bring them back': 'Tập trung: ẩn mọi khung; nhấn lần nữa để hiện lại',
     'Next item waiting for you': 'Mục kế tiếp đang chờ bạn', 'Zoom in, out, fit': 'Phóng to, thu nhỏ, vừa khung',
     'This list': 'Danh sách này',
-    'Keys work outside text fields. Panel visibility, sizes and the workspace are remembered in this browser; without storage the page starts with its defaults.':
-        'Phím tắt hoạt động ngoài ô nhập chữ. Trạng thái hiện, kích thước khung và không gian làm việc được nhớ trong trình duyệt này; không có bộ nhớ, trang mở với mặc định.',
+    'Keys work outside text fields. Panel visibility, sizes, the workspace and the view are remembered in this browser; without storage the page starts with its defaults.':
+        'Phím tắt hoạt động ngoài ô nhập chữ. Trạng thái hiện, kích thước khung, không gian làm việc và dạng xem được nhớ trong trình duyệt này; không có bộ nhớ, trang mở với mặc định.',
+    # The force view (T-DASH-FORCE-01).
+    'Work graph': 'Đồ thị công việc', 'View': 'Dạng xem', 'Force': 'Lực', 'Force graph': 'Đồ thị lực',
+    'Lanes: phases, modules and dependency order, to work (1)':
+        'Làn: giai đoạn, mô-đun và thứ tự phụ thuộc, để làm việc (1)',
+    'Force: tasks clustered by module, to analyse relations (2)':
+        'Lực: công việc gom theo mô-đun, để phân tích quan hệ (2)',
+    'Laying out the graph…': 'Đang sắp xếp đồ thị…',
+    "Force: a named ring holds one module's tasks": 'Lực: một vòng có tên chứa các công việc của một mô-đun',
+    'Work: the force view, tasks clustered by module': 'Công việc: dạng lực, công việc gom theo mô-đun',
+    'Force view: tasks clustered by module.': 'Dạng lực: công việc gom theo mô-đun.', 'Lanes view.': 'Dạng làn.',
     # Written by the page's script.
-    'Show in lanes': 'Hiện trên làn', 'Open the full record': 'Mở toàn bộ bản ghi', 'Selected': 'Đã chọn',
+    'Show in the graph': 'Hiện trên đồ thị', 'Open the full record': 'Mở toàn bộ bản ghi', 'Selected': 'Đã chọn',
     'Selection cleared.': 'Đã bỏ chọn.', 'Panels back.': 'Các khung đã hiện lại.',
     'Waiting strip shown.': 'Đã hiện dải đang chờ.', 'Side panel shown.': 'Đã hiện khung bên.',
     'Bottom panel shown.': 'Đã hiện khung dưới.', 'Side panel hidden.': 'Đã ẩn khung bên.',
