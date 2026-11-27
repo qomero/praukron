@@ -1151,7 +1151,7 @@ page is a derived view and never authority. **Home** opens with the phase, root
 blocker and next human action. The page opens on Work unless the address or your
 last visit names another workspace. **Work** opens on the lanes, phases as
 columns and modules as bands; `2` switches to the force view, which clusters
-tasks by module to analyse relations, and `1` back. Work keeps the full task registry, phases, dependency graph,
+tasks by module to analyse relations, and `1` back. `3` opens the 3D view, an immersive view to explore the project in space, turning slowly on two axes (`p` pauses, `m` turns on one axis; still with reduced motion). Work keeps the full task registry, phases, dependency graph,
 critical path and filters. **Review** separates current owner decisions from
 future obligations, assumptions and answered items. **Audit** preserves acceptance
 evidence, governance, operations, ADRs and history. Search everything (Ctrl/Cmd+K

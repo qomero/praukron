@@ -133,7 +133,7 @@ class ForceCase(ShellCase):
                    + "\nconst snap = () => [...L.nodes.values()].map(n => n.id + ':' + n.el.getAttribute('class')).join('|');"
                    + "\nconst ids = () => shListed().map(n => n.id);\n"
                    + "const R = {};\n" + body + "\nconsole.log(JSON.stringify(R));\n")
-        out = subprocess.run([NODE, "-e", program], capture_output=True, text=True, timeout=120)
+        out = subprocess.run([NODE, "-"], input=program, capture_output=True, text=True, timeout=120)
         self.assertEqual(out.returncode, 0, out.stderr[-3000:])
         return json.loads(out.stdout.strip().splitlines()[-1])
 
@@ -187,7 +187,7 @@ R.stored = JSON.parse(localStorage.getItem('praukron-panels')).view;
 R.one = key('1');
 R.lanes = [shState.view, [...L.nodes.values()].every(n => n.pos === n.at.lanes), viewButtons.map(b => b.getAttribute('aria-pressed'))];
 R.stored1 = JSON.parse(localStorage.getItem('praukron-panels')).view;
-R.reserved = [key('3'), key('c'), shState.view];
+R.reserved = [key('c'), shState.view];
 viewButtons[1].fire('click', {});
 R.click = shState.view;
 """)
@@ -198,7 +198,7 @@ R.click = shState.view;
         self.assertTrue(r["one"])
         self.assertEqual(r["lanes"], ["lanes", True, ["true", "false"]])
         self.assertEqual(r["stored1"], "lanes")
-        self.assertEqual(r["reserved"], [False, False, "lanes"])
+        self.assertEqual(r["reserved"], [False, "lanes"])  # `3` opens the 3D view since T-DASH-3D-01
         self.assertEqual(r["click"], "force")
 
     def test_the_chosen_view_persists_across_visits(self) -> None:
@@ -206,14 +206,14 @@ R.click = shState.view;
                           storage={"praukron-panels": {"view": "force", "tab": "work"}})
         self.assertEqual(r["view"], ["force", True, ["false", "true"]])
 
-    def test_one_control_per_view_and_none_for_a_third(self) -> None:
+    def test_one_control_per_view_and_none_for_later_views(self) -> None:
+        # T-DASH-3D-01 adds the third view on purpose: its control and key `3` now exist.
         section = shell.lanes_section(self.compiled)
-        self.assertEqual(re.findall(r'<button[^>]*data-view="(\w+)"', section), ["lanes", "force"])
-        for later in ("3D", 'data-view="3d"', ">Code<", "Architecture"):
+        self.assertEqual(re.findall(r'<button[^>]*data-view="(\w+)"', section), ["lanes", "force", "3d"])
+        for later in (">Code<", "Architecture"):
             self.assertNotIn(later, section)
         handler = shell.SCRIPT.split("// --- Keys, outside text fields", 1)[1]
         self.assertIn("'2': () => shOpenLanes(shState.sel, 'force')", handler)
-        self.assertNotIn("'3':", handler)
         self.assertNotIn("c: ", handler)
 
 

@@ -279,10 +279,10 @@ class TestShell(ShellCase):
         page = self.page()
         work = page.split('id="panel-work"', 1)[1].split('id="panel-review"', 1)[0]
         self.assertLess(work.index('id="lanes"'), work.index("<h2>Execution</h2>"))
-        # Lanes and Force have a control (T-DASH-FORCE-01); later views have none yet.
+        # Lanes, Force (T-DASH-FORCE-01) and 3D (T-DASH-3D-01) have a control; later views have none yet.
         section = page.split('id="lanes"', 1)[1].split("</section>", 1)[0]
         self.assertIn('data-view="lanes" aria-pressed="true"', section)
-        for later in ("3D", 'data-view="3d"', ">Code<"):
+        for later in ('data-view="code"', ">Code<"):
             self.assertNotIn(later, section)
 
 
@@ -518,7 +518,7 @@ filters.status.clear(); pressed['lanes-decisions'] = false;
 const noDecisions = shown();
 console.log(JSON.stringify({all, done, noDecisions, edges: L.edges.map(e => [e.s, e.k, e.t])}));
 """
-        out = subprocess.run(["node", "-e", program], capture_output=True, text=True, timeout=60)
+        out = subprocess.run(["node", "-"], input=program, capture_output=True, text=True, timeout=60)
         self.assertEqual(out.returncode, 0, out.stderr)
         result = json.loads(out.stdout)
         every = sorted([t["id"] for t in self.compiled["tasks"]] + [d["id"] for d in self.compiled["decisions"]]
