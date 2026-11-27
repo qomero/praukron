@@ -1023,7 +1023,11 @@ answers. `engine export` refuses to write its output inside
 **Sources kept apart.** The export names its `source`, `graph-library`, and
 the library, engine and engine commit it came from. Task–code references
 (§2.9) keep their own `Source`. Nothing merges the two: the engine never writes
-a record, and a record never takes a value from the index.
+a record, and a record never takes a value from the index. `praukron engine map
+<task|path|path#symbol>` reads the index with `sqlite3` alone, read only, and
+labels every item with its source: `engine`, `engine-unresolved`, or
+`reference:<Source>`. It writes nothing. Without an index it answers from the
+references alone and says that no graph is present.
 
 **Unknown is not absence.** An edge whose target the engine could not resolve
 is exported with `target: null` and the referenced `name`. A reader must treat

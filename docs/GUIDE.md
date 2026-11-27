@@ -608,8 +608,9 @@ Praukron looks for the library in one place, and the first match wins:
    the `Graph library` workflow gives its build artifacts, and `<file>` is
    `libpraukron_graph.dylib` on macOS and `libpraukron_graph.so` on Linux.
 
-A platform subdirectory lets one repository, shared between machines, hold the
-library for each. Windows has no default place.
+The platform subdirectory lets each machine find the build made for it, whether
+you copy one library or several into a working copy. Windows has no default
+place.
 
 No library is a normal state: every other command works exactly as in 4.0.0
 and never loads it, and the `engine` commands say that none is present and
@@ -706,7 +707,14 @@ edges and an index file of 5.5 MB.
 - A relative import, `from . import x`, is attributed to the package file, not
   to `x`.
 - Grammars are bundled for C, C++, Go, JavaScript, Python, Rust and
-  TypeScript. SQL is not indexed. Nothing has been measured on Rust yet.
+  TypeScript. SQL is not indexed.
+- A resolved edge can be wrong. On Rust, measured on ripgrep 16.0.0 (105
+  files, indexed in 1.00 s), the engine resolved 51 % of the non-import edges.
+  An independent audit of a sample found 28 of 30 resolved call edges right and
+  2 wrong, 14 of 30 unresolved edges to be misses inside the workspace, and 7
+  of 30 definitions with a shortened qualified name. These are counts on a
+  sample, not an accuracy. The engine marks each edge `exact` or `likely` in
+  its `confidence`, and `engine map` shows it on every edge.
 - Data flow and user flow are not produced. The graph does not replace reading
   the code, a language server or a type checker, and it is not a code search:
   text search already finds code.
@@ -714,14 +722,20 @@ edges and an index file of 5.5 MB.
 #### How it fits with task–code references
 
 The engine's graph and [task–code references](#which-code-each-task-touched)
-are kept apart. In `main` you read them separately: `praukron refs` for which
-task touched which code, `praukron engine export` for how that code relates to
-the rest. A relation the engine leaves unknown can be recorded by hand as a
-reference with `Source: agent`, its evidence and a `Confidence`; it stays
-unverified until someone checks it.
+are kept apart. `praukron engine map` joins them for reading and keeps each
+item under its source, as described above. A relation the engine leaves
+unknown is recorded as a reference with `Source: agent`, its evidence and a
+`Confidence`; it stays unverified until someone checks it. The work workflow
+tells an agent to do this for the symbols of its own task.
 
-The following are planned and not in `main`: asking a task for its code map
-and a symbol for its tasks, each item labelled by its source; symbols for
+`engine map` is the first step towards two questions: why a piece of code is
+as it is, from a symbol back to the tasks and decisions behind it, and what a
+planned change will run into, the code within its reach and the decisions
+attached to that code. Both answers are planned. The second will list what a
+change must be checked against; whether it conflicts stays a judgment the
+reader makes and records.
+
+The following are also planned and not in `main`: symbols for
 TypeScript and Rust, then the other bundled languages, recorded at a task's
 close; a view of the map in the dashboard; the library delivered by the
 installer and the release; and a container fallback and a PostgreSQL store for
