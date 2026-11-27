@@ -385,7 +385,7 @@ library writes is derived output like `.praukron/compiled/`: no record cites
 it, and `validate`, `compile`, `context` and `retrieve` never read it.
 
 <p align="center">
-  <img src="docs/assets/code-graph-layers.svg" alt="Five layers stacked from most certain to most general: the resolved graph from the embedded engine, recorded reasoning from an agent, definitions from tree-sitter, task–code references recorded at a task's close, and text search with your own tools. An arrow runs down through them, and each layer names its source." width="900">
+  <img src="docs/assets/code-graph-layers.svg" alt="Five numbered layers from most certain to most general, each with its source and its state: 1, the resolved graph from the embedded engine, in main through praukron engine index and export; 2, recorded reasoning, an agent reading the code and recording what it found, the record type since 4.0.0 and the guidance planned; 3, definitions from tree-sitter, planned, TypeScript and Rust first; 4, task-code references recorded when a task closes, in 4.0.0; 5, text search with the user's own tools. A Question arrow runs down the left and stops at the first layer that answers; the Answer names its layer. A note says the graph is optional: without it, the lower layers still answer." width="800">
 </p>
 
 <p align="center"><em>The layers of the design, in the order a question falls through them. Each answer names the layer it came from.<br>
@@ -449,7 +449,7 @@ What is not there yet, and the limits of what is:
   PostgreSQL store for large codebases.
 
 <p align="center">
-  <img src="docs/assets/code-graph-task-map.svg" alt="One task in the centre, linked to the symbols it touched. Around each symbol are its neighbours in the graph: what it calls and what calls it. One call is drawn as unknown because the engine could not resolve it, and one relation is marked as recorded by an agent, with its evidence." width="900">
+  <img src="docs/assets/code-graph-task-map.svg" alt="Task T-001 on the left, linked to the file orders.py and the symbols it touched, total() and Invoice.save. One step out are their neighbours in the graph, sum_line(), round_total() and Storage.write. One edge ends in unknown, where the engine could not resolve the call. One dashed edge is marked agent, unverified. A legend names four sources: embedded engine, Git capture when a task closes, agent (unverified), and person." width="800">
 </p>
 
 <p align="center"><em>The planned task map: one task, the symbols it touched, their neighbours, a relation marked unknown and one recorded by an agent.<br>
