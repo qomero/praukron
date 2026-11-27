@@ -18,8 +18,10 @@ and `symbols` attributes the changed lines to functions, classes and methods
 (T-CIL-SCOPE-02), recorded in the same write as the files.
 
 A change the capture cannot attribute to the task, because another claimed
-task overlaps it or a merge brought it in (`merged_in`), is recorded
-`Lifecycle: unresolved` and `Verification: unverified` (T-SCOPE-ATTRIB-01).
+task overlaps it, a merge brought it in (`merged_in`), or a commit on the
+first-parent line that this checkout's HEAD reflog does not show as made here
+changed it (`not_made_here`, T-SCOPE-REFLOG-01), is recorded `Lifecycle:
+unresolved` and `Verification: unverified` (T-SCOPE-ATTRIB-01).
 """
 
 from __future__ import annotations
@@ -250,7 +252,14 @@ def _is_ancestor(root: Path, commit: str, of: str) -> bool:
     return done.returncode == 0
 
 
-def merged_in(root: Path, base: str, head_commit: str) -> tuple[list[str], dict[str, list[str]]]:
+def first_parent(root: Path, base: str, head_commit: str) -> list[list[str]]:
+    """The first-parent line of `base..head_commit`, oldest first: each commit with its parents."""
+    chain = _git(root, "rev-list", "--first-parent", "--parents", "--reverse", f"{base}..{head_commit}", "--")
+    return [line.split() for line in chain.decode("ascii").splitlines() if line.strip()]
+
+
+def merged_in(root: Path, base: str, head_commit: str,
+              chain: list[list[str]] | None = None) -> tuple[list[str], dict[str, list[str]]]:
     """The merge commits of `base..head_commit` and the paths their other parents brought in.
 
     Git's ancestry alone decides (T-SCOPE-ATTRIB-01): the first-parent chain of
@@ -260,11 +269,13 @@ def merged_in(root: Path, base: str, head_commit: str) -> tuple[list[str], dict[
     first, and for each path changed by such a commit (a merge commit's own
     resolution is not counted) the merges that brought it in. Nothing is read
     from commit messages or authors. Work of others that arrives without a
-    merge commit (a squash or rebase merge, a fast-forward) has no merge here
-    and cannot be told apart.
+    merge commit (a squash or rebase merge, a fast-forward) has no merge here;
+    `not_made_here` finds it from the checkout's HEAD reflog
+    (T-SCOPE-REFLOG-01).
     """
-    chain = _git(root, "rev-list", "--first-parent", "--parents", "--reverse", f"{base}..{head_commit}", "--")
-    merges = [parts for parts in (line.split() for line in chain.decode("ascii").splitlines()) if len(parts) > 2]
+    if chain is None:
+        chain = first_parent(root, base, head_commit)
+    merges = [parts for parts in chain if len(parts) > 2]
     paths: dict[str, list[str]] = {}
     for commit, first, *_ in merges:
         # Commits reachable from this merge but from neither its first parent nor the base.
@@ -278,6 +289,152 @@ def merged_in(root: Path, base: str, head_commit: str) -> tuple[list[str], dict[
             if commit not in paths.setdefault(path, []):
                 paths[path].append(commit)
     return [m[0] for m in merges], paths
+
+
+# Reflog actions that write the commit they move HEAD to (T-SCOPE-REFLOG-01).
+# Git writes these subjects from untranslated literals, in English whatever
+# the locale; any other action, a translated or unknown one included, is not
+# a creating one, so it can only make a record unresolved, never verified.
+CREATING = frozenset({"commit", "commit (initial)", "commit (amend)", "commit (merge)",
+                      "cherry-pick", "revert", "am"})
+# The steps of a rebase that write a new commit. The action begins with the
+# command that ran it: `rebase`, `rebase -i`, or `pull` with its arguments
+# (`pull --rebase (pick)`). `start`, `finish` and `fast-forward` write none.
+REPLAYING = frozenset({"pick", "reword", "edit", "squash", "fixup", "continue"})
+_STEP = re.compile(r"(?:rebase|pull)(?: [^()]*)? \(([a-z-]+)\)")
+# At most this many reflog entries are followed to say how a commit arrived.
+MAX_FOLLOWED = 64
+UNSHOWN = "the HEAD reflog could not show where it was made"
+
+
+@dataclass(frozen=True)
+class Entry:
+    """One HEAD reflog entry: the commit it moved HEAD to and its action."""
+
+    commit: str
+    action: str
+
+
+def creating(action: str) -> bool:
+    """True when a reflog entry with this action wrote the commit it moved HEAD to."""
+    if action in CREATING:
+        return True
+    step = _STEP.fullmatch(action)
+    return step is not None and step.group(1) in REPLAYING
+
+
+def reflog(root: Path) -> list[Entry]:
+    """This checkout's HEAD reflog, newest first, read through Git (a linked worktree reads its own)."""
+    data = _git(root, "log", "--walk-reflogs", "-z", "--no-decorate", "--no-show-signature", "--no-color",
+                "--format=%H %gs", "HEAD", "--")
+    entries = []
+    for raw in _paths(data):
+        commit, _, subject = raw.decode("utf-8", "replace").strip("\n").partition(" ")
+        if _SHA.fullmatch(commit):
+            entries.append(Entry(commit, subject.partition(":")[0].strip()))
+    return entries
+
+
+# The kinds of arrival a record may name, from an action's first word. Never
+# the action itself: its arguments can hold a remote URL with a credential, a
+# private path or a branch name, and the record is committed.
+_KINDS = {"pull": "pull", "fetch": "fetch", "merge": "merge", "reset": "reset", "checkout": "checkout",
+          "switch": "checkout", "rebase": "rebase", "clone": "clone"}
+
+
+def kind(action: str) -> str:
+    """How a reflog entry moved HEAD, from a fixed vocabulary; `other` for anything else."""
+    words = action.split()
+    return _KINDS.get(words[0].lower(), "other") if words else "other"
+
+
+def _arrivals(root: Path, line: list[str], base: str, entries: list[Entry], pending: set[str]) -> dict[str, str]:
+    """How each pending commit of the first-parent `line` (oldest first) arrived, as the reflog says.
+
+    Entries are followed oldest first; an entry's previous commit is the entry
+    before it. A non-creating entry that moves HEAD onto the line brings the
+    line's commits after its previous commit up to its own. What the oldest
+    entry already held, or what no entry brought, is left for the caller to
+    name as not shown.
+    """
+    position = {commit: i for i, commit in enumerate(line)}
+    position[base] = -1
+    how: dict[str, str] = {}
+    followed = 0
+    for i in range(len(entries) - 1, -1, -1):
+        if not pending:
+            break
+        entry = entries[i]
+        if creating(entry.action) or entry.commit not in position:
+            continue
+        top = position[entry.commit]
+        previous = entries[i + 1].commit if i + 1 < len(entries) else None
+        if previous is None:
+            for commit in [c for c in pending if position[c] <= top]:
+                how[commit] = (f"{UNSHOWN}: it was already there at the reflog's first entry "
+                               f"(`{kind(entry.action)}`)")
+                pending.discard(commit)
+            continue
+        if previous in position:
+            brought = {c for c in pending if position[previous] < position[c] <= top}
+        else:
+            if followed >= MAX_FOLLOWED:
+                break
+            followed += 1
+            try:
+                listed = _git(root, "rev-list", "--first-parent", entry.commit, "--not", previous, base, "--")
+            except GitUnavailable:
+                break
+            brought = pending & set(listed.decode("ascii").split())
+        for commit in brought:
+            how[commit] = f"arrived by `{kind(entry.action)}`"
+        pending -= brought
+    return how
+
+
+def not_made_here(root: Path, base: str, chain: list[list[str]]) -> tuple[list[tuple[str, str]], dict[str, list[str]]]:
+    """The non-merge commits of the first-parent `chain` this checkout's HEAD reflog does not show as made here.
+
+    A commit is made here when a reflog entry with a creating action
+    (`CREATING`, or a rebase step in `REPLAYING`) moved HEAD to it, so a task's
+    own commits replayed by a rebase here count and the commits they were
+    replayed onto do not (T-SCOPE-REFLOG-01). Every other commit is named with
+    how the reflog says it arrived (a fast-forward, pull, rebase onto, reset
+    or checkout), or with `UNSHOWN` when the reflog cannot account for it (none,
+    expired, truncated, turned off, or older than its first entry); nothing is
+    guessed. Returns those commits, oldest first, each with how, and for each
+    path they changed the commits that changed it. Never raises for the reflog
+    itself: a reflog that cannot be read accounts for nothing.
+    """
+    line = [parts[0] for parts in chain]
+    candidates = [parts[0] for parts in chain if len(parts) <= 2]
+    if not candidates:
+        return [], {}
+    try:
+        entries = reflog(root)
+        why = "" if entries else f"{UNSHOWN}: this checkout's HEAD reflog has no entries"
+    except Exception as error:  # an unreadable reflog accounts for nothing; it never blocks the capture
+        entries, why = [], f"{UNSHOWN}: this checkout's HEAD reflog could not be read ({error})"
+    created = {e.commit for e in entries if creating(e.action)}
+    pending = [c for c in candidates if c not in created]
+    if not pending:
+        return [], {}
+    how = _arrivals(root, line, base, entries, set(pending)) if entries else {}
+    arrived = [(c, how.get(c) or why or f"{UNSHOWN}: no entry brought it to HEAD") for c in pending]
+    listed = _git(root, "log", "--stdin", "--no-walk=unsorted", "-z", "--no-renames", "--name-only",
+                  "--format=%x01%H", "--relative", "--",
+                  stdin="".join(c + "\n" for c in pending).encode("ascii"))
+    paths: dict[str, list[str]] = {}
+    commit = ""
+    for raw in _paths(listed):
+        raw = raw.strip(b"\n")
+        if raw.startswith(b"\x01"):
+            commit = raw[1:].decode("ascii", "replace")
+        elif raw and commit:
+            path = raw.decode("utf-8", "replace")
+            if commit not in paths.setdefault(path, []):
+                paths[path].append(commit)
+    return arrived, paths
 
 
 def attributable(reference) -> bool:
@@ -437,7 +594,7 @@ def changed_symbols(root: Path, found: list[Change], base: str, head_commit: str
     return result, unresolved
 
 
-def _attribution(others: list[str], merges: list[str]) -> str:
+def _attribution(others: list[str], merges: list[str], arrived: list[tuple[str, str]] = ()) -> str:
     text = ""
     if others:
         text += (f"; unresolved attribution: {', '.join(others)} "
@@ -445,13 +602,17 @@ def _attribution(others: list[str], merges: list[str]) -> str:
     if merges:
         text += (f"; unresolved attribution: changed by commits merged in through "
                  f"{', '.join(m[:12] for m in merges)}, not on this range's first-parent line")
+    if arrived:
+        text += ("; unresolved attribution: changed by commits this checkout's HEAD reflog does not show as made "
+                 f"here: {', '.join(f'{c[:12]} ({how})' for c, how in arrived)}")
     return text
 
 
 def warning(task_id: str, count: int) -> str:
     """The reply's one sentence when a capture wrote unattributed references."""
     return (f"{count} {'reference is' if count == 1 else 'references are'} not attributed to {task_id}: "
-            f"another claimed task or a merged-in commit may have made the change, so "
+            f"another claimed task, a merged-in commit or a commit this checkout's HEAD reflog does not show "
+            f"as made here may have made the change, so "
             f"{'it is' if count == 1 else 'they are'} recorded Lifecycle unresolved and Verification "
             f"unverified, never as the task's work; settle them with a named capture over the task's own range "
             f"(`praukron scope capture {task_id} --base <rev> --head <rev>`) or with `praukron ref set` on each "
@@ -467,9 +628,11 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
     task's, so no overlap is looked for and nothing is unresolved; each
     record's evidence says the range was named, and a record it writes for an
     artifact the task holds as unresolved replaces that record. Otherwise
-    other tasks claimed over the range (`overlapping`) and commits merged into
-    it (`merged_in`) make the records unresolved and unverified, never
-    verified (T-SCOPE-ATTRIB-01), and the reply carries a `warning`.
+    other tasks claimed over the range (`overlapping`), commits merged into
+    it (`merged_in`) and first-parent commits the HEAD reflog does not show as
+    made here (`not_made_here`) make the records unresolved and unverified,
+    never verified (T-SCOPE-ATTRIB-01, T-SCOPE-REFLOG-01), and the reply
+    carries a `warning`.
 
     Raises GitUnavailable when Git cannot answer. Returns no change when every
     changed file and symbol is already recorded as observed for the task with
@@ -515,7 +678,11 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
     involved =[c for c in found if c.path in fresh_files or c.path in fresh_symbols]
     blame = {} if named else overlapping(project, root, task.id, base, head_commit,
                                          {c.path for c in involved} | {c.old_path for c in involved if c.old_path})
-    merges, merged = ([], {}) if named or not involved else merged_in(root, base, head_commit)
+    merges, merged, arrived, brought = [], {}, [], {}
+    if not named and involved:
+        chain = first_parent(root, base, head_commit)
+        merges, merged = merged_in(root, base, head_commit, chain)
+        arrived, brought = not_made_here(root, base, chain)
     sequence = int(ref._next_id(project, task.id).rsplit("-", 1)[1])
     today = dt.date.today().isoformat()
     records, ids = [], []
@@ -539,7 +706,10 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
         others = sorted(set(blame.get(change.path, []) + blame.get(change.old_path or "", [])))
         via = [m for m in merges if m in merged.get(change.path, []) + merged.get(change.old_path or "", [])]
         contributing.update(via)
-        doubt = bool(others or via)
+        by = brought.get(change.path, []) + brought.get(change.old_path or "", [])
+        outside = [(c, how) for c, how in arrived if c in by]
+        contributing.update(c for c, _ in outside)
+        doubt = bool(others or via or outside)
         where = "the working tree at " if change.uncommitted else ""
         span = f"git diff {base[:12]} to {where}{head_commit[:12]}"
         if named:
@@ -560,7 +730,7 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
             fields.update({"Base": base, "Head": head_commit})
             if change.old_path:
                 fields["Was"] = change.old_path
-            evidence = f"{span}: {change.kind}" + _attribution(others, via)
+            evidence = f"{span}: {change.kind}" + _attribution(others, via, outside)
             if change.path in unresolved_symbols:
                 evidence += f"; symbols unresolved: {unresolved_symbols[change.path]}"
             fields["Evidence"] = evidence
@@ -585,7 +755,7 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
                 fields["Revision"] = head_commit
             fields.update({"Base": base, "Head": head_commit, "Lines": f"{item.start}-{item.end}"})
             fields["Evidence"] = (f"{span}: {item.kind} {item.name} {_PAST[item.relation]} (Python ast)"
-                                  + _attribution(others, via))
+                                  + _attribution(others, via, outside))
             add(f"{path}#{item.name} ({_PAST[item.relation]})", fields, (path, item.name, item.relation))
             symbol_count += 1
     info = {"status": "captured", "references": len(records), "files": files, "symbols": symbol_count,
@@ -600,6 +770,9 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
     if merges:
         info["merges"] = [m[:12] for m in merges]
         info["mergesInvolved"] = [m[:12] for m in merges if m in contributing]
+    if arrived:
+        info["notMadeHere"] = [c[:12] for c, _ in arrived]
+        info["notMadeHereInvolved"] = [{"commit": c[:12], "how": how} for c, how in arrived if c in contributing]
     if unresolved:
         info["warning"] = warning(task.id, unresolved)
     if unresolved_symbols:
