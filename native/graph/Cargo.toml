@@ -1,0 +1,26 @@
+[package]
+name = "praukron_graph"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "C ABI over crowbett/codegraph for Praukron's optional code graph"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+# Pinned by commit; Cargo.lock pins every other crate. The `graph` feature is the
+# store, indexer, resolver and queries without crowbett's CLI, MCP server,
+# watcher and allocator.
+codegraph = { git = "https://github.com/crowbett/codegraph", rev = "0dbef57e463cd7511376487146b875fb91b4050d", default-features = false, features = ["graph"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+strip = true
+# Unwinding, so a panic inside the engine is caught at the C boundary and
+# returned as an error instead of aborting the host process.
+panic = "unwind"

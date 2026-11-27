@@ -1,0 +1,159 @@
+name: Graph library
+
+# Builds the optional native graph library (native/graph/) on every supported
+# platform, tests it from Python with ctypes, and checks its third-party
+# notices and bill of materials. It runs only when the library changes, or on
+# demand, so it never slows the main CI workflow. Nothing in Praukron loads the
+# library yet.
+
+on:
+  pull_request:
+    paths:
+      - "native/graph/**"
+      - ".github/workflows/graph-library.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: graph-library-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_TOOLCHAIN: "1.90.0"
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    name: build · ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-arm64
+            runner: macos-15
+            target: aarch64-apple-darwin
+            file: libpraukron_graph.dylib
+          - platform: macos-x86_64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+            file: libpraukron_graph.dylib
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            file: libpraukron_graph.so
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            file: libpraukron_graph.so
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --target "${{ matrix.target }}"
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version --verbose
+          cargo --version
+
+      - name: Build
+        id: build
+        shell: bash
+        run: |
+          set -o pipefail
+          start=$(date +%s)
+          cargo build --release --locked \
+            --manifest-path native/graph/Cargo.toml \
+            --target "${{ matrix.target }}" 2>&1 | tee build.log
+          echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: Record size and SHA-256
+        shell: bash
+        run: |
+          lib="native/graph/target/${{ matrix.target }}/release/${{ matrix.file }}"
+          mkdir -p out
+          cp "$lib" out/
+          if command -v sha256sum >/dev/null; then sum=$(sha256sum "$lib" | cut -d' ' -f1); else sum=$(shasum -a 256 "$lib" | cut -d' ' -f1); fi
+          bytes=$(wc -c < "$lib" | tr -d ' ')
+          if [ "$RUNNER_OS" = macOS ]; then links=$(otool -L "$lib" | tail -n +2 | awk '{print $1}' | paste -sd' ' -); minos=$(otool -l "$lib" | awk '/minos/{print $2; exit}'); else links=$(ldd "$lib" | awk '{print $1}' | paste -sd' ' -); minos=$(objdump -T "$lib" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1); fi
+          python3 - "$bytes" "$sum" "$links" "$minos" <<'PY'
+          import json, os, platform, sys
+          bytes_, sha, links, minos = sys.argv[1:5]
+          info = {
+              "platform": "${{ matrix.platform }}", "target": "${{ matrix.target }}",
+              "runner": "${{ matrix.runner }}", "file": "${{ matrix.file }}",
+              "bytes": int(bytes_), "sha256": sha, "links": links.split(),
+              "minimum_os_or_glibc": minos, "build_seconds": int("${{ steps.build.outputs.seconds }}"),
+              "rust": os.popen("rustc --version").read().strip(), "commit": os.environ["GITHUB_SHA"],
+          }
+          json.dump(info, open("out/build-info.json", "w"), indent=1)
+          print(json.dumps(info, indent=1))
+          PY
+          {
+            echo "### ${{ matrix.platform }}"
+            echo ""
+            echo "| file | bytes | SHA-256 | build s |"
+            echo "| --- | --- | --- | --- |"
+            echo "| ${{ matrix.file }} | $bytes | \`$sum\` | ${{ steps.build.outputs.seconds }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test from Python with ctypes
+        shell: bash
+        env:
+          PRAUKRON_GRAPH_LIB: ${{ github.workspace }}/out/${{ matrix.file }}
+          PRAUKRON_GRAPH_REPORT: ${{ github.workspace }}/out/test-report.json
+        run: |
+          python3 -c "import platform; print(platform.machine(), platform.python_version())"
+          python3 -I native/graph/tests/test_library.py
+          cat out/test-report.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: praukron-graph-${{ matrix.platform }}
+          path: |
+            out/
+            build.log
+          if-no-files-found: warn
+
+  notices:
+    name: notices and bill of materials
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal
+          rustup default "$RUST_TOOLCHAIN"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Notices and SBOM are complete, allowed and up to date
+        run: python3 -I native/graph/tools/notices.py --check
+
+      - name: Regenerate (for review when the check fails)
+        if: always()
+        run: |
+          python3 -I native/graph/tools/notices.py || true
+          git diff --stat -- native/graph
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: praukron-graph-notices
+          path: |
+            native/graph/THIRD-PARTY-NOTICES.txt
+            native/graph/sbom.cdx.json
