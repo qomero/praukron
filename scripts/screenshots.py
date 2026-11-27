@@ -17,6 +17,7 @@ runs with a fresh profile and networking turned off.
 Chrome is looked for at `PRAUKRON_CHROME`, then at the usual places on macOS
 and Linux. Captures use its DevTools pipe, real animation frames and a 2x
 device scale; no browser driver or additional Python package is needed.
+Every image uses the page's own Dark theme setting.
 Look at every image before committing it.
 
 Asset notes for documentation (all show the invented Tally project):
@@ -568,7 +569,7 @@ SHOTS = {
 # records, layout and the animation scheduler remain untouched.
 DRIVER = r"""
 localStorage.clear();
-localStorage.setItem('praukron-theme', 'light');
+localStorage.setItem('praukron-theme', 'dark');
 localStorage.setItem('praukron-panels', JSON.stringify({tab: 'work', view: 'lanes'}));
 function press(key, extra) {
   document.body.dispatchEvent(new KeyboardEvent('keydown', Object.assign({key, bubbles: true}, extra || {})));
@@ -681,7 +682,7 @@ def capture(browser: Chrome, page: Path, out: Path, steps: list) -> None:
             "width": 1440, "height": 900, "deviceScaleFactor": 2, "mobile": False,
         }, session)
         browser.call("Emulation.setEmulatedMedia", {"features": [
-            {"name": "prefers-color-scheme", "value": "light"},
+            {"name": "prefers-color-scheme", "value": "dark"},
         ]}, session)
         browser.call("Page.addScriptToEvaluateOnNewDocument", {"source": DRIVER}, session)
         browser.call("Page.navigate", {"url": page.as_uri()}, session)
