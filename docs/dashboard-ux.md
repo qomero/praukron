@@ -3,6 +3,62 @@
 The dashboard is a deterministic view of the Chronicle. Its four workspaces
 support a short path from project state to a decision and its evidence.
 
+## The shell
+
+The page is one shell. A header with search, a waiting strip, a side panel and
+a bottom panel are shared by the four workspaces, Home, Work, Review and Audit,
+which read one embedded project and keep one selection and one set of filters.
+Selecting a task, decision or assumption anywhere shows its record in the side
+panel and highlights its chain on the lanes. The page is a derived view and
+never authority: it writes nothing, and the served page keeps only the write
+paths it already had (owner responses, and grants and revocations by the owner
+in person).
+
+**Lanes** are the main surface of Work. Each phase is a column, each module a
+band in its phase, and a task's column inside its phase is its dependency depth
+there, so chains read left to right. Decisions and assumptions sit in bands
+below, under the tasks they bear on. `shell.lanes` computes the positions in
+Python; the same chronicle gives the same positions. The view opens framed on
+the current phase. Status, waiting and kind are told by shape and word, not by
+colour alone (see the Legend).
+
+**Waiting for you** lists every recorded item that needs the owner, each once:
+open tasks with `Authority: owner` the owner has not verified, DONE owner tasks
+whose owner verification is missing, and open assumptions the owner has not
+answered. An item is *now* when nothing it depends on is open, else *upcoming*.
+A task inside the scope of a `verify` grant in force is left out, because a
+delegate may settle it. Each item gives what it blocks, transitive count first
+with the direct count beside it ("Blocks: 4 tasks · 1 direct · 3 indirect"); an
+assumption blocks nothing by record, so the tasks resting on it are *affected*.
+A phase exit and the critical path are marked where the analysis has them. The
+date beside an item comes from a record: an assumption's `Recorded:` date, or
+the first dated journal entry naming the task, labelled "first journal mention".
+Pending decisions, requests for delegation and escalations are not recorded by
+a project today; the strip says so instead of counting them as zero.
+
+**Panels.** The waiting strip, the side panel and the bottom panel each hide
+and show from a button on their edge; a hidden panel leaves a handle, and the
+strip's handle keeps its count. Focus hides all three at once and brings back
+what was shown. The side panel's left edge and the bottom panel's top edge
+resize by drag or by arrow keys. A first visit shows the strip and the side
+panel, with the bottom panel collapsed, in the system theme. Visibility, sizes
+and the last workspace are kept in this browser (`praukron-panels`); with
+storage blocked the page starts from those defaults and still works.
+
+The bottom panel holds the Review queue, the Journal, Validation, Agent grants
+(only what `AUTHORITY.md` records, read through `authority`, and every
+`DELEGATE_VERIFIED` shown apart from `HUMAN_VERIFIED` with its grant and
+delegate), a Text view that lists every node under the same filters, and
+Relations, which states every line as a sentence. A skip link at the top of the
+page reaches the text view.
+
+**Keys**, outside text fields: `/` search, `1` the lanes, arrows move the
+selection on the graph (left to a dependency, right to what it unblocks, up and
+down in its module), `Enter` opens the record in the side panel, `Escape`
+clears the selection, `s` the side panel, `b` the bottom panel, `Shift+W` the
+waiting strip, `f` focus, `w` the next waiting item, `+ − 0` zoom, `?` the list
+of keys.
+
 ## Language
 
 Add `- Language: vi` to the thesis in `THESIS.md` for Vietnamese, or `en` for
