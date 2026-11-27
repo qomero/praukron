@@ -667,6 +667,9 @@ demand:
    file and a `build-info.json` with its size and SHA-256.
 2. Put the file at `.praukron/lib/<platform>/` in your repository, or anywhere
    else and name it in `PRAUKRON_GRAPH_LIB`.
+   The library is a built file and is not committed to the repository.
+   Nothing ignores `.praukron/lib/` yet; that comes with the planned delivery
+   by the installer. Until then, keep the file out of your commits by hand.
 3. Run `praukron engine status`. It says where the library was found and which
    engine commit and interface version it reports.
 

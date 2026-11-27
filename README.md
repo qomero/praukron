@@ -373,8 +373,8 @@ is to see: to look at a task and see the code it touched and that code's
 neighbours, or to look at a symbol and see every task that touched it.
 
 It is not there to make an agent find code better. Text search already finds
-code. When the engine was chosen, a benchmark found that a plain text search
-never needed more than a few tool calls to find what the graph engines found.
+code, and a small retrieval benchmark run while the engine was being chosen
+did not show any graph engine finding code better than plain text search.
 
 The graph comes from a native library built from `native/graph/`:
 crowbett/codegraph, which parses with tree-sitter, behind a small C interface.
@@ -434,6 +434,8 @@ What is not there yet, and the limits of what is:
 - **The installer does not deliver the library.** Today you download the
   `praukron-graph-<platform>` artifact of the `Graph library` workflow and put
   the file at `.praukron/lib/<platform>/`, or name it in `PRAUKRON_GRAPH_LIB`.
+  The library is a built file and does not belong in the repository. Nothing
+  ignores `.praukron/lib/` yet, so keep it out of your commits by hand for now.
   It is built for macOS ARM64 and x86_64 and Linux x86_64 and ARM64; the Linux
   builds need glibc 2.39. Windows is out of scope.
 - **Most method calls in Python stay unresolved.** On this repository the
@@ -735,7 +737,7 @@ into why the model is shaped this way.
 
 **Implemented and tested.** The compiler and its twenty-two commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1094 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1120 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 
