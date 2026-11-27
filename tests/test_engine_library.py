@@ -207,6 +207,48 @@ class RealLibraryTest(unittest.TestCase):
         self.assertEqual((code, err), (0, ""))
         self.assertEqual(json.loads(again)["edges"], result["edges"])
 
+    def test_impact_follows_the_real_graph_to_the_tasks_and_decisions_behind_the_callers(self) -> None:
+        """AC-T-GRAPH-IMPACT-01-01 and -03 on an index the library wrote."""
+        from test_code_references import reference
+
+        (self.chronicle / "CODE.md").write_text("# Code references\n\n" + "\n".join([
+            reference("CR-T-THREE-01", "T-THREE", "pkg/util.py", Symbol="normalize", Kind="function"),
+            reference("CR-T-ONE-01", "T-ONE", "pkg/service.py", Symbol="Catalog.add", Kind="method",
+                      Scope="observed", Source="git_diff", Verification="verified"),
+            reference("CR-T-TWO-01", "T-TWO", "main.py", Symbol="main", Kind="function", Scope="observed",
+                      Source="git_diff"),
+        ]), encoding="utf-8")
+        self.before = snapshot(self.chronicle)
+        self.assertEqual(run(self.root, "engine", "index")[0], 0)
+
+        code, out, err = run(self.root, "engine", "impact", "T-THREE", "--depth", "1", "--json")
+        self.assertEqual((code, err), (0, ""))
+        result = json.loads(out)
+        self.assertTrue(result["graph"]["present"])
+        self.assertEqual([t["node"].get("symbol") for t in result["touched"]], ["normalize"])
+        reached = {p["node"].get("symbol"): p for p in result["reached"]}
+        self.assertTrue({"Catalog.add", "slug"} <= set(reached), set(reached))
+        self.assertTrue(all(p["marks"] and len(p["marks"]) == p["depth"] for p in result["reached"]))
+        self.assertIn("T-ONE", [t["id"] for t in result["tasks"]])
+        self.assertNotIn("T-TWO", [t["id"] for t in result["tasks"]])
+        # ADR-001 governs every fixture task, T-THREE too: listed apart, not as something reached.
+        self.assertEqual([d["id"] for d in result["ownDecisions"]], ["ADR-001"])
+        # The fixture calls names the engine cannot place (strip, lower, append): unknown, never none.
+        unknown = {u["node"]["id"]: u for u in result["unknown"]}
+        self.assertTrue(unknown, "an unresolved edge on the touched code makes reach unknown")
+
+        # Depth 2 reaches main, which calls Catalog.add, and T-TWO behind it.
+        code, out, err = run(self.root, "engine", "impact", "T-THREE", "--json")
+        self.assertEqual((code, err), (0, ""))
+        deeper = json.loads(out)
+        self.assertEqual(deeper["depth"], 2)
+        self.assertIn("main", {p["node"].get("symbol") for p in deeper["reached"]})
+        self.assertIn("T-TWO", [t["id"] for t in deeper["tasks"]])
+        code, text, err = run(self.root, "engine", "impact", "T-THREE")
+        self.assertEqual((code, err), (0, ""))
+        self.assertIn("What this change must be checked against.", text)
+        self.assertIn("reach unknown", text)
+
     def test_a_failing_call_is_one_line(self) -> None:
         library = engine.load(Path(os.environ[engine.ENV_VAR]))
         with library.open(self.dir / "scratch.db") as store:

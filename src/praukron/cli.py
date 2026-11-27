@@ -523,6 +523,20 @@ def cmd_engine(root: Path, args: argparse.Namespace) -> int:
         else:
             print(codemap.render(result), end="")
         return 0
+    if args.action == "impact":
+        # What a planned change runs into (ADR-103): the index read as `map` reads it.
+        from . import impact, refs
+
+        try:
+            result = impact.impact(_load(root), root, args.target, engine.index_path(root),
+                                   engine.locate(root).present, depth=args.depth, exact_only=args.exact)
+        except refs.TargetError as error:
+            return _fail(str(error))
+        if args.json:
+            print(json.dumps(result, indent=2, ensure_ascii=False))
+        else:
+            print(impact.render(result), end="")
+        return 0
     return engine.command(root, args)
 
 
@@ -804,7 +818,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     embedded = subparsers.add_parser(
         "engine",
-        help="optional embedded graph library: status, index, export, map (derived output, never authority)",
+        help="optional embedded graph library: status, index, export, map, impact (derived output, never authority)",
     )
     embedded_commands = embedded.add_subparsers(dest="action", required=True)
     engine_status = embedded_commands.add_parser(
@@ -826,6 +840,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     engine_map.add_argument("target", help="a task id, a repository-relative path, or path#Qualified.symbol")
     engine_map.add_argument("--json", action="store_true")
+    engine_impact = embedded_commands.add_parser(
+        "impact", help="what a planned change runs into: the code that calls or depends on a task's files and "
+                       "symbols, the tasks on that code, and their decisions, frozen criteria and invariants"
+    )
+    engine_impact.add_argument("target", help="a task id")
+    engine_impact.add_argument("--depth", type=int, default=2, metavar="N",
+                               help="how many steps of callers to follow (default 2)")
+    engine_impact.add_argument("--exact", action="store_true", help="follow only edges the engine marks exact")
+    engine_impact.add_argument("--json", action="store_true")
     embedded.set_defaults(handler=cmd_engine)
 
     journal = subparsers.add_parser("journal", help="append governed journal entries")

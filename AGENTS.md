@@ -102,14 +102,14 @@ after an earlier operation changed it.
 `criterion set` records state/evidence on any task, including `WIP`.
 Writes cannot set `HUMAN_VERIFIED`, close `Authority: owner` tasks, edit criterion
 text/class, or touch `archive/`. Add contracts only to `TODO` tasks; for frozen
-criteria, use `acr add` (the owner decides).
+criteria, use `acr add`; the owner decides.
 
 For any other direct edit of a chronicle file, do not read the whole file. Read
-only the record you change: locate its `## <id>` heading (a search for the id),
+only the record you change: locate its `## <id>` heading,
 read that section with a ranged read, and edit it. When appending a new record,
 read only the end of the file. `.praukron/praukron retrieve <id>` returns that
 record, and for a task its contract and governing decisions, each with its
-source, when you only need to read them.
+source.
 
 Recognize these workflows:
 
@@ -135,7 +135,8 @@ touch (`Scope: planned`). In Git, setting a claimed task `DONE` records its
 changed files and Python symbols; read the reply's `capture`, report a skip,
 then `ref add` symbols of its `symbolsUnresolved` files, and files read,
 verified or documented unchanged. `praukron refs` and packet `references` map
-tasks to code; `engine map <task>` adds the graph.
+tasks to code; `engine map <task>` adds the graph. Before changing existing
+code, ask `engine impact <task>`.
 
 ## Assumptions and the owner
 

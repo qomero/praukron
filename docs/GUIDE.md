@@ -596,6 +596,8 @@ praukron engine export            # the whole graph as one JSON document on stan
 praukron engine export --output graph.json
 praukron engine map T-BILL-01     # a task's code with its graph neighbours, by source
 praukron engine map src/billing/invoice.py#Invoice.total --json   # a symbol's tasks and neighbours
+praukron engine impact T-BILL-02  # what the task's change runs into, to depth 2
+praukron engine impact T-BILL-02 --depth 1 --exact --json   # direct callers, exact edges only
 ```
 
 Praukron looks for the library in one place, and the first match wins:
@@ -655,6 +657,42 @@ Python's `sqlite3` alone, read only, so an index written on another machine
 is readable where no library is installed. With no index it answers from the
 references alone, says that no graph is present, and succeeds. It writes
 nothing: no engine node or edge reaches the chronicle.
+
+`engine impact <task>` answers the forward question: what a planned change
+runs into. It starts from the task's current references, planned and
+observed, matches them to nodes as `map` does, and follows resolved edges
+backwards to the code that calls, imports, inherits or refers to them, one
+step at a time, to `--depth N` (default 2). A class counts with its members
+and a file with its symbols. The answer states the depth and how many nodes
+it reached, and counts the nodes at the limit whose callers were not
+followed. Each path carries the mark of every edge on it (`exact`, `likely`,
+`name_only`, or none for an import); `--exact` follows `exact` edges only and
+says how many it left. A task is reached when one of its current references
+names the same file and either side is the whole file, or its symbol is the
+reached one, a member of it, or encloses it.
+
+The result is grouped by decision. For each decision of the reached tasks,
+other than the task's own: its standing (in force, superseded with what
+replaced it, or not accepted), the tasks through which the change reaches it,
+the shortest path spelled out, and for each task how its references were
+recorded, its frozen criteria (a contract freezes when its task is `WIP`) and
+its inherited invariants. The task's own decisions are listed apart, with the
+reached tasks they also govern; reached tasks under no other decision are
+listed last.
+
+Unknown is never shown as nothing. A reference that matches no node, an edge
+the engine left unresolved from a touched or followed node, or an unresolved
+edge elsewhere that bears its name (a caller the engine could not place)
+marks further reach from that item as unknown. Without an index the answer
+covers only the code the task references and the tasks whose references lie
+on it, says that reach through the graph is unknown, and succeeds. A task
+with no reference is told to record the files and symbols it plans to touch
+with `praukron ref add` (`Scope: planned`).
+
+The answer is what the change must be checked against. It does not decide
+whether anything conflicts: read each item, and record your conclusion in the
+chronicle, as a journal entry, a decision, or an Acceptance Change Request.
+It writes nothing itself.
 
 #### Getting the library
 
@@ -733,12 +771,12 @@ symbol back to the tasks and decisions behind it, and what a planned change
 will run into, the code within its reach and the decisions attached to that
 code. The first is answered by `praukron why <path|path#symbol|directory>`
 (see [Why is this code as it is](#which-code-each-task-touched) below), from
-the chronicle alone. The second is planned: it will list what a change must
-be checked against; whether it conflicts stays a judgment the reader makes and
-records.
+the chronicle alone. The second is answered by `praukron engine impact <task>`
+(above), which lists what a change must be checked against; whether it
+conflicts stays a judgment the reader makes and records.
 
-The following are planned and not in `main`, in this order: what a planned
-change runs into (the impact answer); symbols for TypeScript and Rust, then
+The following are planned and not in `main`, in this order: symbols for
+TypeScript and Rust, then
 the other bundled languages, recorded at a task's close; a view of the map in
 the dashboard; a built-in search fallback; the library delivered by the
 installer and the release; and a container fallback and a PostgreSQL store for

@@ -88,6 +88,8 @@ REASONS = {
 
 # How many unresolved names a text line lists for one symbol before it counts the rest.
 _TEXT_NAMES = 12
+# Values bound in one query, below the oldest SQLite limit of 999.
+_CHUNK = 500
 
 
 class IndexUnreadable(Exception):
@@ -221,6 +223,41 @@ class Index:
         for row in self._conn.execute(query.format("e.kind = 'import' AND e.to_file = ? AND e.file_id != ?"),
                                       (file_id, file_id)):
             yield "in", row
+
+    def _rows(self, where: str, values: List[int], extra: tuple = ()) -> List[tuple]:
+        """Edge rows matching `where`, whose one `({})` takes the values, in chunks
+        below SQLite's variable limit."""
+        found: List[tuple] = []
+        for start in range(0, len(values), _CHUNK):
+            part = values[start:start + _CHUNK]
+            found += self._conn.execute(
+                f"SELECT id, file_id, from_symbol, to_symbol, to_file, name, qualifier, kind, line, confidence "
+                f"FROM edges WHERE {where.format(','.join('?' * len(part)))} ORDER BY id",
+                (*part, *extra)).fetchall()
+        return found
+
+    def edges_into(self, symbol_ids: List[int], file_id: Optional[int] = None) -> List[tuple]:
+        """Resolved edges into these symbols from code outside them, and, for a
+        file, the imports of it from other files: what calls or depends on them."""
+        rows = [row for row in self._rows("to_symbol IN ({})", symbol_ids)
+                if row[2] not in symbol_ids and (file_id is None or row[1] != file_id)]
+        if file_id is not None:
+            rows += [row for row in self._rows("kind = 'import' AND to_file IN ({})", [file_id])
+                     if row[1] != file_id and row[3] is None]
+        return rows
+
+    def unresolved_from(self, symbol_ids: List[int], file_id: Optional[int] = None) -> List[tuple]:
+        """Edges from these symbols, or from the file outside any symbol, whose target is unknown."""
+        rows = self._rows("from_symbol IN ({}) AND to_symbol IS NULL AND to_file IS NULL", symbol_ids)
+        if file_id is not None:
+            rows += self._rows("file_id IN ({}) AND from_symbol IS NULL AND to_symbol IS NULL AND to_file IS NULL",
+                               [file_id])
+        return rows
+
+    def unresolved_named(self, names: List[str]) -> List[tuple]:
+        """Edges anywhere whose target is unknown and whose name is one of these:
+        code that may call them, which the engine could not place."""
+        return self._rows("name IN ({}) AND to_symbol IS NULL AND to_file IS NULL", names)  # type: ignore[arg-type]
 
     def file_links(self, file_id: int) -> List[Dict[str, Any]]:
         """Resolved symbol edges between this file and each other file, counted by kind."""

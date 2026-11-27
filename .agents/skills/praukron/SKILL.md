@@ -29,6 +29,8 @@ in the reply's `symbolsUnresolved` files, and files only read, verified or
 documented. `praukron refs` finds a task's code or a file's tasks, and
 `praukron engine map` adds the graph: `ref add` what you read behind an edge it
 leaves unresolved, with source `agent` and `evidence`.
+Before changing existing code, `praukron engine impact <task>` lists what the
+change must be checked against; it is not a verdict, so record your conclusion.
 When a choice has no answer in authority, follow the assumption procedure in
 `AGENTS.md`: record an assumption before relying on it, stop for the owner on a
 reserved choice, and never edit `RESPONSES.md`.
