@@ -80,7 +80,7 @@ jobs:
           cp "$lib" out/
           if command -v sha256sum >/dev/null; then sum=$(sha256sum "$lib" | cut -d' ' -f1); else sum=$(shasum -a 256 "$lib" | cut -d' ' -f1); fi
           bytes=$(wc -c < "$lib" | tr -d ' ')
-          if [ "$RUNNER_OS" = macOS ]; then links=$(otool -L "$lib" | tail -n +2 | awk '{print $1}' | paste -sd' ' -); minos=$(otool -l "$lib" | awk '/minos/{print $2; exit}'); else links=$(ldd "$lib" | awk '{print $1}' | paste -sd' ' -); minos=$(objdump -T "$lib" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1); fi
+          if [ "$RUNNER_OS" = macOS ]; then links=$(otool -L "$lib" | tail -n +2 | awk '{print $1}' | paste -sd' ' -); minos=$(otool -l "$lib" | awk '/LC_BUILD_VERSION|LC_VERSION_MIN_MACOSX/{f=1} f && ($1=="minos" || $1=="version"){print $2; exit}'); else links=$(ldd "$lib" | awk '{print $1}' | paste -sd' ' -); minos=$(objdump -T "$lib" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1); fi
           python3 - "$bytes" "$sum" "$links" "$minos" <<'PY'
           import json, os, platform, sys
           bytes_, sha, links, minos = sys.argv[1:5]
