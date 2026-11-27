@@ -1067,7 +1067,9 @@ The file record's evidence then reads `git diff 5be9fe2df06e to 6fa5a5fbe6ab
   changed is recorded unresolved and unverified, its evidence naming the
   commit and how it arrived: `unresolved attribution: changed by commits this
   checkout's HEAD reflog does not show as made here: 9f4e2c0b1a77 (arrived by
-  `pull -q --rebase (start)`)`. When the reflog cannot account for a commit
+  `pull`)`. Only the kind of arrival is recorded (`pull`, `fetch`, `merge`,
+  `reset`, `checkout`, `rebase`, `clone` or `other`), never the command's
+  arguments, which can hold a URL with a credential. When the reflog cannot account for a commit
   (no reflog, an expired or truncated one, reflogs turned off, a fresh clone),
   the evidence says `the HEAD reflog could not show where it was made`; that
   commit is never guessed to be yours, nor anyone else's.

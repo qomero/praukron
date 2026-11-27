@@ -6,8 +6,9 @@
   `Verification: unverified`. This catches work of others that arrives with no
   merge commit: a squash or rebase merge pulled by fast-forward, `git pull
   --rebase`, `git reset` to a remote tip, a checkout. The evidence names each
-  commit by short id and how it arrived (`arrived by` the reflog entry's
-  action), or says the reflog could not show where it was made (no reflog, an
+  commit by short id and the kind of its arrival (`arrived by` `pull`,
+  `fetch`, `merge`, `reset`, `checkout`, `rebase`, `clone` or `other`; never
+  the action's arguments, which can hold a credential), or says the reflog could not show where it was made (no reflog, an
   expired or truncated one, reflogs turned off, a fresh clone). Commits made
   here are those an entry `commit`, `commit (initial)`, `commit (amend)`,
   `commit (merge)`, `cherry-pick`, `revert`, `am`, or a rebase step that writes

@@ -936,8 +936,12 @@ here changed is recorded `Lifecycle: unresolved` and `Verification:
 unverified`, and its `Evidence` ends `unresolved attribution: changed by
 commits this checkout's HEAD reflog does not show as made here: <commit>
 (<how>), …`, naming each commit by its first twelve hex characters and how it
-arrived: `arrived by` and, in backticks, the action of the reflog entry that
-brought it (its action only, never the entry's message), or `the HEAD reflog could not show
+arrived: `arrived by` and, in backticks, the kind of the reflog entry that
+brought it, from a fixed vocabulary read from its action's first word
+(`pull`, `fetch`, `merge`, `reset`, `checkout` for a checkout or switch,
+`rebase`, `clone`, or `other`). Never the action's arguments nor the entry's
+message: they can hold a remote URL with a credential, a private path or a
+branch name, and `CODE.md` is committed. Or it says `the HEAD reflog could not show
 where it was made: <why>` when the reflog cannot account for it: no reflog,
 an expired or truncated one, reflogs turned off, a fresh clone, or a commit
 already there at the reflog's first entry. Nothing is guessed in either

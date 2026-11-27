@@ -335,10 +335,17 @@ def reflog(root: Path) -> list[Entry]:
     return entries
 
 
-def _named(action: str) -> str:
-    """An action as evidence can hold it: one short line, never the entry's message."""
-    text = " ".join("".join(ch if ch.isprintable() else " " for ch in action).split()) or "an unnamed entry"
-    return text if len(text) <= 60 else text[:57] + "..."
+# The kinds of arrival a record may name, from an action's first word. Never
+# the action itself: its arguments can hold a remote URL with a credential, a
+# private path or a branch name, and the record is committed.
+_KINDS = {"pull": "pull", "fetch": "fetch", "merge": "merge", "reset": "reset", "checkout": "checkout",
+          "switch": "checkout", "rebase": "rebase", "clone": "clone"}
+
+
+def kind(action: str) -> str:
+    """How a reflog entry moved HEAD, from a fixed vocabulary; `other` for anything else."""
+    words = action.split()
+    return _KINDS.get(words[0].lower(), "other") if words else "other"
 
 
 def _arrivals(root: Path, line: list[str], base: str, entries: list[Entry], pending: set[str]) -> dict[str, str]:
@@ -365,7 +372,7 @@ def _arrivals(root: Path, line: list[str], base: str, entries: list[Entry], pend
         if previous is None:
             for commit in [c for c in pending if position[c] <= top]:
                 how[commit] = (f"{UNSHOWN}: it was already there at the reflog's first entry "
-                               f"(`{_named(entry.action)}`)")
+                               f"(`{kind(entry.action)}`)")
                 pending.discard(commit)
             continue
         if previous in position:
@@ -380,7 +387,7 @@ def _arrivals(root: Path, line: list[str], base: str, entries: list[Entry], pend
                 break
             brought = pending & set(listed.decode("ascii").split())
         for commit in brought:
-            how[commit] = f"arrived by `{_named(entry.action)}`"
+            how[commit] = f"arrived by `{kind(entry.action)}`"
         pending -= brought
     return how
 

@@ -8,6 +8,7 @@ repositories; none touches the repository the suite runs in.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -94,7 +95,7 @@ class TestCommitsThatArrived(ReflogCase):
         self.close()
         found = self.by_path()
         self.assertEqual({r.symbol for r in found["src/other.py"]}, {None, "theirs"})
-        self.assert_unresolved(found["src/other.py"], theirs[:12], "arrived by `merge upstream`",
+        self.assert_unresolved(found["src/other.py"], theirs[:12], "arrived by `merge`",
                                "does not show as made here")
         self.assert_verified(found["src/app.py"])
         self.assert_verified(found["README.md"])
@@ -163,13 +164,13 @@ class TestReplayedByARebase(ReflogCase):
         found = self.by_path()
         self.assert_verified(found["src/app.py"])
         self.assert_verified(found["src/third.py"])
-        self.assert_unresolved(found["src/other.py"], onto[:12], f"{step} (start)`")
-        self.assert_unresolved(found["README.md"], onto_parent[:12], f"{step} (start)`")
+        self.assert_unresolved(found["src/other.py"], onto[:12], f"arrived by `{step}`")
+        self.assert_unresolved(found["README.md"], onto_parent[:12], f"arrived by `{step}`")
 
     def test_a_pull_rebase_replays_the_tasks_commits_and_not_what_it_pulled(self):
         onto_parent, onto = self.rebased("pull", "-q", "--rebase", ".", "upstream")
         self.close()
-        self.check(onto_parent, onto, "pull -q --rebase . upstream")
+        self.check(onto_parent, onto, "pull")
 
     def test_a_rebase_replays_the_tasks_commits_and_not_what_it_rebased_onto(self):
         onto_parent, onto = self.rebased("rebase", "-q", "upstream")
@@ -260,6 +261,41 @@ class TestReflogCannotAccount(ReflogCase):
 
 
 @unittest.skipIf(GIT is None, "git is not installed")
+class TestNoActionArgumentIsRecorded(ReflogCase):
+    """A chronicle never records a secret: only the kind of arrival, never the reflog action's arguments."""
+
+    SECRET = "s3cr3t-t0ken"
+
+    def test_a_credential_in_the_reflog_action_appears_nowhere(self):
+        self.repository(FILES)
+        self.claim()
+        self.own()
+        theirs = self.foreign()
+        url = f"https://builder:{self.SECRET}@git.example.invalid/private/repo.git"
+        environment = {**os.environ, "GIT_REFLOG_ACTION": f"pull --ff-only {url} feature/private-branch"}
+        subprocess.run(["git", "-C", str(self.root), "merge", "-q", "--ff-only", "upstream"],
+                       check=True, capture_output=True, env=environment)
+        self.assertIn(self.SECRET, self.git("reflog", "-1", "--format=%gs"))
+        result = self.close()
+        written = self.code.read_text(encoding="utf-8")
+        reply = json.dumps(result)
+        for text in (written, reply):
+            for leak in (self.SECRET, "git.example.invalid", "private-branch", "--ff-only"):
+                self.assertNotIn(leak, text)
+        self.assertEqual(result["capture"]["notMadeHereInvolved"],
+                         [{"commit": theirs[:12], "how": "arrived by `pull`"}])
+        self.assert_unresolved(self.by_path()["src/other.py"], theirs[:12], "arrived by `pull`")
+
+    def test_the_kind_comes_from_a_fixed_vocabulary(self):
+        for action, expected in (("pull -q --rebase https://u:t@h/r (start)", "pull"), ("fetch", "fetch"),
+                                 ("merge origin/main", "merge"), ("reset", "reset"), ("checkout", "checkout"),
+                                 ("switch", "checkout"), ("rebase -i (start)", "rebase"), ("clone", "clone"),
+                                 ("", "other"), ("my-tool https://u:t@h/r", "other")):
+            with self.subTest(action=action):
+                self.assertEqual(scope.kind(action), expected)
+
+
+@unittest.skipIf(GIT is None, "git is not installed")
 class TestANamedRangeIsVouchedFor(ReflogCase):
     """AC-T-SCOPE-REFLOG-01-04."""
 
@@ -319,7 +355,7 @@ class TestTheReply(ReflogCase):
         self.assertEqual(capture["mergesInvolved"], [merge[:12]])
         self.assertEqual(capture["notMadeHere"], [theirs[:12], quiet[:12]])
         self.assertEqual(capture["notMadeHereInvolved"],
-                         [{"commit": theirs[:12], "how": "arrived by `merge upstream`"}])
+                         [{"commit": theirs[:12], "how": "arrived by `merge`"}])
         self.assertEqual(capture["unresolved"], 4)
         warning = capture["warning"]
         self.assertEqual(warning.count(". "), 0, "one sentence")
@@ -364,7 +400,7 @@ class TestALinkedWorktree(ReflogCase):
         self.assertFalse(any(e.commit == theirs and scope.creating(e.action) for e in scope.reflog(worktree)))
         self.close()
         found = self.by_path()
-        self.assert_unresolved(found["src/other.py"], theirs[:12], f"arrived by `merge {branch}`")
+        self.assert_unresolved(found["src/other.py"], theirs[:12], "arrived by `merge`")
         self.assert_verified(found["src/app.py"])
         self.assertTrue(any(e.commit == own for e in scope.reflog(worktree)))
 
