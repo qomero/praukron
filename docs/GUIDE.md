@@ -579,6 +579,54 @@ check its documentation and settings and decide for yourself. Praukron itself
 sends nothing, and nothing in [Which code each task touched](#which-code-each-task-touched)
 uses a provider.
 
+### The embedded graph library (optional)
+
+Praukron can load its own code graph library, built from `native/graph/`
+(crowbett/codegraph behind a small C interface), in process: no daemon, no
+separate program. Its commands are named `engine` so that they are not
+confused with `praukron graph`, which draws the task graph, or with
+`praukron codegraph`, which drives the separately installed CodeGraph.
+
+```sh
+praukron engine status            # present? where from? engine commit and interface version
+praukron engine status --json
+praukron engine index             # index this repository, or refresh it after edits
+praukron engine index --full      # re-read every file
+praukron engine export            # the whole graph as one JSON document on standard output
+praukron engine export --output graph.json
+```
+
+Praukron looks for the library in one place, and the first match wins:
+
+1. the file named by the `PRAUKRON_GRAPH_LIB` environment variable, when it is
+   set and not empty; if it names no file, that is reported as an error and
+   nothing else is tried;
+2. `.praukron/lib/<platform>/<file>` in the repository, where `<platform>` is
+   `macos-arm64`, `macos-x86_64`, `linux-x86_64` or `linux-arm64`, the names
+   the `Graph library` workflow gives its build artifacts, and `<file>` is
+   `libpraukron_graph.dylib` on macOS and `libpraukron_graph.so` on Linux.
+
+A platform subdirectory lets one repository, shared between machines, hold the
+library for each. Windows has no default place.
+
+No library is a normal state: every other command works exactly as in 4.0.0
+and never loads it, and the `engine` commands say that none is present and
+succeed (`export` says so on standard error, so its standard output stays
+JSON). A library that cannot be used, because the file is not a library, it
+reports another interface version than Praukron supports, it lacks a symbol,
+or a call fails, is reported in one line with exit status 1; no chronicle
+record is touched.
+
+The index is the library's SQLite store at `.praukron/engine/graph.db`. It is
+derived output like `.praukron/compiled/`: the directory carries its own
+`.gitignore` that ignores everything in it, no record cites it, `validate`,
+`compile`, `context` and `retrieve` never read it, and it is safe to delete.
+The first `engine index` reads every file; later runs refresh only what
+changed. `export` reads that index, and its `counts` are the library's own:
+files, symbols, nodes, edges, and import, non-import and resolved edges. The
+document also names its `source` (`graph-library`), the library it came from,
+and the repository.
+
 ### Which code each task touched
 
 A task that is claimed and closed through `task update` (or `batch apply`) in

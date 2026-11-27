@@ -540,6 +540,9 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron scope capture <task> --base <rev>` | Capture a task's changed files and symbols between two revisions, for work claimed elsewhere or in another worktree. |
 | `praukron batch apply --input -` | Apply several of the writes above in one call, in order, all or nothing (ADR-077). |
 | `praukron codegraph status` | Optional: whether CodeGraph is available to add code structure after the records. |
+| `praukron engine status` | Optional: whether the embedded graph library is present, where it was found, and the engine commit and interface version it reports. Without one it says so and succeeds; see the guide for where it is looked for. |
+| `praukron engine index` | Index this repository with the graph library into `.praukron/engine/graph.db` (derived, ignored by Git, never authority), or refresh it after edits; `--full` re-reads every file. |
+| `praukron engine export` | The whole graph, every node and edge with kinds, paths and lines and the library's own counts, as one JSON document on standard output or to `--output <file>`. |
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
 | `praukron graph` | The six Mermaid views of the same state. |
