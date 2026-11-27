@@ -1,0 +1,2631 @@
+{
+ "bomFormat": "CycloneDX",
+ "components": [
+  {
+   "bom-ref": "pkg:cargo/aho-corasick@1.1.5",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/BurntSushi/aho-corasick"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "aho-corasick",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/aho-corasick@1.1.5",
+   "scope": "required",
+   "type": "library",
+   "version": "1.1.5"
+  },
+  {
+   "bom-ref": "pkg:cargo/bitflags@2.13.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/bitflags/bitflags"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "bitflags",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/bitflags@2.13.2",
+   "scope": "required",
+   "type": "library",
+   "version": "2.13.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/bstr@1.13.1",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/BurntSushi/bstr"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "6bb31b46c14244e20ee9984b11bf5c992b91fb6939fea616e3512c8baecdbe5f"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "bstr",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/bstr@1.13.1",
+   "scope": "required",
+   "type": "library",
+   "version": "1.13.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/cc@1.5.1",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/cc-rs"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f360145194ee8e21db5ee7f3fcd4fe52210864c75c985dae33218202c8bbe040"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "cc",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/cc@1.5.1",
+   "scope": "excluded",
+   "type": "library",
+   "version": "1.5.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/codegraph@0.1.2?vcs_url=git+https://github.com/crowbett/codegraph%400dbef57e463cd7511376487146b875fb91b4050d",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/crowbett/codegraph"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "codegraph",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/codegraph@0.1.2?vcs_url=git+https://github.com/crowbett/codegraph%400dbef57e463cd7511376487146b875fb91b4050d",
+   "scope": "required",
+   "type": "library",
+   "version": "0.1.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/crossbeam-deque@0.8.8",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/crossbeam-rs/crossbeam"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "622f3fc73690be383c7214310406f28a90e6edeadc3cea882f9d71e495b9711a"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "crossbeam-deque",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/crossbeam-deque@0.8.8",
+   "scope": "required",
+   "type": "library",
+   "version": "0.8.8"
+  },
+  {
+   "bom-ref": "pkg:cargo/crossbeam-epoch@0.9.21",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/crossbeam-rs/crossbeam"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "dc74980687109a3b14c72fd458107bf0baa1da1a1a805e178d15501ba9b86d9d"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "crossbeam-epoch",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/crossbeam-epoch@0.9.21",
+   "scope": "required",
+   "type": "library",
+   "version": "0.9.21"
+  },
+  {
+   "bom-ref": "pkg:cargo/crossbeam-utils@0.8.23",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/crossbeam-rs/crossbeam"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "a31eee39dddec8330830986fcd7625edb5a24ec90ea038215273bbc3adb08ac6"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "crossbeam-utils",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/crossbeam-utils@0.8.23",
+   "scope": "required",
+   "type": "library",
+   "version": "0.8.23"
+  },
+  {
+   "bom-ref": "pkg:cargo/either@1.18.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rayon-rs/either"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "252afb9ae5eaa683babdc6a068b3f5726eb19e05070c731f9b2a23a7c3e8ed34"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "either",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/either@1.18.0",
+   "scope": "required",
+   "type": "library",
+   "version": "1.18.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/equivalent@1.0.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/indexmap-rs/equivalent"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "equivalent",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/equivalent@1.0.2",
+   "scope": "required",
+   "type": "library",
+   "version": "1.0.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/fallible-iterator@0.3.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/sfackler/rust-fallible-iterator"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "fallible-iterator",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/fallible-iterator@0.3.0",
+   "scope": "required",
+   "type": "library",
+   "version": "0.3.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/fallible-streaming-iterator@0.1.9",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/sfackler/fallible-streaming-iterator"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "fallible-streaming-iterator",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/fallible-streaming-iterator@0.1.9",
+   "scope": "required",
+   "type": "library",
+   "version": "0.1.9"
+  },
+  {
+   "bom-ref": "pkg:cargo/find-msvc-tools@0.1.14",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/cc-rs"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "find-msvc-tools",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/find-msvc-tools@0.1.14",
+   "scope": "excluded",
+   "type": "library",
+   "version": "0.1.14"
+  },
+  {
+   "bom-ref": "pkg:cargo/foldhash@0.2.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/orlp/foldhash"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Zlib"
+    }
+   ],
+   "name": "foldhash",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/foldhash@0.2.0",
+   "scope": "required",
+   "type": "library",
+   "version": "0.2.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/globset@0.4.20",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/BurntSushi/ripgrep/tree/master/crates/globset"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "07c34a9410465b45bd9787443bc7370f37735bad04b0f0cd57ff1a3186c98988"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "globset",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/globset@0.4.20",
+   "scope": "required",
+   "type": "library",
+   "version": "0.4.20"
+  },
+  {
+   "bom-ref": "pkg:cargo/hashbrown@0.17.1",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/hashbrown"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "hashbrown",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/hashbrown@0.17.1",
+   "scope": "required",
+   "type": "library",
+   "version": "0.17.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/hashlink@0.12.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/djc/hashlink"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "a596f1b20ed2cc5ecac41a164aaebc7258057060f06c0cf7a2ba3991ee7990fb"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "hashlink",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/hashlink@0.12.2",
+   "scope": "required",
+   "type": "library",
+   "version": "0.12.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/ignore@0.4.33",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/BurntSushi/ripgrep/tree/master/crates/ignore"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "00b69833ed729dc5aa7d19541d96d6cf8e9137194207a04916d658e43168402f"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "ignore",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/ignore@0.4.33",
+   "scope": "required",
+   "type": "library",
+   "version": "0.4.33"
+  },
+  {
+   "bom-ref": "pkg:cargo/indexmap@2.14.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/indexmap-rs/indexmap"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Apache-2.0 OR MIT"
+    }
+   ],
+   "name": "indexmap",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/indexmap@2.14.2",
+   "scope": "required",
+   "type": "library",
+   "version": "2.14.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/itoa@1.0.18",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/itoa"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "itoa",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/itoa@1.0.18",
+   "scope": "required",
+   "type": "library",
+   "version": "1.0.18"
+  },
+  {
+   "bom-ref": "pkg:cargo/libsqlite3-sys@0.38.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rusqlite/rusqlite"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "libsqlite3-sys",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "SQLite amalgamation (C), public domain"
+    }
+   ],
+   "purl": "pkg:cargo/libsqlite3-sys@0.38.2",
+   "scope": "required",
+   "type": "library",
+   "version": "0.38.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/log@0.4.34",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/log"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "log",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/log@0.4.34",
+   "scope": "required",
+   "type": "library",
+   "version": "0.4.34"
+  },
+  {
+   "bom-ref": "pkg:cargo/memchr@2.8.3",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/BurntSushi/memchr"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Unlicense OR MIT"
+    }
+   ],
+   "name": "memchr",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/memchr@2.8.3",
+   "scope": "required",
+   "type": "library",
+   "version": "2.8.3"
+  },
+  {
+   "bom-ref": "pkg:cargo/pkg-config@0.3.34",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/pkg-config-rs"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "pkg-config",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/pkg-config@0.3.34",
+   "scope": "excluded",
+   "type": "library",
+   "version": "0.3.34"
+  },
+  {
+   "bom-ref": "pkg:cargo/proc-macro2@1.0.107",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/proc-macro2"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "proc-macro2",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/proc-macro2@1.0.107",
+   "scope": "excluded",
+   "type": "library",
+   "version": "1.0.107"
+  },
+  {
+   "bom-ref": "pkg:cargo/quote@1.0.47",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/quote"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "quote",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/quote@1.0.47",
+   "scope": "excluded",
+   "type": "library",
+   "version": "1.0.47"
+  },
+  {
+   "bom-ref": "pkg:cargo/rayon@1.12.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rayon-rs/rayon"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "fb39b166781f92d482534ef4b4b1b2568f42613b53e5b6c160e24cfbfa30926d"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "rayon",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/rayon@1.12.0",
+   "scope": "required",
+   "type": "library",
+   "version": "1.12.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/rayon-core@1.13.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rayon-rs/rayon"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "rayon-core",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/rayon-core@1.13.0",
+   "scope": "required",
+   "type": "library",
+   "version": "1.13.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/regex@1.13.1",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/regex"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "regex",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/regex@1.13.1",
+   "scope": "required",
+   "type": "library",
+   "version": "1.13.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/regex-automata@0.4.18",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/regex"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "regex-automata",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/regex-automata@0.4.18",
+   "scope": "required",
+   "type": "library",
+   "version": "0.4.18"
+  },
+  {
+   "bom-ref": "pkg:cargo/regex-syntax@0.8.11",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rust-lang/regex"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "regex-syntax",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/regex-syntax@0.8.11",
+   "scope": "required",
+   "type": "library",
+   "version": "0.8.11"
+  },
+  {
+   "bom-ref": "pkg:cargo/rusqlite@0.40.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/rusqlite/rusqlite"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "23f2a97da3e3873c73cb2a2e71b35c40ff95e0b1eefa8d72d8499a6928c3b5b3"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "rusqlite",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/rusqlite@0.40.2",
+   "scope": "required",
+   "type": "library",
+   "version": "0.40.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/same-file@1.0.6",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/BurntSushi/same-file"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Unlicense/MIT"
+    }
+   ],
+   "name": "same-file",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/same-file@1.0.6",
+   "scope": "required",
+   "type": "library",
+   "version": "1.0.6"
+  },
+  {
+   "bom-ref": "pkg:cargo/serde@1.0.229",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/serde-rs/serde"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "4148590afebada386688f18773da617792bf2ef03ffc1e4cbd2b1d45b023e0ba"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "serde",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/serde@1.0.229",
+   "scope": "required",
+   "type": "library",
+   "version": "1.0.229"
+  },
+  {
+   "bom-ref": "pkg:cargo/serde_core@1.0.229",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/serde-rs/serde"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "67dca2c9c51e58a4791a4b1ed58308b39c64224d349a935ab5039aa360942a48"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "serde_core",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/serde_core@1.0.229",
+   "scope": "required",
+   "type": "library",
+   "version": "1.0.229"
+  },
+  {
+   "bom-ref": "pkg:cargo/serde_derive@1.0.229",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/serde-rs/serde"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "serde_derive",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/serde_derive@1.0.229",
+   "scope": "excluded",
+   "type": "library",
+   "version": "1.0.229"
+  },
+  {
+   "bom-ref": "pkg:cargo/serde_json@1.0.151",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/serde-rs/json"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c841b55ecdae098c80dcae9cf767f6f8a0c2cdb3416bbef72181df4d0fe73f14"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "serde_json",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/serde_json@1.0.151",
+   "scope": "required",
+   "type": "library",
+   "version": "1.0.151"
+  },
+  {
+   "bom-ref": "pkg:cargo/serde_spanned@1.1.1",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/toml-rs/toml"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "6662b5879511e06e8999a8a235d848113e942c9124f211511b16466ee2995f26"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "serde_spanned",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/serde_spanned@1.1.1",
+   "scope": "required",
+   "type": "library",
+   "version": "1.1.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/shlex@2.0.1",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/comex/rust-shlex"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "shlex",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/shlex@2.0.1",
+   "scope": "excluded",
+   "type": "library",
+   "version": "2.0.1"
+  },
+  {
+   "bom-ref": "pkg:cargo/smallvec@1.16.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/servo/rust-smallvec"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "smallvec",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/smallvec@1.16.2",
+   "scope": "required",
+   "type": "library",
+   "version": "1.16.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/streaming-iterator@0.1.9",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/sfackler/streaming-iterator"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "streaming-iterator",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/streaming-iterator@0.1.9",
+   "scope": "required",
+   "type": "library",
+   "version": "0.1.9"
+  },
+  {
+   "bom-ref": "pkg:cargo/syn@3.0.6",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/syn"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "8593e8e72159ed2257d083c7a454a85cbf854f37a0966d8d483aff8c8a3ebcee"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "syn",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/syn@3.0.6",
+   "scope": "excluded",
+   "type": "library",
+   "version": "3.0.6"
+  },
+  {
+   "bom-ref": "pkg:cargo/thiserror@2.0.21",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/thiserror"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "09e52cb86a36cede5cb101bf8908837b3e4c6e5e59fe7fd85c23fb56200d189e"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "thiserror",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/thiserror@2.0.21",
+   "scope": "required",
+   "type": "library",
+   "version": "2.0.21"
+  },
+  {
+   "bom-ref": "pkg:cargo/thiserror-impl@2.0.21",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/thiserror"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "fe5197923287db20a58125f0bc85c062f7f2c892de97b18c356f9efb14b28524"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "thiserror-impl",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/thiserror-impl@2.0.21",
+   "scope": "excluded",
+   "type": "library",
+   "version": "2.0.21"
+  },
+  {
+   "bom-ref": "pkg:cargo/toml@1.1.6+spec-1.1.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/toml-rs/toml"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "toml",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/toml@1.1.6+spec-1.1.0",
+   "scope": "required",
+   "type": "library",
+   "version": "1.1.6+spec-1.1.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/toml_datetime@1.1.1+spec-1.1.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/toml-rs/toml"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "3165f65f62e28e0115a00b2ebdd37eb6f3b641855f9d636d3cd4103767159ad7"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "toml_datetime",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/toml_datetime@1.1.1+spec-1.1.0",
+   "scope": "required",
+   "type": "library",
+   "version": "1.1.1+spec-1.1.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/toml_parser@1.1.3+spec-1.1.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/toml-rs/toml"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "toml_parser",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/toml_parser@1.1.3+spec-1.1.0",
+   "scope": "required",
+   "type": "library",
+   "version": "1.1.3+spec-1.1.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/toml_writer@1.1.2+spec-1.1.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/toml-rs/toml"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT OR Apache-2.0"
+    }
+   ],
+   "name": "toml_writer",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/toml_writer@1.1.2+spec-1.1.0",
+   "scope": "required",
+   "type": "library",
+   "version": "1.1.2+spec-1.1.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter@0.27.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "2038684e0058edba0d17302619f62eabce4a8e11c6ac59506996a8d79848851d"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "tree-sitter runtime (C)"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter@0.27.0",
+   "scope": "required",
+   "type": "library",
+   "version": "0.27.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter-c@0.24.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter-c"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "a9b2eb57a55fed6b00812912e730b7a275cf4fe98bfd6a5d76263d4438371728"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter-c",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "tree-sitter grammar: generated parser and scanner (C/C++)"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter-c@0.24.2",
+   "scope": "required",
+   "type": "library",
+   "version": "0.24.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter-cpp@0.23.4",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter-cpp"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "df2196ea9d47b4ab4a31b9297eaa5a5d19a0b121dceb9f118f6790ad0ab94743"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter-cpp",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "tree-sitter grammar: generated parser and scanner (C/C++)"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter-cpp@0.23.4",
+   "scope": "required",
+   "type": "library",
+   "version": "0.23.4"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter-go@0.25.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter-go"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "c8560a4d2f835cc0d4d2c2e03cbd0dde2f6114b43bc491164238d333e28b16ea"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter-go",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "tree-sitter grammar: generated parser and scanner (C/C++)"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter-go@0.25.0",
+   "scope": "required",
+   "type": "library",
+   "version": "0.25.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter-javascript@0.25.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter-javascript"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "68204f2abc0627a90bdf06e605f5c470aa26fdcb2081ea553a04bdad756693f5"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter-javascript",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "tree-sitter grammar: generated parser and scanner (C/C++)"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter-javascript@0.25.0",
+   "scope": "required",
+   "type": "library",
+   "version": "0.25.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter-language@0.1.8",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "ca0d1bf6fdd806e43ae5198f82f527056d359def39e54e67a0f478ac09dac081"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter-language",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter-language@0.1.8",
+   "scope": "required",
+   "type": "library",
+   "version": "0.1.8"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter-python@0.25.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter-python"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "6bf85fd39652e740bf60f46f4cda9492c3a9ad75880575bf14960f775cb74a1c"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter-python",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "tree-sitter grammar: generated parser and scanner (C/C++)"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter-python@0.25.0",
+   "scope": "required",
+   "type": "library",
+   "version": "0.25.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter-rust@0.24.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter-rust"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "439e577dbe07423ec2582ac62c7531120dbfccfa6e5f92406f93dd271a120e45"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter-rust",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "tree-sitter grammar: generated parser and scanner (C/C++)"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter-rust@0.24.2",
+   "scope": "required",
+   "type": "library",
+   "version": "0.24.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/tree-sitter-typescript@0.23.2",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/tree-sitter/tree-sitter-typescript"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "6c5f76ed8d947a75cc446d5fccd8b602ebf0cde64ccf2ffa434d873d7a575eff"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "tree-sitter-typescript",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    },
+    {
+     "name": "praukron:native-code",
+     "value": "tree-sitter grammar: generated parser and scanner (C/C++)"
+    }
+   ],
+   "purl": "pkg:cargo/tree-sitter-typescript@0.23.2",
+   "scope": "required",
+   "type": "library",
+   "version": "0.23.2"
+  },
+  {
+   "bom-ref": "pkg:cargo/unicode-ident@1.0.26",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/unicode-ident"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "(MIT OR Apache-2.0) AND Unicode-3.0"
+    }
+   ],
+   "name": "unicode-ident",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/unicode-ident@1.0.26",
+   "scope": "excluded",
+   "type": "library",
+   "version": "1.0.26"
+  },
+  {
+   "bom-ref": "pkg:cargo/vcpkg@0.2.15",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/mcgoo/vcpkg-rs"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT/Apache-2.0"
+    }
+   ],
+   "name": "vcpkg",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "build"
+    }
+   ],
+   "purl": "pkg:cargo/vcpkg@0.2.15",
+   "scope": "excluded",
+   "type": "library",
+   "version": "0.2.15"
+  },
+  {
+   "bom-ref": "pkg:cargo/walkdir@2.5.0",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/BurntSushi/walkdir"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "Unlicense/MIT"
+    }
+   ],
+   "name": "walkdir",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/walkdir@2.5.0",
+   "scope": "required",
+   "type": "library",
+   "version": "2.5.0"
+  },
+  {
+   "bom-ref": "pkg:cargo/winnow@1.0.4",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/winnow-rs/winnow"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "23b97319f7b8343df12cc98938e5c3eb436064524c8d2b4e30a1d3a36eecdf81"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "winnow",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/winnow@1.0.4",
+   "scope": "required",
+   "type": "library",
+   "version": "1.0.4"
+  },
+  {
+   "bom-ref": "pkg:cargo/xxhash-rust@0.8.18",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/DoumanAsh/xxhash-rust"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "BSL-1.0"
+    }
+   ],
+   "name": "xxhash-rust",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/xxhash-rust@0.8.18",
+   "scope": "required",
+   "type": "library",
+   "version": "0.8.18"
+  },
+  {
+   "bom-ref": "pkg:cargo/zmij@1.0.23",
+   "externalReferences": [
+    {
+     "type": "vcs",
+     "url": "https://github.com/dtolnay/zmij"
+    }
+   ],
+   "hashes": [
+    {
+     "alg": "SHA-256",
+     "content": "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+    }
+   ],
+   "licenses": [
+    {
+     "expression": "MIT"
+    }
+   ],
+   "name": "zmij",
+   "properties": [
+    {
+     "name": "praukron:role",
+     "value": "bundled"
+    },
+    {
+     "name": "praukron:platforms",
+     "value": "aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-apple-darwin x86_64-unknown-linux-gnu"
+    }
+   ],
+   "purl": "pkg:cargo/zmij@1.0.23",
+   "scope": "required",
+   "type": "library",
+   "version": "1.0.23"
+  }
+ ],
+ "dependencies": [
+  {
+   "dependsOn": [
+    "pkg:cargo/codegraph@0.1.2?vcs_url=git+https://github.com/crowbett/codegraph%400dbef57e463cd7511376487146b875fb91b4050d",
+    "pkg:cargo/serde_json@1.0.151"
+   ],
+   "ref": "pkg:cargo/praukron_graph@0.1.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/memchr@2.8.3"
+   ],
+   "ref": "pkg:cargo/aho-corasick@1.1.5"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/bitflags@2.13.2"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/memchr@2.8.3",
+    "pkg:cargo/serde_core@1.0.229"
+   ],
+   "ref": "pkg:cargo/bstr@1.13.1"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/find-msvc-tools@0.1.14",
+    "pkg:cargo/shlex@2.0.1"
+   ],
+   "ref": "pkg:cargo/cc@1.5.1"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/ignore@0.4.33",
+    "pkg:cargo/rayon@1.12.0",
+    "pkg:cargo/rusqlite@0.40.2",
+    "pkg:cargo/serde@1.0.229",
+    "pkg:cargo/serde_json@1.0.151",
+    "pkg:cargo/streaming-iterator@0.1.9",
+    "pkg:cargo/thiserror@2.0.21",
+    "pkg:cargo/toml@1.1.6+spec-1.1.0",
+    "pkg:cargo/tree-sitter-c@0.24.2",
+    "pkg:cargo/tree-sitter-cpp@0.23.4",
+    "pkg:cargo/tree-sitter-go@0.25.0",
+    "pkg:cargo/tree-sitter-javascript@0.25.0",
+    "pkg:cargo/tree-sitter-python@0.25.0",
+    "pkg:cargo/tree-sitter-rust@0.24.2",
+    "pkg:cargo/tree-sitter-typescript@0.23.2",
+    "pkg:cargo/tree-sitter@0.27.0",
+    "pkg:cargo/xxhash-rust@0.8.18"
+   ],
+   "ref": "pkg:cargo/codegraph@0.1.2?vcs_url=git+https://github.com/crowbett/codegraph%400dbef57e463cd7511376487146b875fb91b4050d"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/crossbeam-epoch@0.9.21",
+    "pkg:cargo/crossbeam-utils@0.8.23"
+   ],
+   "ref": "pkg:cargo/crossbeam-deque@0.8.8"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/crossbeam-utils@0.8.23"
+   ],
+   "ref": "pkg:cargo/crossbeam-epoch@0.9.21"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/crossbeam-utils@0.8.23"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/either@1.18.0"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/equivalent@1.0.2"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/fallible-iterator@0.3.0"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/fallible-streaming-iterator@0.1.9"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/find-msvc-tools@0.1.14"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/foldhash@0.2.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/aho-corasick@1.1.5",
+    "pkg:cargo/bstr@1.13.1",
+    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/regex-automata@0.4.18",
+    "pkg:cargo/regex-syntax@0.8.11"
+   ],
+   "ref": "pkg:cargo/globset@0.4.20"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/foldhash@0.2.0"
+   ],
+   "ref": "pkg:cargo/hashbrown@0.17.1"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/hashbrown@0.17.1"
+   ],
+   "ref": "pkg:cargo/hashlink@0.12.2"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/crossbeam-deque@0.8.8",
+    "pkg:cargo/globset@0.4.20",
+    "pkg:cargo/log@0.4.34",
+    "pkg:cargo/memchr@2.8.3",
+    "pkg:cargo/regex-automata@0.4.18",
+    "pkg:cargo/same-file@1.0.6",
+    "pkg:cargo/walkdir@2.5.0"
+   ],
+   "ref": "pkg:cargo/ignore@0.4.33"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/equivalent@1.0.2",
+    "pkg:cargo/hashbrown@0.17.1"
+   ],
+   "ref": "pkg:cargo/indexmap@2.14.2"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/itoa@1.0.18"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/pkg-config@0.3.34",
+    "pkg:cargo/vcpkg@0.2.15"
+   ],
+   "ref": "pkg:cargo/libsqlite3-sys@0.38.2"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/log@0.4.34"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/memchr@2.8.3"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/pkg-config@0.3.34"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/unicode-ident@1.0.26"
+   ],
+   "ref": "pkg:cargo/proc-macro2@1.0.107"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107"
+   ],
+   "ref": "pkg:cargo/quote@1.0.47"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/either@1.18.0",
+    "pkg:cargo/rayon-core@1.13.0"
+   ],
+   "ref": "pkg:cargo/rayon@1.12.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/crossbeam-deque@0.8.8",
+    "pkg:cargo/crossbeam-utils@0.8.23"
+   ],
+   "ref": "pkg:cargo/rayon-core@1.13.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/aho-corasick@1.1.5",
+    "pkg:cargo/memchr@2.8.3",
+    "pkg:cargo/regex-automata@0.4.18",
+    "pkg:cargo/regex-syntax@0.8.11"
+   ],
+   "ref": "pkg:cargo/regex@1.13.1"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/aho-corasick@1.1.5",
+    "pkg:cargo/memchr@2.8.3",
+    "pkg:cargo/regex-syntax@0.8.11"
+   ],
+   "ref": "pkg:cargo/regex-automata@0.4.18"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/regex-syntax@0.8.11"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/bitflags@2.13.2",
+    "pkg:cargo/fallible-iterator@0.3.0",
+    "pkg:cargo/fallible-streaming-iterator@0.1.9",
+    "pkg:cargo/hashlink@0.12.2",
+    "pkg:cargo/libsqlite3-sys@0.38.2",
+    "pkg:cargo/smallvec@1.16.2"
+   ],
+   "ref": "pkg:cargo/rusqlite@0.40.2"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/same-file@1.0.6"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/serde_core@1.0.229",
+    "pkg:cargo/serde_derive@1.0.229"
+   ],
+   "ref": "pkg:cargo/serde@1.0.229"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/serde_core@1.0.229"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.6"
+   ],
+   "ref": "pkg:cargo/serde_derive@1.0.229"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/indexmap@2.14.2",
+    "pkg:cargo/itoa@1.0.18",
+    "pkg:cargo/memchr@2.8.3",
+    "pkg:cargo/serde_core@1.0.229",
+    "pkg:cargo/zmij@1.0.23"
+   ],
+   "ref": "pkg:cargo/serde_json@1.0.151"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/serde_core@1.0.229"
+   ],
+   "ref": "pkg:cargo/serde_spanned@1.1.1"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/shlex@2.0.1"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/smallvec@1.16.2"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/streaming-iterator@0.1.9"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/unicode-ident@1.0.26"
+   ],
+   "ref": "pkg:cargo/syn@3.0.6"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/thiserror-impl@2.0.21"
+   ],
+   "ref": "pkg:cargo/thiserror@2.0.21"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/proc-macro2@1.0.107",
+    "pkg:cargo/quote@1.0.47",
+    "pkg:cargo/syn@3.0.6"
+   ],
+   "ref": "pkg:cargo/thiserror-impl@2.0.21"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/indexmap@2.14.2",
+    "pkg:cargo/serde_core@1.0.229",
+    "pkg:cargo/serde_spanned@1.1.1",
+    "pkg:cargo/toml_datetime@1.1.1+spec-1.1.0",
+    "pkg:cargo/toml_parser@1.1.3+spec-1.1.0",
+    "pkg:cargo/toml_writer@1.1.2+spec-1.1.0",
+    "pkg:cargo/winnow@1.0.4"
+   ],
+   "ref": "pkg:cargo/toml@1.1.6+spec-1.1.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/serde_core@1.0.229"
+   ],
+   "ref": "pkg:cargo/toml_datetime@1.1.1+spec-1.1.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/winnow@1.0.4"
+   ],
+   "ref": "pkg:cargo/toml_parser@1.1.3+spec-1.1.0"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/toml_writer@1.1.2+spec-1.1.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/regex@1.13.1",
+    "pkg:cargo/serde_json@1.0.151",
+    "pkg:cargo/streaming-iterator@0.1.9",
+    "pkg:cargo/tree-sitter-language@0.1.8"
+   ],
+   "ref": "pkg:cargo/tree-sitter@0.27.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/tree-sitter-language@0.1.8"
+   ],
+   "ref": "pkg:cargo/tree-sitter-c@0.24.2"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/tree-sitter-language@0.1.8"
+   ],
+   "ref": "pkg:cargo/tree-sitter-cpp@0.23.4"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/tree-sitter-language@0.1.8"
+   ],
+   "ref": "pkg:cargo/tree-sitter-go@0.25.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/tree-sitter-language@0.1.8"
+   ],
+   "ref": "pkg:cargo/tree-sitter-javascript@0.25.0"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/tree-sitter-language@0.1.8"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/tree-sitter-language@0.1.8"
+   ],
+   "ref": "pkg:cargo/tree-sitter-python@0.25.0"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/tree-sitter-language@0.1.8"
+   ],
+   "ref": "pkg:cargo/tree-sitter-rust@0.24.2"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/cc@1.5.1",
+    "pkg:cargo/tree-sitter-language@0.1.8"
+   ],
+   "ref": "pkg:cargo/tree-sitter-typescript@0.23.2"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/unicode-ident@1.0.26"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/vcpkg@0.2.15"
+  },
+  {
+   "dependsOn": [
+    "pkg:cargo/same-file@1.0.6"
+   ],
+   "ref": "pkg:cargo/walkdir@2.5.0"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/winnow@1.0.4"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/xxhash-rust@0.8.18"
+  },
+  {
+   "dependsOn": [],
+   "ref": "pkg:cargo/zmij@1.0.23"
+  }
+ ],
+ "metadata": {
+  "component": {
+   "bom-ref": "pkg:cargo/praukron_graph@0.1.0",
+   "description": "Praukron graph library: a C ABI over crowbett/codegraph",
+   "licenses": [
+    {
+     "expression": "Apache-2.0"
+    }
+   ],
+   "name": "praukron_graph",
+   "type": "library",
+   "version": "0.1.0"
+  },
+  "properties": [
+   {
+    "name": "praukron:generator",
+    "value": "native/graph/tools/notices.py"
+   },
+   {
+    "name": "praukron:platforms",
+    "value": "aarch64-apple-darwin x86_64-apple-darwin x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu"
+   }
+  ]
+ },
+ "specVersion": "1.5",
+ "version": 1
+}
