@@ -728,16 +728,19 @@ unknown is recorded as a reference with `Source: agent`, its evidence and a
 `Confidence`; it stays unverified until someone checks it. The work workflow
 tells an agent to do this for the symbols of its own task.
 
-`engine map` is the first step towards two questions: why a piece of code is
-as it is, from a symbol back to the tasks and decisions behind it, and what a
-planned change will run into, the code within its reach and the decisions
-attached to that code. Both answers are planned. The second will list what a
-change must be checked against; whether it conflicts stays a judgment the
-reader makes and records.
+Two questions are what this is for: why a piece of code is as it is, from a
+symbol back to the tasks and decisions behind it, and what a planned change
+will run into, the code within its reach and the decisions attached to that
+code. The first is answered by `praukron why <path|path#symbol|directory>`
+(see [Why is this code as it is](#which-code-each-task-touched) below), from
+the chronicle alone. The second is planned: it will list what a change must
+be checked against; whether it conflicts stays a judgment the reader makes and
+records.
 
-The following are also planned and not in `main`: symbols for
-TypeScript and Rust, then the other bundled languages, recorded at a task's
-close; a view of the map in the dashboard; the library delivered by the
+The following are planned and not in `main`, in this order: what a planned
+change runs into (the impact answer); symbols for TypeScript and Rust, then
+the other bundled languages, recorded at a task's close; a view of the map in
+the dashboard; a built-in search fallback; the library delivered by the
 installer and the release; and a container fallback and a PostgreSQL store for
 large codebases. The README's
 [How the code relates to itself](../README.md#how-the-code-relates-to-itself)
