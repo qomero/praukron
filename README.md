@@ -15,6 +15,7 @@ Chronicle.
 Previously published as **Prokron**. Existing DOI identifiers and Git history are preserved.
 
 [The problem](#the-problem) · [Which work touched which code](#which-work-touched-which-code) ·
+[How the code relates to itself](#how-the-code-relates-to-itself) ·
 [Get started](#get-started) ·
 [Guide](docs/GUIDE.md) · [Specification](docs/SPEC.md) ·
 [Thesis](docs/PRODUCT-THESIS.md)
@@ -363,6 +364,129 @@ How to add a reference by hand, correct one, and read its history is in the
 [guide](docs/GUIDE.md#which-code-each-task-touched); the record format is in
 [SPEC §2.9](docs/SPEC.md#29-taskcode-references).
 
+## How the code relates to itself
+
+Praukron joins the layer where a project is governed, why it exists, what was
+decided and what counts as done, to the layer where its code is written, and
+carries both across generations of agents and of people. Two questions are
+what that is for: why a piece of code is as it is, from a symbol back to the
+tasks and decisions behind it, and what a planned change will run into, the
+code within its reach and the decisions attached to that code. Both answers
+are planned. `praukron engine map` is the first step, and the second answer
+will list what a change must be checked against; it does not decide whether
+the change conflicts.
+
+References say which task touched which file and symbol. They do not say how
+that code relates to the rest: what a function calls, what calls it, what a
+change to it would reach. An optional code graph adds that half. Its purpose
+is to see: to look at a task and see the code it touched and that code's
+neighbours, or to look at a symbol and see every task that touched it.
+
+It is not there to make an agent find code better. Text search already finds
+code, and a small retrieval benchmark run while the engine was being chosen
+did not show any graph engine finding code better than plain text search.
+
+The graph comes from a native library built from `native/graph/`:
+crowbett/codegraph, which parses with tree-sitter, behind a small C interface.
+Praukron loads it in process with Python's `ctypes`. No separate program,
+daemon, service or account is involved. Without the library Praukron is
+unchanged, and a missing graph is a normal state, not an error. The index the
+library writes is derived output like `.praukron/compiled/`: no record cites
+it, and `validate`, `compile`, `context` and `retrieve` never read it.
+
+<p align="center">
+  <img src="docs/assets/code-graph-layers.svg" alt="Five numbered layers from most certain to most general, each with its source and its state: 1, the resolved graph from the embedded engine, in main through praukron engine index and export; 2, recorded reasoning, an agent reading the code and recording what it found, in main, praukron engine map asks the agent to record it; 3, definitions from tree-sitter, planned, TypeScript and Rust first; 4, task-code references recorded when a task closes, in 4.0.0; 5, text search with the user's own tools. A Question arrow runs down the left and stops at the first layer that answers; the Answer names its layer. A note says the graph is optional: without it, the lower layers still answer." width="800">
+</p>
+
+<p align="center"><em>The layers of the design, in the order a question falls through them. Each answer names the layer it came from.<br>
+In <code>main</code> today: the resolved graph, recorded reasoning, and task–code references, joined by <code>praukron engine map</code>. Definitions are planned.</em></p>
+
+The design has five layers, from most certain to most general. A question
+falls through them in this order and stops at the first one that answers, and
+the answer says which layer it came from:
+
+1. **Resolved graph.** Calls, imports, inheritance and references between
+   symbols, with paths and lines, computed by the embedded engine.
+2. **Recorded reasoning.** A relation the engine left unknown, worked out by an
+   agent reading the code and written as a task–code reference with source
+   `agent`, its evidence and confidence. It stays unverified until someone
+   checks it.
+3. **Definitions.** What a file defines, from the tree-sitter grammars inside
+   the library, without resolving anything. Planned, TypeScript and Rust first.
+4. **Task–code references.** Which task touched which file and symbol, as
+   described above.
+5. **Text search.** Anything by name, with your own tools.
+
+What the engine computed, what an agent reasoned, what Git capture recorded
+and what a person wrote are shown apart and never blended. Where the engine
+cannot tell which function a call reaches, the relation is shown as unknown,
+never as no relation.
+
+An agent is part of the design because tools give only the certain part. An
+agent can read a function and tell which class a value belongs to, follow a
+registry or a hook, or trace a value from input to storage; no engine that
+was evaluated could. What Praukron adds is that the agent writes down what it
+found, with its source, evidence and confidence, so the work is not repeated
+and can be checked. It does this only for the symbols of the task in hand, so
+the map fills in along the lines of real work. Where the engine leaves an edge
+of a task's symbol unresolved, `engine map` and the agent's work instructions
+tell the agent to read the code and record what it finds with `ref add` and
+source `agent`.
+
+Four commands exist today:
+
+```sh
+praukron engine status     # is a library present, which engine commit and interface version
+praukron engine index      # build or refresh .praukron/engine/graph.db
+praukron engine export     # the whole graph as one JSON document
+praukron engine map <task|path|path#symbol> [--json]
+                           # a task's code and its neighbours, or a symbol's tasks, by source
+```
+
+`engine map` labels every item by its source: `engine`, `engine-unresolved`,
+or `reference:` and the reference's own source. Below the task or path it
+names, it says which index it read and when that index was built. Without an
+index it answers from the references alone and says that no graph is present.
+
+What is not there yet, and the limits of what is:
+
+- **The installer does not deliver the library.** Today you download the
+  `praukron-graph-<platform>` artifact of the `Graph library` workflow and put
+  the file at `.praukron/lib/<platform>/`, or name it in `PRAUKRON_GRAPH_LIB`.
+  The library is a built file and does not belong in the repository. Nothing
+  ignores `.praukron/lib/` yet, so keep it out of your commits by hand for now.
+  It is built for macOS ARM64 and x86_64 and Linux x86_64 and ARM64; the Linux
+  builds need glibc 2.39. Windows is out of scope.
+- **Most method calls in Python stay unresolved.** On this repository the
+  engine resolved about 30 % of the edges that are not imports; most of the
+  rest are method calls on a value whose type it does not know. A relative
+  `from . import x` is attributed to the package file. SQL is not indexed.
+- **A resolved edge can be wrong.** On Rust (ripgrep 16.0.0, 105 files) the
+  engine resolved 51 % of the non-import edges. An independent audit of a
+  sample found 28 of 30 resolved call edges right and 2 wrong, 14 of 30
+  unresolved edges to be misses inside the workspace, and 7 of 30 definitions
+  with a shortened qualified name. The engine marks each edge `exact` or
+  `likely`, and `engine map` shows which.
+- **Planned, in this order:** symbols of TypeScript and Rust, then
+  the other bundled languages, recorded at a task's close; a view of the map in
+  the dashboard; the library delivered by the installer and the release; a
+  container fallback for machines without the native library, and a
+  PostgreSQL store for large codebases.
+
+<p align="center">
+  <img src="docs/assets/code-graph-task-map.svg" alt="Task T-001 on the left, linked to the file orders.py and the symbols it touched, total() and Invoice.save. One step out are their neighbours in the graph, sum_line(), round_total() and Storage.write. One edge ends in unknown, where the engine could not resolve the call. One dashed edge is marked agent, unverified. A legend names four sources: embedded engine, Git capture when a task closes, agent (unverified), and person." width="800">
+</p>
+
+<p align="center"><em>A task map: one task, the symbols it touched, their neighbours, a relation marked unknown and one recorded by an agent.<br>
+<code>praukron engine map &lt;task&gt;</code> gives it as text, or as JSON with <code>--json</code>; a view of it in the dashboard is planned.</em></p>
+
+The data flow and user flow of a program are not produced by the engine; where
+they are wanted, people and agents record them. The graph does not replace
+reading the code, a language server or a type checker. How to get the library,
+where the index lives and what its figures mean are in the
+[guide](docs/GUIDE.md#the-embedded-graph-library-optional); the normative part
+is [SPEC §2.10](docs/SPEC.md#210-the-code-graph).
+
 ## Get started
 
 ### 1. Install in your project
@@ -636,7 +760,7 @@ into why the model is shaped this way.
 
 **Implemented and tested.** The compiler and its twenty-two commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1094 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1146 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 

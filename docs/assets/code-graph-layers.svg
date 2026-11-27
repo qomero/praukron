@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560" role="img" aria-labelledby="title desc">
   <title id="title">The code graph layers</title>
-  <desc id="desc">A question falls through five layers, from most certain to most general: resolved graph, recorded reasoning, definitions, task-code references, and text search. It stops at the first layer that answers, and the answer names its layer. The graph is optional; without it the lower layers still answer. The resolved graph is in main; the reasoning record type exists since 4.0.0 but its guidance is planned; definitions are planned; task-code references are in 4.0.0; text search uses the user's own tools.</desc>
+  <desc id="desc">A question falls through five layers, from most certain to most general: resolved graph, recorded reasoning, definitions, task-code references, and text search. It stops at the first layer that answers, and the answer names its layer. The graph is optional; without it the lower layers still answer. The resolved graph is in main; the reasoning record type exists since 4.0.0, and praukron engine map asks an agent to record what it finds; definitions are planned; task-code references are in 4.0.0; text search uses the user's own tools.</desc>
   <style>
     :root { color-scheme: light dark; --bg:#ffffff; --ink:#1d2933; --muted:#52616c; --line:#71818b; --rule:#c5ced4; --panel:#f6f8fa; --accent:#286752; }
     @media (prefers-color-scheme: dark) {
@@ -34,7 +34,7 @@
   <rect class="box" x="70" y="198" width="494" height="78" rx="4"/>
   <text class="name" x="86" y="221">2. Recorded reasoning</text>
   <text class="note" x="86" y="241">An agent reads the code and records what it found</text>
-  <text class="state" x="86" y="263">Record type: since 4.0.0; guidance planned</text>
+  <text class="state" x="86" y="263">In main: engine map asks the agent to record it</text>
 
   <rect class="box" x="70" y="288" width="494" height="72" rx="4" stroke-dasharray="5 4"/>
   <text class="name" x="86" y="311">3. Definitions</text>

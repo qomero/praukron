@@ -996,6 +996,43 @@ fails, as for every record file); `duplicate-reference`,
 errors; and `repeated-reference` (the same task, artifact, relation and scope
 recorded twice and neither replaced) and `possible-secret` warnings.
 
+### 2.10 The code graph
+
+This section defines the optional embedded graph library and its index. It
+states only what `main` does. The README and the guide describe the planned
+layers; nothing here depends on them.
+
+**Optional.** The library is a native file built from `native/graph/` and
+loaded in process with `ctypes` by `praukron engine status|index|export`. It
+is looked for at the path in `PRAUKRON_GRAPH_LIB` when that is set and not
+empty, and then nowhere else; otherwise at
+`.praukron/lib/<platform>/libpraukron_graph.dylib` on macOS or
+`libpraukron_graph.so` on Linux. Only the `engine` commands import the loader. Absence is a normal state: every
+other command behaves as without the feature, and the `engine` commands say
+that no library is present and exit 0. A library that cannot be used is
+reported in one line with exit status 1 and changes no record.
+
+**Derived, never authority.** The index is the library's SQLite store at
+`.praukron/engine/graph.db`, in a directory whose own `.gitignore` ignores
+everything in it. It is derived from the code and can be deleted and rebuilt
+at any time. No record cites it. `validate`, `compile`, `context`, `retrieve`
+and `refs` never read it, and nothing in the index decides a question a record
+answers. `engine export` refuses to write its output inside
+`.praukron/chronicle/`.
+
+**Sources kept apart.** The export names its `source`, `graph-library`, and
+the library, engine and engine commit it came from. Task–code references
+(§2.9) keep their own `Source`. Nothing merges the two: the engine never writes
+a record, and a record never takes a value from the index. `praukron engine map
+<task|path|path#symbol>` reads the index with `sqlite3` alone, read only, and
+labels every item with its source: `engine`, `engine-unresolved`, or
+`reference:<Source>`. It writes nothing. Without an index it answers from the
+references alone and says that no graph is present.
+
+**Unknown is not absence.** An edge whose target the engine could not resolve
+is exported with `target: null` and the referenced `name`. A reader must treat
+it as an unknown relation, never as the absence of one.
+
 ## 3. Entry modes
 
 Praukron has exactly two entry modes.

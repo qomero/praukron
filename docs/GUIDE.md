@@ -608,8 +608,9 @@ Praukron looks for the library in one place, and the first match wins:
    the `Graph library` workflow gives its build artifacts, and `<file>` is
    `libpraukron_graph.dylib` on macOS and `libpraukron_graph.so` on Linux.
 
-A platform subdirectory lets one repository, shared between machines, hold the
-library for each. Windows has no default place.
+The platform subdirectory lets each machine find the build made for it, whether
+you copy one library or several into a working copy. Windows has no default
+place.
 
 No library is a normal state: every other command works exactly as in 4.0.0
 and never loads it, and the `engine` commands say that none is present and
@@ -654,6 +655,93 @@ Python's `sqlite3` alone, read only, so an index written on another machine
 is readable where no library is installed. With no index it answers from the
 references alone, says that no graph is present, and succeeds. It writes
 nothing: no engine node or edge reaches the chronicle.
+
+#### Getting the library
+
+The installer does not deliver the library yet, and no release carries it.
+Today you take it from the `Graph library` workflow in GitHub Actions, which
+builds it on pull requests that change the library or its loader, and on
+demand:
+
+1. Open a successful run of the workflow and download the
+   `praukron-graph-<platform>` artifact for your machine. It holds the library
+   file and a `build-info.json` with its size and SHA-256.
+2. Put the file at `.praukron/lib/<platform>/` in your repository, or anywhere
+   else and name it in `PRAUKRON_GRAPH_LIB`.
+   The library is a built file and is not committed to the repository.
+   Nothing ignores `.praukron/lib/` yet; that comes with the planned delivery
+   by the installer. Until then, keep the file out of your commits by hand.
+3. Run `praukron engine status`. It says where the library was found and which
+   engine commit and interface version it reports.
+
+The `praukron-graph-notices` artifact of the same run holds the third-party
+notices and the bill of materials for every crate and grammar compiled in.
+Each library is about 15 to 17 MB. The Linux builds need glibc 2.39 or later.
+Windows is out of scope. To build it yourself instead, see
+[`native/graph/README.md`](../native/graph/README.md).
+
+#### What the figures mean
+
+`engine status` and `engine index` print files, symbols and *non-import
+edges*; `export` returns every node and edge and its `counts`. An edge is one
+relation the engine found in the source, of kind `call`, `ref`, `impl`,
+`inherit`, `import` or `value`. Its `source` is the enclosing symbol, or
+the file for a reference at file level.
+
+An edge is *resolved* when the engine could tell what it reaches: its `target`
+is that symbol, or for an import the file. An edge is *unresolved* when it
+could not: `target` is `null`, and `name` says what the source code referred
+to. An unresolved edge means the relation is unknown. It never means there is
+no relation. `resolved_non_import_edges` divided by `non_import_edges` is the
+share the engine resolved.
+
+For scale, measured on the Praukron repository itself on macOS ARM64: 105 files
+indexed in 0.40 s with a peak of 96 MB of memory, giving 3,240 nodes, 36,202
+edges and an index file of 5.5 MB.
+
+#### Limits
+
+- On the Praukron repository the engine resolved about 30 % of the edges that
+  are not imports. Python is a dynamic language: most of the rest are method
+  calls on a value whose type the engine does not know.
+- A relative import, `from . import x`, is attributed to the package file, not
+  to `x`.
+- Grammars are bundled for C, C++, Go, JavaScript, Python, Rust and
+  TypeScript. SQL is not indexed.
+- A resolved edge can be wrong. On Rust, measured on ripgrep 16.0.0 (105
+  files, indexed in 1.00 s), the engine resolved 51 % of the non-import edges.
+  An independent audit of a sample found 28 of 30 resolved call edges right and
+  2 wrong, 14 of 30 unresolved edges to be misses inside the workspace, and 7
+  of 30 definitions with a shortened qualified name. These are counts on a
+  sample, not an accuracy. The engine marks each edge `exact` or `likely` in
+  its `confidence`, and `engine map` shows it on every edge.
+- Data flow and user flow are not produced. The graph does not replace reading
+  the code, a language server or a type checker, and it is not a code search:
+  text search already finds code.
+
+#### How it fits with task–code references
+
+The engine's graph and [task–code references](#which-code-each-task-touched)
+are kept apart. `praukron engine map` joins them for reading and keeps each
+item under its source, as described above. A relation the engine leaves
+unknown is recorded as a reference with `Source: agent`, its evidence and a
+`Confidence`; it stays unverified until someone checks it. The work workflow
+tells an agent to do this for the symbols of its own task.
+
+`engine map` is the first step towards two questions: why a piece of code is
+as it is, from a symbol back to the tasks and decisions behind it, and what a
+planned change will run into, the code within its reach and the decisions
+attached to that code. Both answers are planned. The second will list what a
+change must be checked against; whether it conflicts stays a judgment the
+reader makes and records.
+
+The following are also planned and not in `main`: symbols for
+TypeScript and Rust, then the other bundled languages, recorded at a task's
+close; a view of the map in the dashboard; the library delivered by the
+installer and the release; and a container fallback and a PostgreSQL store for
+large codebases. The README's
+[How the code relates to itself](../README.md#how-the-code-relates-to-itself)
+shows the layers in the order a question will fall through them.
 
 ### Which code each task touched
 
