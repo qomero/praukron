@@ -16,6 +16,10 @@ change type and paths. `changed_symbols` reads the old text (at `base`) and
 the new text (at `head`, or in the working tree) of each changed Python file
 and `symbols` attributes the changed lines to functions, classes and methods
 (T-CIL-SCOPE-02), recorded in the same write as the files.
+
+A change the capture cannot attribute to the task, because another claimed
+task overlaps it or a merge brought it in (`merged_in`), is recorded
+`Lifecycle: unresolved` and `Verification: unverified` (T-SCOPE-ATTRIB-01).
 """
 
 from __future__ import annotations
@@ -461,8 +465,11 @@ def plan(project: Project, root: Path, task, base: str, head_commit: str, *, wor
     `named` is true when the caller named both revisions (`scope capture
     --base --head`, T-CIL-SCOPE-06): the caller vouches that the range is the
     task's, so no overlap is looked for and nothing is unresolved; each
-    record's evidence says the range was named. Otherwise other tasks claimed
-    over the range make the records unresolved (`overlapping`).
+    record's evidence says the range was named, and a record it writes for an
+    artifact the task holds as unresolved replaces that record. Otherwise
+    other tasks claimed over the range (`overlapping`) and commits merged into
+    it (`merged_in`) make the records unresolved and unverified, never
+    verified (T-SCOPE-ATTRIB-01), and the reply carries a `warning`.
 
     Raises GitUnavailable when Git cannot answer. Returns no change when every
     changed file and symbol is already recorded as observed for the task with
