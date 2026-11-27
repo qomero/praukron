@@ -728,16 +728,19 @@ unknown is recorded as a reference with `Source: agent`, its evidence and a
 `Confidence`; it stays unverified until someone checks it. The work workflow
 tells an agent to do this for the symbols of its own task.
 
-`engine map` is the first step towards two questions: why a piece of code is
-as it is, from a symbol back to the tasks and decisions behind it, and what a
-planned change will run into, the code within its reach and the decisions
-attached to that code. Both answers are planned. The second will list what a
-change must be checked against; whether it conflicts stays a judgment the
-reader makes and records.
+Two questions are what this is for: why a piece of code is as it is, from a
+symbol back to the tasks and decisions behind it, and what a planned change
+will run into, the code within its reach and the decisions attached to that
+code. The first is answered by `praukron why <path|path#symbol|directory>`
+(see [Why is this code as it is](#which-code-each-task-touched) below), from
+the chronicle alone. The second is planned: it will list what a change must
+be checked against; whether it conflicts stays a judgment the reader makes and
+records.
 
-The following are also planned and not in `main`: symbols for
-TypeScript and Rust, then the other bundled languages, recorded at a task's
-close; a view of the map in the dashboard; the library delivered by the
+The following are planned and not in `main`, in this order: what a planned
+change runs into (the impact answer); symbols for TypeScript and Rust, then
+the other bundled languages, recorded at a task's close; a view of the map in
+the dashboard; a built-in search fallback; the library delivered by the
 installer and the release; and a container fallback and a PostgreSQL store for
 large codebases. The README's
 [How the code relates to itself](../README.md#how-the-code-relates-to-itself)
@@ -806,6 +809,61 @@ and assumptions, each with the record to open. An agent does not need to run
 `refs` to start: `praukron context <task>` and `praukron retrieve <task>` carry
 the task's current references in a `references` field (the first twelve, the
 counts, and the `refs` command for the rest when there are more).
+
+**Why is this code as it is.** `why` answers the question a maintainer asks
+months later: what was decided when this was written. Given a file, a
+`path#symbol` or a directory, it lists the tasks whose current references
+reach it, oldest first, and for each one how the reference was recorded
+(source, verification, relation, date), the decisions behind the task with
+their standing, its acceptance criteria and the invariants it inherits. Every
+line ends with the record it comes from.
+
+```console
+$ praukron why 'src/billing/invoice.py#format_total'
+src/billing/invoice.py#format_total — 2 tasks through 2 references, oldest first
+
+T-BILL-01 — Show invoice totals [DONE] · P1/M-BILLING · since 2026-03-02 (claimed) — TASKS.md#T-BILL-01
+  reference CR-T-BILL-01-04 src/billing/invoice.py#format_total · creates · observed · verified · source static_analysis · recorded 2026-03-04 · praukron — CODE.md#CR-T-BILL-01-04
+  decision ADR-001 [SUPERSEDED] superseded by ADR-004 [ACCEPTED], not the rule in force · Governed by — Truncate totals to cents — ADR/ADR-001.md
+    replaced by ADR-004 [ACCEPTED] — ADR/ADR-004.md
+  criterion AC-T-BILL-01-01 [PASS] TEST — Given an invoice, When it is shown, Then its total is shown in cents. — ACCEPTANCE.md#AC-T-BILL-01
+  invariant AC-GLOBAL-MONEY (AC-GLOBAL-MONEY-01) — ACCEPTANCE.md#AC-GLOBAL-MONEY
+
+T-BILL-02 — Round totals to cents [DONE] · P1/M-BILLING · since 2026-03-20 (claimed) — TASKS.md#T-BILL-02
+  reference CR-T-BILL-02-02 src/billing/invoice.py#format_total · modifies · observed · verified · source static_analysis · recorded 2026-03-21 · praukron — CODE.md#CR-T-BILL-02-02
+  decision ADR-004 [ACCEPTED] in force · Governed by, Affects — Round invoice totals half up to whole cents — ADR/ADR-004.md
+  criterion AC-T-BILL-02-01 [PASS] TEST — Given 10.005, When it is rounded, Then it is 10.01. — ACCEPTANCE.md#AC-T-BILL-02
+```
+
+- **Which tasks.** For a symbol, the references to that symbol; for a file,
+  those to the file and every symbol in it; for a directory, those to every
+  file below it. A withdrawn or replaced reference explains nothing; it is
+  listed apart at the end.
+- **Oldest first.** A task's date is the earlier of its claim date and the
+  dates its references to the target were recorded. Undated tasks come first,
+  in chronicle order: archived phases, then `TASKS.md`. An archived task is
+  marked `archived` and points into `archive/<phase>/`.
+- **Decisions.** A decision reaches a task through the task's `Governed by:`
+  or the decision's `Affects:`, and the line says which. It is `in force` only
+  while it is `ACCEPTED` and no decision names it in `Supersedes:`. A
+  superseded one names what replaced it and says it is not the rule in force;
+  any other status (`PROPOSED`, say) is marked `not accepted`.
+- **No record.** A symbol no current reference names gets a plain answer, `no
+  record explains it`, and exits with success. It then gives the history of the
+  nearest enclosing target that has a record: the enclosing symbol
+  (`Catalog.add` for `Catalog.add.inner`), then the file, whose file reference
+  stands in for its symbols, then each enclosing directory. Only the
+  chronicle is read: no graph library and no index, so write the qualified
+  name (`Catalog.add`, not `add`).
+- **Judge the link.** Capture can attribute a change to the wrong task, and
+  then the path leads to an unrelated decision. Read each reference's source,
+  verification and evidence before relying on the decision it leads to. Code
+  written before the project kept references has no task behind it until one
+  is recorded.
+
+`why` only reads; nothing it answers is written to the chronicle. Add `--json`
+for the same answer as data. For a task, `refs <task>` is the command; `why`
+refuses a task id and says so.
 
 **Planned and observed.** A reference written before the work, saying what the
 task expects to touch, is **planned**; one captured or recorded after it is

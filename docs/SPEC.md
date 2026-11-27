@@ -702,6 +702,17 @@ praukron refs src/pay/ledger.py           # the tasks, decisions, criteria and a
 praukron refs src/pay/ledger.py#Ledger.post
 ```
 
+`praukron why <path>[#symbol]` (ADR-103) walks the same records the other
+way for a reader asking why code is as it is: the tasks whose current
+references reach a symbol, a file or a directory, oldest first by claim or
+reference date, each with how its reference was recorded, the decisions that
+reach it through `Governed by:` or `Affects:` with their standing (in force,
+superseded with the decisions that supersede it, or not accepted), its
+criteria and inherited invariants, each with its `file#anchor`. A target no
+current reference reaches is answered as unexplained, with the history of the
+nearest enclosing symbol, file or directory that has a record. It reads only
+the chronicle, never a graph library or index, and writes nothing.
+
 For a task, `refs` lists every reference with each compiled field and its
 `file#anchor`. For a path it returns every reference to the file and to a
 symbol in it; for `path#symbol`, the references to that symbol. Either way each

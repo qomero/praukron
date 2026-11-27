@@ -371,10 +371,12 @@ decided and what counts as done, to the layer where its code is written, and
 carries both across generations of agents and of people. Two questions are
 what that is for: why a piece of code is as it is, from a symbol back to the
 tasks and decisions behind it, and what a planned change will run into, the
-code within its reach and the decisions attached to that code. Both answers
-are planned. `praukron engine map` is the first step, and the second answer
-will list what a change must be checked against; it does not decide whether
-the change conflicts.
+code within its reach and the decisions attached to that code. The first is
+answered: `praukron why <path|path#symbol|directory>` lists the tasks that
+touched the code, oldest first, with the decisions behind them, their
+criteria and invariants, from the chronicle alone. The second is planned; it
+will list what a change must be checked against, and it will not decide
+whether the change conflicts.
 
 References say which task touched which file and symbol. They do not say how
 that code relates to the rest: what a function calls, what calls it, what a
@@ -467,9 +469,10 @@ What is not there yet, and the limits of what is:
   unresolved edges to be misses inside the workspace, and 7 of 30 definitions
   with a shortened qualified name. The engine marks each edge `exact` or
   `likely`, and `engine map` shows which.
-- **Planned, in this order:** symbols of TypeScript and Rust, then
-  the other bundled languages, recorded at a task's close; a view of the map in
-  the dashboard; the library delivered by the installer and the release; a
+- **Planned, in this order:** what a planned change runs into (the impact
+  answer); symbols of TypeScript and Rust, then the other bundled languages,
+  recorded at a task's close; a view of the map in the dashboard; a built-in
+  search fallback; the library delivered by the installer and the release; a
   container fallback for machines without the native library, and a
   PostgreSQL store for large codebases.
 
@@ -648,6 +651,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron domains` | How each task's execution/operations domain was decided, and which need one. |
 | `praukron refs <task>` | The task's files and symbols, planned and observed, each with its record. |
 | `praukron refs <path>` · `<path>#<symbol>` | Every task that references the file or symbol, with its decisions, criteria and assumptions. |
+| `praukron why <path>` · `<path>#<symbol>` · `<directory>` | Why the code is as it is: the tasks that touched it, oldest first, how each reference was recorded, the decisions behind them (a superseded one with what replaced it), their criteria and inherited invariants, each with its record. From the chronicle alone; `--json`. |
 | `praukron retrieve "<question or id>"` | Only the chronicle records a question needs, routed by `INDEX.md`, each with its source, within a token budget (`--budget`). |
 | `praukron archive plan <phase>` | Owner only, read-only: which closed records of a COMPLETE phase (or `P-NONE`) would move to `archive/<phase>/` and which stay and why, with a digest. |
 | `praukron archive apply <phase> --plan <digest>` | Owner only: move exactly that plan. They stay authority; open work stays put; a stale plan is refused. |
@@ -760,7 +764,7 @@ into why the model is shaped this way.
 
 **Implemented and tested.** The compiler and its twenty-two commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1146 unit tests plus an installer
+the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1163 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 
