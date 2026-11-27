@@ -79,6 +79,18 @@ const pointer = (type, x, y, extra) => cv().fire(type, Object.assign({ clientX: 
 FAKE_3D = FAKE_DOM.replace("const viewButtons = ['lanes', 'force']", "const viewButtons = ['lanes', 'force', '3d']")
 
 
+
+def released(fragment: str) -> str:
+    """A changelog fragment, or after the release that assembled it, that release's section,
+    with emphasis marks and line breaks folded so either reads the same."""
+    path = ROOT / "changelog.d" / fragment
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+    else:
+        log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        text = next(part for part in log.split("\n## ")[1:] if fragment[:-3] in part)
+    return re.sub(r"\s+", " ", text.replace("**", ""))
+
 class View3DCase(ForceCase):
     """Runs the page's shell script with the canvas stand-in and a moving clock."""
 
@@ -565,9 +577,9 @@ class TestDocumentation(unittest.TestCase):
             self.assertIn(words, section)
         guide = (ROOT / "docs" / "GUIDE.md").read_text(encoding="utf-8")
         self.assertIn("3D view", guide)
-        fragment = (ROOT / "changelog.d" / "T-DASH-3D-01.md").read_text(encoding="utf-8")
+        fragment = released("T-DASH-3D-01.md")
         for words in ("3D view", "immersive", "two axes", "`3`", "`m`", "`p`", "reduced motion"):
-            self.assertIn(words, fragment)
+            self.assertIn(re.sub(r"\s+", " ", words), fragment)
 
 
 if __name__ == "__main__":

@@ -440,11 +440,11 @@ library writes is derived output like `.praukron/compiled/`: no record cites
 it, and `validate`, `compile`, `context` and `retrieve` never read it.
 
 <p align="center">
-  <img src="docs/assets/code-graph-layers.svg" alt="Five numbered layers from most certain to most general, each with its source and its state: 1, the resolved graph from the embedded engine, in main through praukron engine index and export; 2, recorded reasoning, an agent reading the code and recording what it found, in main, praukron engine map asks the agent to record it; 3, definitions from tree-sitter, planned, TypeScript and Rust first; 4, task-code references recorded when a task closes, in 4.0.0; 5, text search with the user's own tools. A Question arrow runs down the left and stops at the first layer that answers; the Answer names its layer. A note says the graph is optional: without it, the lower layers still answer." width="800">
+  <img src="docs/assets/code-graph-layers.svg" alt="Five numbered layers from most certain to most general, each with its source and its state: 1, the resolved graph from the embedded engine, in 4.1.0 through praukron engine index and export; 2, recorded reasoning, an agent reading the code and recording what it found, in 4.1.0, praukron engine map asks the agent to record it; 3, definitions from tree-sitter, planned, TypeScript and Rust first; 4, task-code references recorded when a task closes, in 4.0.0; 5, text search with the user's own tools. A Question arrow runs down the left and stops at the first layer that answers; the Answer names its layer. A note says the graph is optional: without it, the lower layers still answer." width="800">
 </p>
 
 <p align="center"><em>The layers of the design, in the order a question falls through them. Each answer names the layer it came from.<br>
-In <code>main</code> today: the resolved graph, recorded reasoning, and task–code references, joined by <code>praukron engine map</code>. Definitions are planned.</em></p>
+In 4.1.0: the resolved graph, recorded reasoning, and task–code references, joined by <code>praukron engine map</code>. Definitions are planned.</em></p>
 
 The design has five layers, from most certain to most general. A question
 falls through them in this order and stops at the first one that answers, and
@@ -824,7 +824,7 @@ into why the model is shaped this way.
 
 **Implemented and tested.** The compiler and its twenty-five commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard with its lanes, force and 3D views, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands with `engine impact`, `why`, the context packet, assumptions, owner responses and the served review page, agent authority and delegated verification, and task–code references with their capture from Git at a task's close. 1322 unit tests plus an installer
+the dashboard with its lanes, force and 3D views, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands with `engine impact`, `why`, the context packet, assumptions, owner responses and the served review page, agent authority and delegated verification, and task–code references with their capture from Git at a task's close. 1329 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 
@@ -892,7 +892,7 @@ For OpenCode setup, see its [providers](https://opencode.ai/docs/providers),
 
 ## Releases
 
-The current release is v4.0.0. `VERSION` holds it and [`CHANGELOG.md`](CHANGELOG.md) summarises
+The current release is v4.1.0. `VERSION` holds it and [`CHANGELOG.md`](CHANGELOG.md) summarises
 what changed. Every release from v0.4.6 is archived and citable:
 [`10.5281/zenodo.22897871`](https://doi.org/10.5281/zenodo.22897871) always resolves to the latest one, and
 [`CITATION.cff`](CITATION.cff) is what GitHub's *Cite this repository* reads.

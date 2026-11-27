@@ -138,6 +138,18 @@ class ForceCase(ShellCase):
         return json.loads(out.stdout.strip().splitlines()[-1])
 
 
+def released(fragment: str) -> str:
+    """A changelog fragment, or after the release that assembled it, that release's section,
+    with emphasis marks and line breaks folded so either reads the same."""
+    path = ROOT / "changelog.d" / fragment
+    if path.exists():
+        text = path.read_text(encoding="utf-8")
+    else:
+        log = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        text = next(part for part in log.split("\n## ")[1:] if fragment[:-3] in part)
+    return re.sub(r"\s+", " ", text.replace("**", ""))
+
+
 class TestOpensOnWork(ShellCase):
     """AC-T-DASH-FORCE-01-01."""
 
@@ -444,9 +456,9 @@ class TestDocumentation(unittest.TestCase):
         guide = (ROOT / "docs" / "GUIDE.md").read_text(encoding="utf-8")
         self.assertIn("opens on Work", guide)
         self.assertIn("force view", guide)
-        fragment = (ROOT / "changelog.d" / "T-DASH-FORCE-01.md").read_text(encoding="utf-8")
+        fragment = released("T-DASH-FORCE-01.md")
         for words in ("force view", "clustered by module", "`2`", "`1`", "opens on Work"):
-            self.assertIn(words, fragment)
+            self.assertIn(re.sub(r"\s+", " ", words), fragment)
 
 
 if __name__ == "__main__":

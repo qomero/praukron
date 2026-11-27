@@ -4,6 +4,170 @@ Praukron records its own history in `.praukron/chronicle/JOURNAL.md` and its
 decisions in `.praukron/chronicle/ADR/`. This file is the short version, for
 people arriving from a release page.
 
+## 4.1.0 — 2026-11-28
+
+This release rebuilds the dashboard around the shape of the project, lets the
+owner hand the verification of owner tasks to a named agent, stops capture from
+claiming work it cannot attribute, and adds an optional code graph that answers
+what a planned change runs into and why a piece of code is as it is. The page
+is now one shell that opens on Work, where the lanes, a force view and a 3D view
+draw the same tasks, decisions and assumptions, and a strip lists what waits for
+the owner. A 4.0.0 chronicle needs no change: the one new chronicle file,
+`AUTHORITY.md`, is optional and grants nothing when it is absent.
+
+- Dashboard shell: the page is one shell around Home, Work, Review and Audit,
+  with a header and search, a **Waiting for you** strip, a side panel and a
+  bottom panel that share one project, one selection and one set of filters.
+  It opens on Work on a first visit; an address fragment or the last workspace
+  still wins. The strip lists open owner tasks, DONE owner tasks without the
+  owner's verification and open assumptions, each once, split into *now* and
+  *upcoming*, with what each blocks (transitive first, direct beside it) or
+  affects, and dates only from records; kinds the project does not record are
+  named, not counted as zero. A task opens in the side panel, which shows
+  everything the task dialog showed. Each panel hides, shows and resizes:
+  `s`, `b` and `Shift+W` toggle the side panel, the bottom panel and the strip,
+  and `f` hides them all. `/`, arrows, Enter and Escape work without a pointer,
+  and a text view and a relations list carry the graph as words. The page stays
+  a derived view and writes nothing new (T-DASH-SHELL-01).
+- Three views of Work draw the same nodes, lines, selection, filters, search
+  and side panel, with the same shapes and words, and the chosen view is
+  remembered. The **lanes** (`1`, the default) put phases in columns, modules in
+  bands and a task's dependency depth from left to right, with decisions and
+  assumptions below the tasks they bear on; positions are computed in Python.
+  The **force** view (`2`) shows tasks clustered by module, each cluster a named
+  circle, with a decision or assumption shared across modules between them; it
+  is computed in the page when first opened, seeded so the same input gives the
+  same positions, and settles by itself (T-DASH-SHELL-01, T-DASH-FORCE-01).
+- The **3D** view (`3`) is an immersive view for exploring the project rather
+  than working it:
+  phases are stacked floors, modules cluster on their floor, and decisions and
+  assumptions float near what they bear on. Far modules fold into a counted
+  bubble, labels never print over one another, and the selection, its chain and
+  waiting items are always labelled. By default it turns by itself on two axes,
+  one vertical turn in about 60 seconds and one tilt turn for every two; `m`
+  switches to one axis, `p` pauses, `[` and `]` change the speed, drag orbits,
+  the wheel or `+` `-` `0` zoom, and Shift with an arrow pans. Resting the
+  pointer on a node moves the view toward it, which a button turns off. A stored
+  choice wins over the default. With reduced motion the force and 3D views are
+  drawn at rest and no view change is animated. Nothing of the 3D view is
+  computed before it first opens, no frame is drawn while it is not shown, and
+  it uses no library and no network (T-DASH-3D-01).
+- Removed from Work, because the three views replace them: the "Complete
+  dependency graph" drawing and its task dependency list, and the "Task graph"
+  and "Dependency ordering" views, with the code, styles, sources and
+  translations only they used. The Views tab (formerly "Dependency graph")
+  keeps the critical path, phases, gates and calendar Gantt with their Mermaid
+  sources; the state board, Review's decision inbox and Audit's task records are
+  unchanged. `praukron graph` writes the same files as before, `task-graph.mmd`
+  and `timeline.mmd` included. The page is about 3 % smaller (T-DASH-PRUNE-01).
+- Agent authority: `praukron authority` lists every capability an agent can be
+  given on the owner's authority, its state, who set it and when (`--json`; also
+  on Review). Grants live in a new optional chronicle file, `AUTHORITY.md`, one
+  `## AG-<nn>` record each: capability, scope (`project` or task, module and
+  phase ids, always stated), delegate, granting `gh` login (named in `Owners:`),
+  date, end (`Until: none` for no end), `Via: cli|dashboard`, and its
+  revocation. `authority grant` and `authority revoke` run only for the owner in
+  person, at an interactive terminal or from `praukron dashboard --serve`; the
+  existing assumption policy is listed unchanged. Task packets carry
+  `capabilities`, and the installer adds the template (T-AGENT-AUTHORITY-01).
+- Delegated verification: under a grant of `verify`, the named agent records
+  `praukron respond <task> VERIFY --delegate "<agent>"` for an `Authority: owner`
+  task it did not build. The response keeps `By:` and adds `Delegate:`,
+  `On authority of:` and `Grant:`, with `Via: delegate (cli)`. The task takes
+  the new validation state `DELEGATE_VERIFIED`, which closes an owner task like
+  `HUMAN_VERIFIED` but is shown and counted apart everywhere, and gives way to
+  `HUMAN_VERIFIED` when the owner verifies in person. `validate` reports a
+  delegated verification whose grant is missing, does not cover the task, was
+  not in force on its date, or whose delegate built the task
+  (T-VERIFY-DELEGATE-01).
+- Fixed: capture never records as verified a change it cannot attribute. An
+  automatic capture (a `DONE` write, or `scope capture` without `--head`) writes
+  `Lifecycle: unresolved` with `Verification: unverified` when another claimed
+  task overlaps a path; for every file and symbol changed by a commit that
+  entered the range only through a merge's second or later parent, the evidence
+  naming the merge commits; and for every one changed by a first-parent,
+  non-merge commit the checkout's own HEAD reflog does not show as made here (a
+  linked worktree reads its own), which catches others' work that arrives with
+  no merge commit: a squash or rebase merge pulled by fast-forward,
+  `git pull --rebase`, `git reset` to a remote tip, a checkout. That evidence
+  names each commit by short id and how it arrived (`pull`, `fetch`, `merge`,
+  `reset`, `checkout`, `rebase`, `clone` or `other`, never the action's
+  arguments, which can hold a credential), or says the reflog could not show
+  where it was made. Git's ancestry and reflog alone decide. The reply's
+  `capture` carries `merges`, `mergesInvolved`, `notMadeHere`,
+  `notMadeHereInvolved` and one `warning` sentence naming the two ways to
+  settle; the write still succeeds. A named capture (`--base` and `--head`) does
+  not read the reflog, is otherwise unchanged, and now replaces the task's
+  unresolved records for what it records (`settled`, `stillUnresolved`)
+  (T-SCOPE-ATTRIB-01, T-SCOPE-REFLOG-01).
+- `refs`, `why`, `engine map`, `engine impact` and the task packet mark each
+  unresolved observed reference `"attribution": "unresolved"` (text:
+  `UNRESOLVED ATTRIBUTION`) and count them; a task reached only through such
+  references is marked. `ref set` settling an unresolved reference needs
+  evidence and appends a successor that replaces it, so the unresolved record
+  stays as history; it refuses to set one `verified` in place. `validate` warns
+  once per task (`unattributed-verified-references`) about references an
+  earlier version recorded verified although their attribution was unresolved.
+  Limit: a patch of others applied and committed here by hand (`git merge
+  --squash` then `git commit`, `git cherry-pick`, `git am`, `git commit
+  --amend` of a commit made elsewhere) counts as made here; settle it with a
+  named capture or `ref set` (T-SCOPE-ATTRIB-01, T-SCOPE-REFLOG-01).
+- Added `praukron why <path|path#symbol|directory>`, which answers why a piece of
+  code is as it is from the chronicle alone: the tasks whose current references
+  reach it, oldest first, how each reference was recorded, the decisions that
+  reach it through `Governed by:` or `Affects:` with their standing (a
+  superseded decision names what replaced it; one not accepted is marked), its
+  acceptance criteria and inherited invariants, each with its record. Archived
+  tasks are included, and a symbol no reference names is answered with the
+  history of the nearest enclosing symbol, file or directory that has one.
+  `--json` gives the same answer as data; nothing is written (T-GRAPH-WHY-01).
+- An optional code graph. `native/graph/` is a small C interface over
+  crowbett/codegraph (pinned by commit) with third-party notices and a CycloneDX
+  bill of materials; a `Graph library` workflow builds and tests it on macOS
+  ARM64 and x86_64 and Linux x86_64 and ARM64. `praukron engine status`,
+  `engine index` and `engine export` load it in process with `ctypes`, check its
+  interface version, index the repository into `.praukron/engine/graph.db`
+  (derived, ignored by Git, never authority) and export the whole graph as one
+  JSON document. Praukron looks for the library at `PRAUKRON_GRAPH_LIB`, then at
+  `.praukron/lib/<platform>/`; the installer does not deliver it yet. Without
+  one the `engine` commands say so and succeed, and every other command is
+  unchanged and never loads it (T-GRAPH-BUILD-01, T-GRAPH-LOAD-01).
+- Added `praukron engine map <task|path|path#symbol>`, which joins the graph's
+  index to the task–code references: for a task, its files and symbols, the
+  engine nodes they match, the resolved edges among them and to their direct
+  neighbours, the edges left unresolved, and the references that match no node;
+  for a file or symbol, the tasks that touched it and its neighbours. Every item
+  names its source (`engine`, `engine-unresolved`, `reference:<Source>`), and an
+  unresolved edge is shown as unknown, never as "no relation". The index is read
+  with `sqlite3` alone, so no library is needed to read one; without an index
+  the command answers from the references alone. The agent workflow now says to
+  read the code behind an unresolved edge and record it with `ref add` and
+  source `agent` (T-GRAPH-JOIN-01).
+- Added `praukron engine impact <task> [--depth N] [--exact] [--json]`, which
+  answers what a planned change runs into. From the task's references, planned
+  and observed, it follows the graph backwards to the code that calls or
+  depends on them (default depth 2) and lists the tasks whose references lie on
+  that code with their decisions, frozen criteria and inherited invariants,
+  grouped by decision with the shortest path to each. Every path carries the
+  `exact`, `likely` or `name_only` mark of its edges, and `--exact` follows
+  `exact` edges only. The task's own decisions are listed apart, a superseded
+  decision is shown as superseded, and a reference with no node or an
+  unresolved edge marks further reach as unknown. It is what the change must be
+  checked against, not a verdict; nothing is written. The installed guidance
+  tells an agent to ask for the impact before changing existing code
+  (T-GRAPH-IMPACT-01).
+- Documentation: README's "How the code relates to itself", the guide and SPEC
+  §2.10 describe the code graph, its five layers and their fallback order, how
+  to get the library from the `Graph library` workflow, what its figures mean
+  and its limits, including that a resolved edge can be wrong. README, the guide
+  and the dashboard document describe the rebuilt page, agent authority,
+  delegated verification, capture attribution and `engine impact` as they are;
+  a view of the code or of architecture layers is stated as not built. The
+  dashboard images are new, made offline by `scripts/screenshots.py` from the
+  synthetic chronicle of an invented project, and a test holds the documents to
+  their links, the removed parts and the command count (T-DOCS-GRAPH-01,
+  T-DOCS-SYNC-02).
+
 ## 4.0.0 — 2026-11-26
 
 This release links every task to the files and symbols it touched, and records
