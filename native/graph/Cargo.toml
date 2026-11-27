@@ -6,6 +6,7 @@ rust-version = "1.85"
 description = "C ABI over crowbett/codegraph for Praukron's optional code graph"
 license = "Apache-2.0"
 publish = false
+build = "build.rs"
 
 [lib]
 crate-type = ["cdylib"]

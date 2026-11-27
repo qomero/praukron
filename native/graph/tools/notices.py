@@ -165,6 +165,11 @@ def licence_texts(package):
         if os.path.isfile(path) and name not in {n for n, _ in texts}:
             with open(path, encoding="utf-8", errors="replace") as f:
                 texts.append((name, f.read().strip()))
+    upstream = os.path.join(CRATE, "licenses", "%s-%s.LICENSE" % (package["name"], package["version"]))
+    if not texts and os.path.isfile(upstream):
+        with open(upstream, encoding="utf-8") as f:
+            texts.append(("LICENSE (from the upstream repository at its release tag; the crate "
+                          "archive ships none; see native/graph/licenses/README.md)", f.read().strip()))
     return texts
 
 
