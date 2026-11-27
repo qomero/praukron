@@ -340,7 +340,7 @@ install_guidance "$source_dir/.agents/skills/praukron/SKILL.md" \
 # never runs a stale compiler against a current chronicle.
 mkdir -p "$target/$runtime/praukron"
 for module in __init__ layout model parse domain freeze validate analytics views index compile snapshot migrate \
-  mermaid drawings mission review i18n shell dashboard retrieve refs codegraph engine codemap impact why authority respond mutate journal task symbols scope task_update contract criterion acr ref batch archive archive_recovery serve cli; do
+  mermaid drawings mission review i18n view3d shell dashboard retrieve refs codegraph engine codemap impact why authority respond mutate journal task symbols scope task_update contract criterion acr ref batch archive archive_recovery serve cli; do
   cp "$source_dir/src/praukron/$module.py" "$target/$runtime/praukron/$module.py"
 done
 cp "$source_dir/VERSION" "$target/$runtime/VERSION"

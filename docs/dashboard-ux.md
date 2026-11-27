@@ -39,6 +39,42 @@ stays usable meanwhile; with reduced motion preferred it is computed to rest
 and drawn once. The text view and the relations list cover it as they cover
 the lanes.
 
+**3D** is the third view of Work, an immersive view to explore the project,
+not the operational one: read the lanes to work and the force view to analyse
+relations. Phases are stacked floors, the first on top; modules cluster on
+their floor; decisions and assumptions float near the tasks they bear on.
+Nodes sit far apart and are drawn small; nearer nodes are drawn over farther
+ones, and farther ones are smaller and fainter. It draws the same nodes and
+lines as the other views, on the same surface, with the same selection,
+filters, search, side panel, fading of what lies outside the selected chain,
+and the same shapes and words for status, waiting and kind. A module far away
+folds into one bubble with its count and unfolds as you come closer; waiting
+items, the selection and its chain never fold. Labels are placed by priority
+and never printed over another label: the selection and its chain are always
+labelled (moved beside their node, with a thin line, when their place is
+taken), waiting items keep their `!` label, and more labels appear as you zoom
+in.
+
+By default the scene turns by itself on two axes: one vertical turn takes
+about 60 seconds at normal speed, and the scene also tilts one full turn for
+every two vertical turns. `m` switches between the two-axis turn and a turn
+about the vertical axis only, `p` pauses and resumes, `[` and `]` make it
+slower and faster. The turn stops while you drag, zoom, pan or rest the
+pointer on a node, and eases back after a few calm seconds. Drag to orbit,
+use the wheel or `+` `−` to zoom and `0` for the whole view, and Shift with an
+arrow to pan (Shift with a drag also pans). Resting the pointer on a node
+moves the view toward it after a short pause; the "Move toward a node" button
+turns that off. Mode, speed, pause and that button are kept in this browser
+(`praukron-3d`), and a stored choice wins over the default. With reduced
+motion preferred the scene does not turn by itself and no view change is
+animated: it is drawn still, and orbit, zoom, pan and selection still work
+(`p` starts the turn on request). Nothing of the 3D view is computed before it
+is first opened, and no frame is drawn while another view, another workspace
+or a hidden tab is shown, or when nothing moves. It is drawn by hand on one
+canvas, with no library and no network; the canvas is hidden from screen
+readers, and the text view and the relations list cover every node and line it
+shows.
+
 **The page opens on Work**, with the lanes, on a first visit. An address
 fragment (`#home`, `#review`) or the workspace stored from the last visit wins
 over that default; Home is one tab away, and the workspace tabs move with the
@@ -74,8 +110,10 @@ delegate), a Text view that lists every node under the same filters, and
 Relations, which states every line as a sentence. A skip link at the top of the
 page reaches the text view.
 
-**Keys**, outside text fields: `/` search, `1` the lanes, `2` the force view
-(`3` and `c` are reserved for later views and do nothing yet), arrows move the
+**Keys**, outside text fields: `/` search, `1` the lanes, `2` the force view,
+`3` the 3D view (`c` is reserved for a later view and does nothing yet); in 3D,
+`p` pause, `m` two axes or one, `[` `]` speed, Shift with an arrow to pan;
+arrows move the
 selection on the graph (left to a dependency, right to what it unblocks, up and
 down in its module), `Enter` opens the record in the side panel, `Escape`
 clears the selection, `s` the side panel, `b` the bottom panel, `Shift+W` the

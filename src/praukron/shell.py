@@ -21,7 +21,7 @@ import html
 import re
 from pathlib import Path
 
-from . import authority, i18n
+from . import authority, i18n, view3d
 from .layout import AUTHORITY_DIR
 from .model import NO_PHASE, STATUSES, VERIFIED_STATES, Project
 
@@ -615,7 +615,9 @@ def lanes_section(compiled: dict) -> str:
         '<button type="button" class="edge-btn" data-view="lanes" aria-pressed="true"'
         ' title="Lanes: phases, modules and dependency order, to work (1)">Lanes</button>'
         '<button type="button" class="edge-btn" data-view="force" aria-pressed="false"'
-        ' title="Force: tasks clustered by module, to analyse relations (2)">Force</button></div>'
+        ' title="Force: tasks clustered by module, to analyse relations (2)">Force</button>'
+        '<button type="button" class="edge-btn" data-view="3d" aria-pressed="false"'
+        ' title="3D: the project in space, to explore (3)">3D</button></div>'
         + select("lanes-phase", "Phase", [(p["id"], esc(p["id"])) for p in phases_])
         + select("lanes-module", "Module", [(m, "No module" if m == NO_MODULE else esc(m)) for m in modules])
         + select("lanes-status", "Status", [(s, esc(s)) for s in STATUSES])
@@ -636,6 +638,7 @@ def lanes_section(compiled: dict) -> str:
           ' markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>'
           '</marker></defs><g id="lanes-world"><g id="lanes-decor"></g><g id="force-decor" display="none"></g>'
           '<g id="graph-lines"></g><g id="graph-shapes"></g></g></svg>'
+          + view3d.controls() +
           f'<details class="legend"><summary>Legend</summary><div class="legend-grid">{legend}'
           '<span></span><span>H or D beside a task: HUMAN_VERIFIED or DELEGATE_VERIFIED</span></div></details>'
           '<div id="lanes-tip" class="tip" hidden></div></div></section>')
@@ -643,12 +646,15 @@ def lanes_section(compiled: dict) -> str:
 
 KEYS = (
     ("/", "Search"), ("1", "Work: the lanes view"), ("2", "Work: the force view, tasks clustered by module"),
+    ("3", "Work: the 3D view, to explore"),
     ("← →", "To a dependency, or to what the task unblocks"),
     ("↑ ↓", "Previous or next in the same module"), ("Enter", "Open the record in the side panel"),
     ("Escape", "Clear the selection"), ("s", "Hide or show the side panel"), ("b", "Hide or show the bottom panel"),
     ("Shift+W", "Hide or show the waiting strip; its count stays on the handle"),
     ("f", "Focus: hide every panel; press again to bring them back"), ("w", "Next item waiting for you"),
-    ("+ − 0", "Zoom in, out, fit"), ("?", "This list"),
+    ("+ − 0", "Zoom in, out, fit"),
+    ("p", "3D: pause or resume the turn"), ("m", "3D: turn on two axes or on one"), ("[ ]", "3D: turn slower or faster"),
+    ("Shift+arrows", "3D: move the view across the screen; drag to orbit"), ("?", "This list"),
 )
 
 
@@ -844,7 +850,7 @@ html.resizing { user-select: none; }
   .lanes { height: 70vh; }
 }
 @media print { .shell-waiting, .shell-side, .shell-bottom, .lanes { display: none; } }
-"""
+""" + view3d.STYLE
 
 
 # ---------------------------------------------------------------- script
@@ -879,8 +885,8 @@ const shPanels = (() => {
   return base;
 })();
 function shRemember(key, value) { shPanels[key] = value; shStore(); }
-// The view Work shows: lanes, or force. Both draw the same nodes and lines.
-const SH_VIEWS = ['lanes', 'force'];
+// The view Work shows: lanes, force or 3D. All draw the same nodes and lines.
+const SH_VIEWS = ['lanes', 'force', '3d'];
 shState.view = SH_VIEWS.includes(shPanels.view) ? shPanels.view : 'lanes';
 shState.tfs = {};
 function shClamp() {
@@ -1234,11 +1240,14 @@ function lRefresh() {
   L.edges.forEach(e => {
     const a = L.nodes.get(e.s), b = L.nodes.get(e.t), inFocus = Boolean(focus && focus.E.has(e));
     const shown = e.k === 'dep' || governs || inFocus;
-    e.el.classList.toggle('l-gone', a.gone || b.gone || !shown);
-    e.el.classList.toggle('l-dim', !inFocus && (a.dim || b.dim));
-    e.el.classList.toggle('hl', inFocus);
-    e.el.classList.toggle('waitpath', shState.waitOnly && !focus && e.k === 'dep' && shWaitRelated.has(e.s) && shWaitRelated.has(e.t));
+    e.gone = a.gone || b.gone || !shown; e.dim = !inFocus && (a.dim || b.dim); e.hl = inFocus;
+    e.waitpath = shState.waitOnly && !focus && e.k === 'dep' && shWaitRelated.has(e.s) && shWaitRelated.has(e.t);
+    e.el.classList.toggle('l-gone', e.gone);
+    e.el.classList.toggle('l-dim', e.dim);
+    e.el.classList.toggle('hl', e.hl);
+    e.el.classList.toggle('waitpath', e.waitpath);
   });
+  if (shState.view === '3d') V3.dirty();
 }
 function lVisible() { const r = lStage.getBoundingClientRect(); return r.width > 0 && r.height > 0; }
 function lApply(mode) {
@@ -1264,9 +1273,10 @@ function lFrame(box, mode, maxZoom, pad) {
   lApply(mode);
   return true;
 }
-function lFit() { lFrame(lBox(n => !n.gone && lPassed.get(n.id) !== false), 'all', 2, 60); }
+function lFit() { if (shState.view === '3d') return V3.fit(); lFrame(lBox(n => !n.gone && lPassed.get(n.id) !== false), 'all', 2, 60); }
 // The current phase: its column, from its label down to its last band.
 function lFitPhase(phase) {
+  if (shState.view === '3d') return V3.framePhase(phase);
   if (shState.view === 'force') {
     shState.fitPhase = phase;
     const shown = n => !n.gone && lPassed.get(n.id) !== false;
@@ -1284,12 +1294,14 @@ function lFitPhase(phase) {
   lApply('phase');
 }
 function lFrameFocus() {
+  if (shState.view === '3d') return V3.frameFocus();
   const focus = shState.focus;
   if (!focus || focus.F.size < 2) return false;
   const tasks = [...focus.F].some(id => L.nodes.get(id) && L.nodes.get(id).kind === 'task');
   return lFrame(lBox(n => focus.F.has(n.id) && !n.gone && (!tasks || n.kind === 'task')), 'focus', 1.3, 120);
 }
 function lCenter(id) {
+  if (shState.view === '3d') return V3.centerOn(id);
   const n = L.nodes.get(id);
   if (!n) return;
   const r = lStage.getBoundingClientRect(), k = Math.max(shState.tf.k, 1);
@@ -1297,6 +1309,7 @@ function lCenter(id) {
   lApply(null);
 }
 function lZoom(factor, cx, cy) {
+  if (shState.view === '3d') return V3.zoomBy(factor);
   const r = lStage.getBoundingClientRect();
   const mx = cx === undefined ? r.width / 2 : cx, my = cy === undefined ? r.height / 2 : cy;
   const k = Math.max(0.08, Math.min(5, shState.tf.k * factor));
@@ -1320,7 +1333,7 @@ function shOpenLanes(id, view) {
 }
 let lDrag = null;
 lStage.addEventListener('pointerdown', event => {
-  if (event.button > 0) return;
+  if (event.button > 0 || shState.view === '3d') return;
   lDrag = { x: event.clientX, y: event.clientY, moved: false, tf: { ...shState.tf } };
 });
 // A drag pans from anywhere it goes; a press that does not move selects.
@@ -1331,13 +1344,18 @@ addEventListener('pointermove', event => {
   if (lDrag.moved) { shState.tf.x = lDrag.tf.x + dx; shState.tf.y = lDrag.tf.y + dy; lApply(null); }
 });
 addEventListener('pointerup', () => { if (lDrag && lDrag.moved) lDrag = null; });
+// The tooltip says the same in every view.
+function shTipHtml(n) {
+  const w = shWait[n.id];
+  return shCode(n.id) + ' ' + esc(protectedText(n.rec.title)) + '<br>' + (n.rec.status ? pill(n.rec.status) : '')
+    + (n.rec.validation ? ' ' + pill(n.rec.validation) : '') + (w ? '<br><strong>Waiting for you: ' + esc(w.action) + '</strong>' : '');
+}
 lStage.addEventListener('pointermove', event => {
-  if (lDrag) return;
+  if (lDrag || shState.view === '3d') return;
   const g = event.target.closest && event.target.closest('.l-node');
   if (!g) { lTip.hidden = true; return; }
-  const n = L.nodes.get(g.dataset.id), r = lStage.getBoundingClientRect(), w = shWait[n.id];
-  lTip.innerHTML = shCode(n.id) + ' ' + esc(protectedText(n.rec.title)) + '<br>' + (n.rec.status ? pill(n.rec.status) : '')
-    + (n.rec.validation ? ' ' + pill(n.rec.validation) : '') + (w ? '<br><strong>Waiting for you: ' + esc(w.action) + '</strong>' : '');
+  const n = L.nodes.get(g.dataset.id), r = lStage.getBoundingClientRect();
+  lTip.innerHTML = shTipHtml(n);
   lTip.hidden = false;
   lTip.style.left = Math.min(r.width - 340, event.clientX - r.left + 14) + 'px';
   lTip.style.top = (event.clientY - r.top + 14) + 'px';
@@ -1349,8 +1367,9 @@ lStage.addEventListener('pointerup', event => {
   }
   lDrag = null;
 });
-lStage.addEventListener('pointerleave', () => { lTip.hidden = true; });
+lStage.addEventListener('pointerleave', () => { if (shState.view !== '3d') lTip.hidden = true; });
 lStage.addEventListener('wheel', event => {
+  if (shState.view === '3d') return;
   event.preventDefault();
   const r = lStage.getBoundingClientRect();
   lZoom(Math.pow(1.0015, -event.deltaY), event.clientX - r.left, event.clientY - r.top);
@@ -1364,6 +1383,7 @@ function lSiblings(n) {
 }
 lStage.addEventListener('keydown', event => {
   if (event.target !== lStage || event.metaKey || event.ctrlKey || event.altKey) return;
+  if (shState.view === '3d' && event.shiftKey && event.key.startsWith('Arrow')) { event.preventDefault(); return V3.panKey(event.key); }
   const n = shState.sel && L.nodes.get(shState.sel);
   const go = id => { if (id) { event.preventDefault(); shSelect(id); } };
   const first = () => go((SHELL.waiting.items[0] || {}).id || (DATA.tasks[0] || {}).id);
@@ -1614,6 +1634,9 @@ function fRefreshClusters() {
 // Draw the open view on the built graph: positions, lines, decor, framing.
 function shDrawView() {
   const view = shState.view, force = view === 'force';
+  // The 3D view draws on its own canvas; the lines and shapes keep the lanes' places beneath it.
+  if (view === '3d') { lRefresh(); V3.activate(); return; }
+  V3.deactivate();
   if (force) fStart();
   L.nodes.forEach(n => { n.pos = n.at[view]; });
   document.getElementById('lanes-decor').setAttribute('display', force ? 'none' : 'inline');
@@ -1635,13 +1658,13 @@ function shView(name) {
   shViewControls();
   if (!shState.built || !lVisible()) { if (shState.built) shState.pending = true; return; }
   shState.pending = false;
-  if (was !== name) { shDrawView(); shSay(name === 'force' ? 'Force view: tasks clustered by module.' : 'Lanes view.'); }
+  if (was !== name) { shDrawView(); if (name !== '3d') shSay(name === 'force' ? 'Force view: tasks clustered by module.' : 'Lanes view.'); }
   shRenderLists();
 }
 function shViewControls() {
   document.querySelectorAll('[data-view]').forEach(b => { if (b !== lStage) b.setAttribute('aria-pressed', String(b.dataset.view === shState.view)); });
   lStage.dataset.view = shState.view;
-  lStage.setAttribute('aria-label', shState.view === 'force' ? 'Force graph' : 'Lanes graph');
+  lStage.setAttribute('aria-label', { force: 'Force graph', '3d': '3D graph' }[shState.view] || 'Lanes graph');
 }
 document.querySelectorAll('.viewswitch [data-view]').forEach(b => b.addEventListener('click', () => shView(b.dataset.view)));
 
@@ -1662,6 +1685,7 @@ if (typeof ResizeObserver === 'function') {
       if (!lEnsure()) return;
       const r = lStage.getBoundingClientRect(), was = shState.size;
       shState.size = { w: r.width, h: r.height };
+      if (shState.view === '3d') { V3.resize(); return; }
       if (!was || (was.w === r.width && was.h === r.height)) return;
       if (shState.fit === 'all') lFit();
       else if (shState.fit === 'phase') lFitPhase(shState.fitPhase);
@@ -1673,6 +1697,7 @@ if (typeof ResizeObserver === 'function') {
   new ResizeObserver(() => shLayout()).observe(document.getElementById('main'));
 }
 
+""" + view3d.SCRIPT + r"""
 // --- Text view and relations: the graph as words, under the same filters
 function shListed() {
   if (!shState.built) lComputePass();
@@ -1732,11 +1757,16 @@ document.addEventListener('keydown', event => {
   if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
   if (target.isContentEditable || (target.closest && target.closest('input, textarea, select'))) return;
   if (document.querySelector('dialog[open]')) return;
+  // The 3D view's own keys act only while it is open on Work.
+  const in3d = shState.view === '3d' && shRoot.dataset.tab === 'work' && V3.isActive();
+  const turn = k => () => (in3d ? V3.key(k) : false);
   const keys = {
     s: () => shToggle('side'), b: () => shToggle('bottom'), W: () => shToggle('waiting'), f: shFocusMode,
     '1': () => shOpenLanes(shState.sel, 'lanes'), '2': () => shOpenLanes(shState.sel, 'force'),
+    '3': () => shOpenLanes(shState.sel, '3d'),
+    p: turn('p'), m: turn('m'), '[': turn('['), ']': turn(']'),
     w: shNextWaiting, '?': () => shHelp.showModal(),
-    Escape: () => { if (!shState.sel) return false; shSelect(null); },
+    Escape: () => { if (!shState.sel) { if (!in3d) return false; V3.fit(); return; } shSelect(null); if (in3d) V3.fit(); },
   };
   const run = keys[event.key];
   if (!run || run() === false) return;
