@@ -160,8 +160,8 @@ words: act on every response the packet shows as awaiting reconciliation, and
 never edit or clear one. Feedback the owner gives anywhere else goes into
 `RESPONSES.md` verbatim, `Via: relayed by <you> from <channel>`, before you act.
 `By:` is the active `gh` login, never a typed name. Never issue `VERIFY` unless
-your packet's `capabilities` grant `verify` for a task you did not build:
-`respond <task> VERIFY --delegate <you>`, then `DELEGATE_VERIFIED`.
+the packet's `capabilities` grant `verify` for a task you did not build:
+`respond <task> VERIFY --delegate <you>`, set `DELEGATE_VERIFIED`.
 `HUMAN_VERIFIED` needs the owner's own `VERIFY`.
 
 ## Completion

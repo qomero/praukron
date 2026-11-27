@@ -466,7 +466,7 @@ class TestDelegatedVerify(AuthorityCase):
             return " ".join((ROOT / path).read_text(encoding="utf-8").split())
 
         agents = flat("AGENTS.md")
-        self.assertIn("Never issue `VERIFY` unless your packet's `capabilities` grant `verify` for a task "
+        self.assertIn("Never issue `VERIFY` unless the packet's `capabilities` grant `verify` for a task "
                       "you did not build", agents)
         self.assertIn("--delegate <you>", agents)
         spec = flat("docs/SPEC.md")
