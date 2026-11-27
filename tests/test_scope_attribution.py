@@ -287,6 +287,14 @@ class TestViewsMarkUnresolved(AttributionCase):
         self.assertIs(artifact["tasks"][0]["attributionUnresolved"], True)
         self.assertIn("— UNRESOLVED ATTRIBUTION", self.text("engine", "map", "src/other.py"))
 
+    def test_engine_impact(self):
+        result = self.json("engine", "impact", "T-TWO", "--json")
+        self.assertEqual(result["counts"]["attributionUnresolved"], 2)
+        self.check_entries(result["references"])
+        text = self.text("engine", "impact", "T-TWO")
+        self.assertIn("2 of them unresolved attribution)", text)
+        self.assertIn("UNRESOLVED ATTRIBUTION, not shown to be this task's change: src/other.py", text)
+
     def test_context_and_retrieve(self):
         packet = self.json("context", "T-TWO")["references"]
         self.assertEqual(packet["counts"]["unresolved"], 2)

@@ -228,7 +228,10 @@ def _tasks(project: Project, index: Optional[codemap.Index], root: Path, own: st
     for task_id, entry in found.items():
         through = sorted(entry["through"].values(), key=lambda p: (p["depth"], not p["exact"], p["node"]["id"]))
         result: Dict[str, Any] = {"id": task_id, "references": entry["references"], "through": through,
-                                  "path": _shortest(through)}
+                                  "path": _shortest(through),
+                                  # Reached only through unattributed captures: not shown to be its code.
+                                  "attributionUnresolved": all(r.get("attribution") == refs.UNRESOLVED
+                                                               for r in entry["references"])}
         task = project.task(task_id)
         if task is None:
             result["missing"] = True
@@ -382,6 +385,7 @@ def _answer(project: Project, root: Path, index: Optional[codemap.Index], graph_
         "tasks": tasks,
         "counts": {
             "references": len(touched),
+            "attributionUnresolved": sum(1 for t in touched if t.get("attribution") == refs.UNRESOLVED),
             "touchedNodes": sum(1 for e in reached.values() if e["depth"] == 0),
             "reached": sum(by_depth.values()), "reachedByDepth": by_depth,
             "unknown": len(unknown) + sum(1 for t in touched if t.get("reach") == "unknown"),
@@ -425,7 +429,8 @@ def _unknown_text(found: Dict[str, Any]) -> List[str]:
 def _task_lines(task: Dict[str, Any], indent: str = "  ") -> List[str]:
     if task.get("missing"):
         return [f"{indent}{task['id']} — no such task"]
-    lines = [f"{indent}{task['id']} — {task['title']} [{task['status']}] — {task['authority']}",
+    mark = f" — {refs.UNRESOLVED_TEXT}" if task.get("attributionUnresolved") else ""
+    lines = [f"{indent}{task['id']} — {task['title']} [{task['status']}] — {task['authority']}{mark}",
              f"{indent}  path: {_path_text(task['path'])}"]
     if len(task["through"]) > 1:
         lines.append(f"{indent}  through {len(task['through'])} nodes: "
@@ -470,7 +475,9 @@ def render(result: Dict[str, Any]) -> str:
         if counts["beyondDepth"]:
             lines.append(f"{counts['beyondDepth']} nodes at depth {result['depth']} have callers not followed: "
                          "ask with a larger --depth to see them.")
-        lines += ["", f"Touched code ({counts['references']} references)"]
+        unresolved = (f", {counts['attributionUnresolved']} of them unresolved attribution"
+                      if counts.get("attributionUnresolved") else "")
+        lines += ["", f"Touched code ({counts['references']} references{unresolved})"]
         for item in result["references"]:
             lines += codemap._reference_text(item)
             if item.get("reach") == "unknown" and "unknown" in item:

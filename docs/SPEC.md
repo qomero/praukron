@@ -922,11 +922,12 @@ and one `warning` sentence: the references are not attributed to the task, and
 they are settled by a named capture over the task's own range or by `ref set`
 on each record. The write still succeeds; capture never blocks it. A listing
 never presents an unresolved observed reference as a plain reference of its
-task: `refs`, `why`, `engine map` and the task packet (`context`, `retrieve`)
+task: `refs`, `why`, `engine map`, `engine impact` and the task packet
+(`context`, `retrieve`)
 mark it `"attribution": "unresolved"` in JSON and `UNRESOLVED ATTRIBUTION` in
 text, give their count (`counts.unresolved` in `refs` and the packet, present
 when not zero; `unresolved` in `why`; `attributionUnresolved` in `engine
-map`), and mark a task that reaches the target only through such references
+map` and `engine impact`), and mark a task that reaches the target only through such references
 with `attributionUnresolved: true`.
 
 Settling. A named capture over the task's range writes, for each file or

@@ -1058,8 +1058,9 @@ The file record's evidence then reads `git diff 5be9fe2df06e to 6fa5a5fbe6ab
   carries `unresolved` (the count), `merges` (the merge commits found, short
   ids) and one `warning` sentence saying the references are not attributed and
   how to settle them; the `DONE` write itself still succeeds. `praukron why`,
-  `praukron engine map`, `praukron refs` and the task packet (`context`,
-  `retrieve`) mark each one `UNRESOLVED ATTRIBUTION` in text and
+  `praukron engine map`, `praukron engine impact`, `praukron refs` and the
+  task packet (`context`, `retrieve`) mark each one `UNRESOLVED ATTRIBUTION` in
+  text and
   `"attribution":"unresolved"` in JSON, and their counts say how many there
   are; a task that reaches a file only through such references is marked as
   such, never listed as a plain reference of the task.

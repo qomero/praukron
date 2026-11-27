@@ -9,7 +9,7 @@
   ways to settle; the write still succeeds. A named capture (`--base` and
   `--head`) is unchanged and now replaces the task's unresolved records for
   what it records (`settled`, `stillUnresolved`).
-- `refs`, `why`, `engine map` and the task packet mark each unresolved observed
+- `refs`, `why`, `engine map`, `engine impact` and the task packet mark each unresolved observed
   reference `"attribution": "unresolved"` (text: `UNRESOLVED ATTRIBUTION`) and
   count them; a task reached only through such references is marked.
 - `ref set` settling an unresolved reference (any other lifecycle) needs
