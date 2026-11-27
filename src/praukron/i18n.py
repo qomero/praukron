@@ -440,6 +440,116 @@ _VI.update({
     'DELEGATE_VERIFIED, not verified by you in person.': 'DELEGATE_VERIFIED, không phải bạn trực tiếp xác minh.',
     'login': 'đăng nhập', 'Failed to fetch': 'Không kết nối được. Hãy mở lại liên kết từ máy chủ đang chạy.',
 })
+# The dashboard shell (T-DASH-SHELL-01): waiting strip, lanes, panels and keys.
+_VI.update({
+    '{now} can be answered now · {upcoming} upcoming': '{now} mục trả lời được ngay · {upcoming} mục sắp tới',
+    '{count} entries, newest first.': '{count} mục, mới nhất trước.',
+    '{count} older entries are in Audit.': '{count} mục cũ hơn nằm trong Kiểm tra.',
+    '{done} of {tasks} tasks done': '{done} trên {tasks} công việc đã xong',
+    'Blocks: {total} tasks · {direct} direct · {indirect} indirect':
+        'Chặn: {total} công việc · {direct} trực tiếp · {indirect} gián tiếp',
+    'Blocks: 1 task · {direct} direct · {indirect} indirect': 'Chặn: 1 công việc · {direct} trực tiếp · {indirect} gián tiếp',
+    'Affected: {total} tasks · {direct} direct · {indirect} indirect':
+        'Bị ảnh hưởng: {total} công việc · {direct} trực tiếp · {indirect} gián tiếp',
+    'Affected: 1 task · {direct} direct · {indirect} indirect':
+        'Bị ảnh hưởng: 1 công việc · {direct} trực tiếp · {indirect} gián tiếp',
+    'Blocks: no task': 'Chặn: không công việc nào', 'Affected: no task': 'Bị ảnh hưởng: không công việc nào',
+    'Waiting for you': 'Đang chờ bạn', 'Waiting for you:': 'Đang chờ bạn:', 'Now': 'Ngay',
+    'Owner task': 'Việc của chủ dự án', 'Owner verification': 'Xác minh của chủ dự án',
+    'Confirm or revise': 'Xác nhận hoặc sửa',
+    'Owner-held task: only the owner can close it.': 'Việc do chủ dự án giữ: chỉ chủ dự án đóng được.',
+    "Done, but the owner's verification is not recorded.": 'Đã xong, nhưng chưa ghi xác minh của chủ dự án.',
+    'Open assumption: agents rely on it until the owner confirms or revises it.':
+        'Giả định đang mở: agent dựa vào nó đến khi chủ dự án xác nhận hoặc sửa.',
+    'Pending decisions: not recorded': 'Quyết định đang chờ: dự án không ghi',
+    'Requests for delegation: not recorded': 'Yêu cầu ủy quyền: dự án không ghi',
+    'Escalations: not recorded': 'Chuyển cấp: dự án không ghi',
+    'Left out, because a verify grant in force lets a delegate settle them:':
+        'Không tính, vì một quyền verify đang hiệu lực cho phép người được ủy quyền xử lý:',
+    'Phase exit:': 'Lối ra giai đoạn:', 'Since': 'Từ', 'Since: not recorded': 'Từ: chưa ghi',
+    'first journal mention': 'lần đầu nhắc trong nhật ký', 'date recorded': 'ngày đã ghi',
+    'Show only these and what they block': 'Chỉ hiện các mục này và những gì chúng chặn',
+    'Hide strip': 'Ẩn dải', 'Show the strip': 'Hiện dải', 'Hide panel': 'Ẩn khung', 'Show the panel': 'Hiện khung',
+    'Hide the waiting strip (Shift+W)': 'Ẩn dải đang chờ (Shift+W)',
+    'Show the waiting strip (Shift+W)': 'Hiện dải đang chờ (Shift+W)',
+    'Hide the side panel (s)': 'Ẩn khung bên (s)', 'Show the side panel (s)': 'Hiện khung bên (s)',
+    'Hide the bottom panel (b)': 'Ẩn khung dưới (b)', 'Show the bottom panel (b)': 'Hiện khung dưới (b)',
+    'Nothing recorded waits for you.': 'Không có mục đã ghi nào đang chờ bạn.',
+    'Everything recorded that needs the owner. Select a row for its record.':
+        'Mọi mục đã ghi cần chủ dự án. Chọn một hàng để xem bản ghi.',
+    'Item': 'Mục', 'Action': 'Hành động', 'Why': 'Lý do', 'Waits on': 'Chờ', 'Nothing': 'Không có',
+    'Blocks or affects': 'Chặn hoặc ảnh hưởng', 'Severity': 'Mức độ', 'Code': 'Mã lỗi', 'Where': 'Vị trí',
+    'Message': 'Thông điệp', 'Validation reports no finding.': 'Kiểm định không báo phát hiện nào.',
+    'No journal entries recorded.': 'Chưa ghi mục nhật ký nào.',
+    'This list only reads AUTHORITY.md. The owner grants and revokes in person, at a terminal or in Review on the served page.':
+        'Danh sách này chỉ đọc AUTHORITY.md. Chủ dự án tự cấp và thu hồi quyền, tại terminal hoặc trong Duyệt trên trang được phục vụ.',
+    'No AUTHORITY.md in this chronicle: no grant is recorded.': 'Chronicle này không có AUTHORITY.md: chưa ghi quyền nào.',
+    'AUTHORITY.md records no grant.': 'AUTHORITY.md không ghi quyền nào.',
+    'Granted by': 'Cấp bởi', 'Date': 'Ngày', 'Whole project': 'Toàn dự án', 'No end': 'Không hạn',
+    'Delegated verifications': 'Xác minh được ủy quyền',
+    'DELEGATE_VERIFIED, shown apart from HUMAN_VERIFIED.': 'DELEGATE_VERIFIED, hiển thị tách khỏi HUMAN_VERIFIED.',
+    'delegate': 'người được ủy quyền', 'on the authority of': 'thay mặt',
+    'Review queue': 'Hàng đợi duyệt', 'Agent grants': 'Quyền của agent', 'Text view': 'Dạng văn bản',
+    'Relations': 'Quan hệ', 'Lists': 'Danh sách',
+    'Resize the bottom panel': 'Đổi cỡ khung dưới', 'Resize the side panel': 'Đổi cỡ khung bên',
+    'Keep hidden on select': 'Giữ ẩn khi chọn', 'Details': 'Chi tiết', 'Nothing selected': 'Chưa chọn gì',
+    'Select a node, a waiting item or a row. Its record shows here.':
+        'Chọn một nút, một mục đang chờ hoặc một hàng. Bản ghi của nó hiện ở đây.',
+    'Skip to the text view': 'Chuyển đến dạng văn bản',
+    'rows: every task, decision and assumption the lanes draw, under the same filters. Select a row with Enter.':
+        'hàng: mọi công việc, quyết định và giả định mà các làn vẽ, theo cùng bộ lọc. Chọn một hàng bằng Enter.',
+    'Id': 'Mã số', 'Leads to': 'Dẫn đến', 'Depends on': 'Phụ thuộc vào', 'Waiting': 'Đang chờ',
+    'Every line the graph draws, as a sentence.': 'Mọi đường đồ thị vẽ, viết thành câu.',
+    'Lanes': 'Làn', 'Lanes graph': 'Đồ thị làn', 'Governs lines': 'Đường chi phối', 'Whole chain': 'Cả chuỗi',
+    'Fit all': 'Vừa khung tất cả', 'Fit the whole graph (0)': 'Thu cả đồ thị vào khung (0)',
+    'Current phase': 'Giai đoạn hiện tại', 'Legend': 'Chú giải',
+    'Arrow keys move the selection: left to a dependency, right to what it unblocks, up and down within its module. Enter opens the record. Escape clears it. The text view in the bottom panel lists the same content.':
+        'Phím mũi tên di chuyển lựa chọn: trái đến một phụ thuộc, phải đến việc nó mở khóa, lên và xuống trong cùng module. Enter mở bản ghi. Escape bỏ chọn. Dạng văn bản ở khung dưới liệt kê cùng nội dung.',
+    'Done: filled circle': 'Xong: hình tròn đặc', 'To do: ring': 'Cần làm: vòng tròn',
+    'In progress: ring with a dot': 'Đang làm: vòng tròn có chấm', 'Ready: thick ring': 'Sẵn sàng: vòng tròn dày',
+    'Blocked: cross': 'Bị chặn: dấu chéo', 'Waiting for you: diamond and !': 'Đang chờ bạn: hình thoi và !',
+    'Decision: square': 'Quyết định: hình vuông', 'Assumption: triangle': 'Giả định: tam giác',
+    'Arrow from A to B: B depends on A': 'Mũi tên từ A đến B: B phụ thuộc A',
+    'Dashed: governs; dotted: relied on': 'Nét đứt: chi phối; nét chấm: được dựa vào',
+    'H or D beside a task: HUMAN_VERIFIED or DELEGATE_VERIFIED':
+        'H hoặc D cạnh công việc: HUMAN_VERIFIED hoặc DELEGATE_VERIFIED',
+    'Keys': 'Phím tắt', 'Focus': 'Tập trung', 'Show panels': 'Hiện các khung', 'Search': 'Tìm kiếm',
+    'Hide every panel so the graph fills the screen, or bring them back (f)':
+        'Ẩn mọi khung để đồ thị chiếm màn hình, hoặc hiện lại (f)',
+    'Work: the lanes view': 'Công việc: dạng làn',
+    'To a dependency, or to what the task unblocks': 'Đến một phụ thuộc, hoặc đến việc nó mở khóa',
+    'Previous or next in the same module': 'Mục trước hoặc sau trong cùng module',
+    'Open the record in the side panel': 'Mở bản ghi trong khung bên', 'Clear the selection': 'Bỏ chọn',
+    'Hide or show the side panel': 'Ẩn hoặc hiện khung bên', 'Hide or show the bottom panel': 'Ẩn hoặc hiện khung dưới',
+    'Hide or show the waiting strip; its count stays on the handle':
+        'Ẩn hoặc hiện dải đang chờ; số mục vẫn hiện trên tay nắm',
+    'Focus: hide every panel; press again to bring them back': 'Tập trung: ẩn mọi khung; nhấn lần nữa để hiện lại',
+    'Next item waiting for you': 'Mục kế tiếp đang chờ bạn', 'Zoom in, out, fit': 'Phóng to, thu nhỏ, vừa khung',
+    'This list': 'Danh sách này',
+    'Keys work outside text fields. Panel visibility, sizes and the workspace are remembered in this browser; without storage the page starts with its defaults.':
+        'Phím tắt hoạt động ngoài ô nhập chữ. Trạng thái hiện, kích thước khung và không gian làm việc được nhớ trong trình duyệt này; không có bộ nhớ, trang mở với mặc định.',
+    # Written by the page's script.
+    'Show in lanes': 'Hiện trên làn', 'Open the full record': 'Mở toàn bộ bản ghi', 'Selected': 'Đã chọn',
+    'Selection cleared.': 'Đã bỏ chọn.', 'Panels back.': 'Các khung đã hiện lại.',
+    'Waiting strip shown.': 'Đã hiện dải đang chờ.', 'Side panel shown.': 'Đã hiện khung bên.',
+    'Bottom panel shown.': 'Đã hiện khung dưới.', 'Side panel hidden.': 'Đã ẩn khung bên.',
+    'Bottom panel hidden.': 'Đã ẩn khung dưới.',
+    'Waiting strip hidden. Its count stays on the handle.': 'Đã ẩn dải đang chờ. Số mục vẫn hiện trên tay nắm.',
+    'Focus: every panel is hidden. The waiting count stays on its handle. Press f to bring the panels back.':
+        'Tập trung: mọi khung đã ẩn. Số mục đang chờ vẫn hiện trên tay nắm. Nhấn f để hiện lại các khung.',
+    'The side panel stays hidden when you select.': 'Khung bên vẫn ẩn khi bạn chọn.',
+    'Selecting shows the side panel.': 'Khi chọn, khung bên sẽ hiện.',
+    'Waits on:': 'Chờ:', 'Waits on nothing: it can be answered now.': 'Không chờ gì: có thể trả lời ngay.',
+    'Lineage': 'Dòng dõi', 'Governs': 'Chi phối', 'Relied on by': 'Được dựa vào bởi', 'Basis': 'Cơ sở',
+    'Decision': 'Quyết định', 'No delegated response names a grant.': 'Không phản hồi ủy quyền nào nêu tên một quyền.',
+    "not HUMAN_VERIFIED: a delegate verified it on the owner’s authority.":
+        'không phải HUMAN_VERIFIED: người được ủy quyền đã xác minh thay mặt chủ dự án.',
+    'Decisions, placed under the tasks they govern': 'Quyết định, đặt dưới các công việc chúng chi phối',
+    'Assumptions, placed under the tasks that rely on them': 'Giả định, đặt dưới các công việc dựa vào chúng',
+    'Every line the graph draws under the filters:': 'Mọi đường đồ thị vẽ theo bộ lọc:',
+    "The lines of the selection’s chain, as the graph highlights them:": 'Các đường của chuỗi đang chọn, như đồ thị tô sáng:',
+    'depends on': 'phụ thuộc vào', 'governs': 'chi phối', 'is relied on by': 'được dựa vào bởi',
+})
 CATALOGUES = {
     'en': {'name': 'English', 'dateOrder': 'ymd', 'messages': {key: key for key in _VI}},
     'vi': {'name': 'Tiếng Việt', 'dateOrder': 'dmy', 'messages': _VI},

@@ -1143,8 +1143,13 @@ most of a write's time. Run `praukron dashboard` when you want the static
 page, or `praukron dashboard --serve`, which renders a current page on every
 load. `praukron dashboard --open` opens it in a browser.
 
-The page has four workspaces. **Home** opens with the phase, root blocker and next
-human action. **Work** keeps the full task registry, phases, dependency graph,
+The page is one shell: a header with search, a **Waiting for you** strip, a side
+panel and a bottom panel around four workspaces. The strip lists what needs you,
+split into what you can answer now and what is upcoming; the side panel shows
+whatever you select; `s`, `b`, `Shift+W` and `f` hide and show the panels. The
+page is a derived view and never authority. **Home** opens with the phase, root
+blocker and next human action. **Work** opens on the lanes, phases as columns
+and modules as bands, and keeps the full task registry, phases, dependency graph,
 critical path and filters. **Review** separates current owner decisions from
 future obligations, assumptions and answered items. **Audit** preserves acceptance
 evidence, governance, operations, ADRs and history. Search everything (Ctrl/Cmd+K

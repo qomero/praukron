@@ -17,7 +17,7 @@ from urllib.parse import quote
 
 from .analytics import Report
 from .model import DOMAINS, EVENT_TYPES, STATUSES, VALIDATION_STATES, Project, event_order
-from . import authority, compile as compiler, drawings, mermaid, refs, review, i18n
+from . import authority, compile as compiler, drawings, mermaid, refs, review, i18n, shell
 
 
 def esc(value: object) -> str:
@@ -574,9 +574,9 @@ function showArtifact(anchor) {
   if (!dialog.open) dialog.showModal();
 }
 
-function showTask(id) {
+// A task's record, for the shell's side panel.
+function taskDetailHtml(id) {
   const task = byId[id];
-  if (!task) return;
   const contract = DATA.acceptance[task.ac] || { criteria: [], inherits: [] };
   const criteria = contract.criteria.map(c =>
     `<li>${pill(c.state)} <code>${esc(c.id)}</code> <span class="note">${esc(c.class || c.evidenceClass)}</span><br>${esc(protectedText(c.text))}</li>`
@@ -588,8 +588,8 @@ function showTask(id) {
     ? task.blocks.map(d => `<code>${esc(d)}</code>`).join(', ')
     : '<span class="note">Nothing downstream</span>';
   const obstacles = DATA.obstacles.filter(o => o.subject === id);
-  document.querySelector('#detail .body').innerHTML = `
-    <h3>${esc(task.id)} — ${esc(protectedText(task.title))}</h3>
+  return `
+    <h2 id="side-h">${esc(task.id)} — ${esc(protectedText(task.title))}</h2>
     <p class="sub">${pill(task.status)} ${pill(task.validation)}
        <span class="pill">${esc(task.phase)}</span>
        ${task.module ? `<span class="pill">${esc(task.module)}</span>` : ''}
@@ -610,14 +610,20 @@ function showTask(id) {
       <dt>Schedule</dt><dd>${scheduleHtml(task.schedule)}</dd>
       <dt>Source</dt><dd><code>${esc(DATA.project.authority)}/${esc(task.source.file)} → ${esc(task.source.anchor)}</code></dd>
     </dl><div class="detail-code"></div>`;
+}
+
+function fillTaskCode(code, id) {
   const record = document.getElementById('task-record-' + id);
-  const code = document.querySelector('#detail .detail-code');
   const references = record && record.querySelector('.code-refs');
   if (references) copyRecord(references, code);
   else code.innerHTML = '<div class="code-refs"><h4>Code references</h4><p class="note">No file or symbol is referenced.</p></div>';
-  const dialog = document.getElementById('detail');
-  dialog.setAttribute('aria-label', 'Task details');
-  if (!dialog.open) dialog.showModal();
+}
+
+// Opening a task selects it in the shell: one selection for every workspace,
+// shown in the side panel and on the lanes.
+function showTask(id) {
+  if (!byId[id]) return;
+  shSelect(id);
 }
 
 // A task opens from any element that names it: a table row, a link in the
@@ -821,7 +827,8 @@ function renderScoped() {
 
 // The registry's own selects are the same filters, one value at a time.
 const REGISTRY_SELECTS = { 'task-domain': 'domain', 'task-phase': 'phase',
-                           'task-status': 'status', 'task-validation': 'validation' };
+                           'task-status': 'status', 'task-validation': 'validation',
+                           'lanes-phase': 'phase', 'lanes-module': 'module', 'lanes-status': 'status' };
 
 function syncSelects() {
   Object.entries(REGISTRY_SELECTS).forEach(([id, dim]) => {
@@ -845,6 +852,7 @@ function applyFilters({ record = true } = {}) {
   renderAggregates();
   renderChips();
   syncSelects();
+  if (window.shReady) shFiltersChanged();
   if (record) writeHash();
 }
 
@@ -935,7 +943,8 @@ function selectTab(name, { focus = false, record = true } = {}) {
     if (on && focus) tab.focus();
   });
   if (record && location.hash !== '#' + hashFor(name)) history.replaceState(null, '', '#' + hashFor(name));
-  if (record) window.scrollTo(0, 0);
+  if (record) { window.scrollTo(0, 0); document.getElementById('main').scrollTop = 0; }
+  if (record && window.shReady) shRemember('tab', name);
   const legacy = document.getElementById('panel-' + old);
   if (legacy && legacy.tagName === 'DETAILS') legacy.open = true;
   if (old === 'tasks' || old === 'graph') selectWorkView('work-view-' + (old === 'tasks' ? 'registry' : 'graph'));
@@ -975,7 +984,7 @@ addEventListener('hashchange', () => {
   // so a reload or a shared link keeps what the reader is looking at.
   if (filtering()) writeHash();
 });
-selectTab(location.hash.slice(1).split('?')[0] || 'home', { record: false });
+selectTab(location.hash.slice(1).split('?')[0] || document.documentElement.dataset.tab || 'home', { record: false });
 
 // A link to a tab switches to it and keeps the active filters; following the
 // bare href would replace the hash and drop them.
@@ -2062,7 +2071,14 @@ _BOOT = """(function () {
     theme = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   root.setAttribute('data-theme', theme);
-  var tab = location.hash.slice(1).replace(/^panel-/, '').split('?')[0];
+  // The shell's panels and the last workspace (praukron-panels), before paint.
+  var panels = null;
+  try { panels = JSON.parse(localStorage.getItem('praukron-panels') || 'null'); } catch (error) {}
+  panels = panels && typeof panels === 'object' ? panels : {};
+  if (panels.waiting === false) root.className += ' hide-waiting';
+  if (panels.side === false) root.className += ' hide-side';
+  if (panels.bottom !== true) root.className += ' hide-bottom';
+  var tab = location.hash.slice(1).replace(/^panel-/, '').split('?')[0] || panels.tab || '';
   tab = ({overview:'home', execution:'work', graph:'work', tasks:'work', assumptions:'review',
           operations:'audit', governance:'audit', decisions:'audit'})[tab] || tab;
   var known = ['home', 'work', 'review', 'audit'];
@@ -2842,7 +2858,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     inspections = ''.join(f'<section class="work-view{" is-selected" if i == 0 else ""}"'
                          f' id="work-view-{name}" tabindex="0" aria-labelledby="work-tab-{name}">{body}</section>'
                          for i, (name, label, body) in enumerate(inspection_views))
-    work = panel("work", '<h2>Execution</h2><p class="note">Current phase, work in progress and their prerequisites. '
+    work = panel("work", shell.lanes_section(original_compiled) + '<h2>Execution</h2><p class="note">Current phase, work in progress and their prerequisites. '
                  'The full registry and graph below always include every task.</p>'
                  '<div class="work-toolbar"><div class="work-scope" role="group" aria-label="Work scope"><button data-work-scope="current" aria-pressed="true">Current work</button>'
                  '<button data-work-scope="all" aria-pressed="false">All work</button></div>'
@@ -2919,6 +2935,17 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                   + (response_records or '<p>No responses recorded.</p>') + '</details>'
                   + '<details class="group"><summary>Journal history</summary>' + (history or '<p>No journal entries recorded.</p>') + '</details>')
 
+    # The shell (T-DASH-SHELL-01): the waiting model, the lanes and the shared
+    # panels, derived in `shell` from the same compiled project.
+    shell_model = shell.model(original_compiled, project)
+    bottom_panes = {
+        "queue": shell.queue_pane(shell_model["waiting"], original_compiled),
+        "journal": shell.journal_pane(original_compiled),
+        "findings": shell.validation_pane(original_compiled),
+        "grants": shell.grants_pane(shell.grants(project)),
+        "text": shell.text_pane(),
+        "rel": shell.relations_pane(),
+    }
     page = f"""<!doctype html>
 <html lang="{selected_language}">
 <head>
@@ -2926,12 +2953,12 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{esc(i18n.verbatim(project.name))} — project state</title>
 <script>{_BOOT}</script>
-<style>{_STYLE}{review.STYLE}{_MISSION_STYLE}{i18n.style()}</style>
+<style>{_STYLE}{review.STYLE}{_MISSION_STYLE}{shell.STYLE}{i18n.style()}</style>
 </head>
 <body>
-<main>
-{STALE_MARKER}
-  <header class="top">
+<a class="skip" href="#p-text">Skip to the text view</a>
+<div class="shell">
+  <header class="top shell-top">
     <div>
       <h1>{esc(i18n.verbatim(project.name))}</h1>
       <p class="sub">
@@ -2949,8 +2976,12 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
       <button type="button" data-theme-choice="light" aria-pressed="false">Light</button>
       <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
     </div>
+    {shell.header_controls()}
   </header>
-
+  {shell.waiting_strip(shell_model["waiting"], original_compiled)}
+  <div class="shell-middle">
+  <main id="main">
+{STALE_MARKER}
   <div class="layout">
   <div class="content">
   <div class="stickyhead">
@@ -2974,7 +3005,13 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     it reports authority and cannot change it. Edit
     <code>{esc(compiled["project"]["authority"])}/</code> and compile again.
   </footer>
-</main>
+  </main>
+  {shell.side_panel()}
+  </div>
+  {shell.bottom_panel(bottom_panes)}
+</div>
+<p class="sr" id="shell-live" aria-live="polite"></p>
+{shell.help_dialog()}
 
 <dialog id="detail" aria-label="Task details"><button class="close" aria-label="Close"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/></svg></button><div class="body"></div></dialog>
 <dialog id="global-search" aria-labelledby="search-title">
@@ -2987,8 +3024,9 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 <script type="application/json" id="diagram-data">{embed(diagrams)}</script>
 <script type="application/json" id="node-map">{embed(node_map)}</script>
 <script type="application/json" id="code-not-current">{embed(code.not_current())}</script>
+<script type="application/json" id="shell-data">{embed(shell_model)}</script>
 <!--i18n-runtime-->
-<script>{FILTER_JS}{CODE_FILTER_JS}{_SCRIPT}{SEARCH_JS}{_MISSION_SCRIPT}{review.script(interactive)}</script>
+<script>{FILTER_JS}{CODE_FILTER_JS}{_SCRIPT}{SEARCH_JS}{_MISSION_SCRIPT}{review.script(interactive)}{shell.SCRIPT}</script>
 </body>
 </html>
 """

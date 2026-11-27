@@ -183,7 +183,8 @@ class TestBlockerGuidance(ReviewCase):
 class TestNeedsPanel(TestBlockerGuidance):
     def test_everything_awaiting_the_owner_is_in_one_panel_and_nowhere_else(self) -> None:
         """AC-T-REVIEW-PANEL-01-01."""
-        self.assertNotIn('<aside', self.html)
+        # T-DASH-SHELL-01: the shell's side panel is the one aside; no other sidebar.
+        self.assertEqual(re.findall(r'<aside[^>]*>', self.html), ['<aside id="side" class="shell-side" aria-labelledby="side-h">'])
         review = self.needs.split('aria-label="Assumptions requiring validation"', 1)[1]
         self.assertLess(review.index('data-id="A-2"'), review.index('data-id="A-4"'))
         self.assertEqual(self.needs.count('id="review-T-TWO"'), 1)
