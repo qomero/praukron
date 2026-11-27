@@ -208,10 +208,10 @@ strongly each finished task is actually backed, which is a different question
 from whether it is done.
 
 <p align="center">
-  <img src="docs/assets/dashboard-views.png" alt="Work draws the complete dependency graph and, under Views, the critical path natively with task status labels and an expandable Mermaid source." width="900">
+  <img src="docs/assets/dashboard-views.png" alt="Work draws, under Views, the critical path natively with task status labels and an expandable Mermaid source." width="900">
 </p>
 
-<p align="center"><em>Six views draw offline: dependencies, critical path, phases, gates, dependency ordering and calendar Gantt.<br>
+<p align="center"><em>Beside the lanes, force and 3D views, four views draw offline: critical path, phases, gates and calendar Gantt.<br>
 Each drawing keeps its Mermaid source beside it. Calendar bars use recorded schedules only.</em></p>
 
 ## Which work touched which code

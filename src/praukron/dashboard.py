@@ -1590,19 +1590,6 @@ html.js .native-view:not(.is-selected) { display: none; }
 .diagram-source { margin-top: 16px; }
 .diagram-source summary { cursor: pointer; padding: 10px 0; }
 .diagram-source pre { padding: 16px; background: var(--panel-raised); font-size: 13px; }
-.ordering-bands { display: flex; width: max-content; list-style: none; margin: 0; padding: 20px; gap: 32px; }
-.ordering-bands > li { width: 240px; }
-.ordering-bands h3 { margin: 0 0 12px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
-.ordering-bands ul { list-style: none; padding: 0; }
-.ordering-bands ul li { padding: 12px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
-.ordering-bands span { display: block; margin-top: 4px; }
-.ordering-bands .drawing-status { color: var(--muted); font-size: 12px; }
-.offline-graph { overflow: auto; max-height: 560px; background: var(--panel); }
-.offline-graph svg { display: block; }
-.offline-graph rect { fill: var(--panel-raised); stroke: var(--line-strong); }
-.offline-graph text { fill: var(--ink); font: 13px ui-monospace, monospace; }
-.offline-graph path { fill: none; stroke: var(--muted); }
-.offline-graph a:hover rect, .offline-graph a:focus rect { stroke: var(--accent); stroke-width: 3; }
 .search-control { display: none; gap: 12px; align-items: center; }
 html.js .search-control { display: inline-flex; }
 #global-search { width: min(720px, calc(100vw - 32px)); padding: 20px; }
@@ -1858,38 +1845,6 @@ def source_link(source: dict) -> str:
     pointer = source["file"] + "#" + source["anchor"]
     return f'<a href="../chronicle/{quote(source["file"])}#{quote(source["anchor"])}">{esc(i18n.verbatim(pointer))}</a>'
 
-
-def dependency_svg(tasks: dict) -> str:
-    """Small offline SVG; full IDs, edges and a textual equivalent below it."""
-    levels = {}
-    pending = set(tasks)
-    while pending:
-        ready = sorted(t for t in pending if all(d not in pending for d in tasks[t]["deps"]))
-        if not ready:  # Invalid cycles still render; validation owns diagnosis.
-            ready = sorted(pending)
-        for tid in ready:
-            levels[tid] = 1 + max((levels.get(d, -1) for d in tasks[tid]["deps"]), default=-1)
-            pending.remove(tid)
-    positions, rows = {}, {}
-    width = max(180, max((len(t) * 8 + 24 for t in tasks), default=180))
-    for tid in sorted(tasks):
-        level = levels[tid]
-        row = rows.get(level, 0)
-        rows[level] = row + 1
-        positions[tid] = (20 + level * (width + 80), 20 + row * 64)
-    edges, nodes = [], []
-    for tid, (x, y) in positions.items():
-        for dep in tasks[tid]["deps"]:
-            if dep in positions:
-                dx, dy = positions[dep]
-                edges.append(f'<path d="M {dx + width} {dy + 20} L {x} {y + 20}"/>')
-        nodes.append(f'<a href="#task-record-{esc(tid)}" data-task="{esc(tid)}">'
-                     f'<rect x="{x}" y="{y}" width="{width}" height="40" rx="6"/>'
-                     f'<text x="{x + 12}" y="{y + 25}">{esc(tid)}</text></a>')
-    return (f'<div class="offline-graph"><svg role="img" aria-label="Dependency graph; dependencies flow left to right. Full links below." '
-            f'width="{max((x + width + 20 for x, y in positions.values()), default=240)}" '
-            f'height="{max((y + 60 for x, y in positions.values()), default=80)}">'
-            + ''.join(edges + nodes) + '</svg></div>')
 
 # How many other tasks a reference names before it points to the artifact's record.
 RELATED_TASKS = 3
@@ -2417,10 +2372,11 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     )
 
     # --- Graph -------------------------------------------------------------
-    native = {"task-graph.mmd": dependency_svg(tasks), **drawings.render_all(project, report)}
-    labels = [("task-graph.mmd", "Task graph"), ("critical-path.mmd", "Critical path"),
-              ("phases.mmd", "Phases"), ("gates.mmd", "Gates"),
-              ("timeline.mmd", "Dependency ordering"), ("gantt.mmd", "Calendar Gantt")]
+    # The lanes, force and 3D views draw the whole dependency graph and its
+    # order; these views draw what they do not.
+    native = drawings.render_all(project, report)
+    labels = [("critical-path.mmd", "Critical path"), ("phases.mmd", "Phases"),
+              ("gates.mmd", "Gates"), ("gantt.mmd", "Calendar Gantt")]
     diagram_tabs = "".join(
         f'<button id="view-tab-{i}" role="tab" aria-controls="view-{i}" tabindex="{0 if i == 0 else -1}" '
         f'data-diagram="{name}" aria-selected="{str(i == 0).lower()}">{label}</button>'
@@ -2839,17 +2795,12 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
     work_states = ''.join(work_state(state, ids, i) for i, (state, ids) in enumerate(mission["states"].items())
                           if state != "Completed")
     completed_work = work_state("Completed", mission["states"]["Completed"], 6)
-    dependency_list = '<ul class="plain">' + ''.join(
-        f'<li>{ref(t)} ← ' + (', '.join(ref(d) for d in task["deps"]) or 'No dependencies') + '</li>'
-        for t, task in tasks.items()) + '</ul>'
     inspection_views = [
         ("critical", "Critical path", critical),
         ("phases", "Phases", '<h2>Phases</h2><div class="phases">'
          + phase_cards + '</div><h2>Product hierarchy</h2>' + hierarchy),
         ("registry", "Task registry", '<h2>Full task registry</h2>' + registry),
-        ("graph", "Dependency graph", '<h2>Complete dependency graph</h2>'
-         + dependency_svg(tasks) + '<details><summary>Task dependencies</summary>'
-         + dependency_list + '</details>' + graph),
+        ("graph", "Views", graph),
         ("breakdown", "Breakdown", '<h2>Execution breakdown and progress</h2>' + progress_charts
          + _breakdown(compiled) + f'<h2>Execution progress</h2><div class="grid">{cards}</div>' + work_ahead),
     ]
@@ -2860,7 +2811,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
                          f' id="work-view-{name}" tabindex="0" aria-labelledby="work-tab-{name}">{body}</section>'
                          for i, (name, label, body) in enumerate(inspection_views))
     work = panel("work", shell.lanes_section(original_compiled) + '<h2>Execution</h2><p class="note">Current phase, work in progress and their prerequisites. '
-                 'The full registry and graph below always include every task.</p>'
+                 'The full registry below always includes every task.</p>'
                  '<div class="work-toolbar"><div class="work-scope" role="group" aria-label="Work scope"><button data-work-scope="current" aria-pressed="true">Current work</button>'
                  '<button data-work-scope="all" aria-pressed="false">All work</button></div>'
                  + '<p class="note" id="work-status" aria-live="polite">'
@@ -3022,7 +2973,7 @@ def render(project: Project, report: Report, compiled: dict, interactive: bool =
 </dialog>
 
 <script type="application/json" id="project-data">{embed(embedded_data(original_compiled))}</script>
-<script type="application/json" id="diagram-data">{embed(diagrams)}</script>
+<script type="application/json" id="diagram-data">{embed({name: diagrams[name] for name, _ in labels})}</script>
 <script type="application/json" id="node-map">{embed(node_map)}</script>
 <script type="application/json" id="code-not-current">{embed(code.not_current())}</script>
 <script type="application/json" id="shell-data">{embed(shell_model)}</script>

@@ -221,7 +221,7 @@ class TestMissionPage(FixtureCase):
         self.assertEqual(re.findall(r'role="tab" id="tab-([^"]+)"', page), ["home", "work", "review", "audit"])
         # T-DASH-SHELL-01: the shell's side panel is the one aside; no other sidebar.
         self.assertEqual(re.findall(r'<aside[^>]*>', page), ['<aside id="side" class="shell-side" aria-labelledby="side-h">'])
-        for label in ["Full task registry", "Complete dependency graph", "Critical path", "Architecture decisions",
+        for label in ["Full task registry", "Critical path", "Calendar Gantt", "Architecture decisions",
                       "Operational trace", "Technical debt", "Journal history", "Assumptions requiring validation"]:
             self.assertIn(label, page)
 

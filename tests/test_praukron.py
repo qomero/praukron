@@ -995,16 +995,16 @@ class TestDashboard(FixtureCase):
                     inverted[dependency].add(task)
         self.assertEqual(backward, inverted)
 
-    def test_the_graph_reaches_the_same_dialog_as_the_tables(self) -> None:
-        """A task opens from the drawing and from its table row, and both read
-        the one embedded project. Only tasks are offered: a gate or a phase is
-        a node too, and marking it clickable would promise a dialog that does
+    def test_a_task_opens_from_its_row_and_nothing_offers_a_gate(self) -> None:
+        """A task opens from its table row and reads the one embedded project.
+        The lanes, force and 3D views draw the dependency graph (T-DASH-PRUNE-01
+        removed the old drawing). Only tasks are offered: a gate or a phase is
+        a node too, and marking it clickable would promise a record that does
         not exist."""
-        graph = self.html.split('class="offline-graph"', 1)[1].split('</svg>', 1)[0]
-        self.assertIn('data-task="T-TWO"', graph)
+        self.assertIn('data-task="T-TWO"', self.html)
         self.assertIn("showTask(opener.dataset.task)", self.html)
-        self.assertNotIn('data-task="Gate A"', graph)
-        self.assertNotIn('data-task="P1"', graph)
+        self.assertNotIn('data-task="Gate A"', self.html)
+        self.assertNotIn('data-task="P1"', self.html)
 
     def test_rendering_twice_gives_the_same_page(self) -> None:
         again = dashboard.render(self.project, self.report, compiler.as_json(self.project))
@@ -1013,9 +1013,9 @@ class TestDashboard(FixtureCase):
     def test_the_page_survives_mermaid_being_unreachable(self) -> None:
         """Every drawing and its source are available without a network."""
         self.assertNotRegex(self.html, r'<script[^>]+src=')
-        self.assertIn('class="offline-graph"', self.html)
+        self.assertIn('class="native-drawing', self.html)
         self.assertNotIn("window.mermaid", self.html)
-        self.assertEqual(self.html.count('class="diagram-source"'), 6)
+        self.assertEqual(self.html.count('class="diagram-source"'), 4)
 
 
 class TestDashboardTabs(FixtureCase):
