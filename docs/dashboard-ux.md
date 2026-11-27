@@ -193,7 +193,7 @@ verification and provenance values stay as recorded, in code type.
 
 Root blockers and the next gate with milestones sit beside one another below
 the board, stacking on phones. Five inspection tabs open Critical path, Phases,
-Task registry, Dependency graph (including drawings and sources), and Breakdown.
+Task registry, Views (drawings and their sources), and Breakdown.
 Arrow keys, Home and End select tabs; search results and legacy links reveal the
 appropriate view before moving focus. Without JavaScript, the tabs are ordinary
 anchor links and all inspection sections and task cards remain available.
@@ -300,11 +300,13 @@ route to their corresponding inspection views.
 Existing light/dark tokens and system-theme behavior remain. At phone width the
 layout stacks and Review appears first in the workspace bar. Visible focus,
 labels and reduced-motion styles support keyboard use. Content remains readable
-without JavaScript; search is hidden. All six views draw natively in Python,
-using inline SVG or HTML. Each retains its expandable Mermaid source alongside
-the drawing. Critical path, phases and gates share node/edge selections with
-their exports; dependency ordering shares depth bands, and calendar Gantt shares
-phase groups and recorded schedules. Dependency ordering never implies dates.
+without JavaScript; search is hidden. The four views under Views (critical
+path, phases, gates and calendar Gantt) draw natively in Python, using inline
+SVG or HTML. Each retains its expandable Mermaid source alongside the drawing.
+Critical path, phases and gates share node/edge selections with their exports,
+and calendar Gantt shares phase groups and recorded schedules. The dependency
+graph and its order are drawn by the lanes, force and 3D views; `praukron graph`
+still writes `task-graph.mmd` and `timeline.mmd`.
 Calendar bars use an authored end or duration (ms, s, m, h, d or w); invalid or
 unsupported metadata gets no invented bar. Unscheduled work is counted separately.
 Empty views explain what is missing. Undated work can still have a dependency

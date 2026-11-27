@@ -101,22 +101,6 @@ def gate_graph(project, report) -> str:
                  [c for c in columns if c], "No gates or phase exits recorded.")
 
 
-def dependency_timeline(project, report) -> str:
-    bands = mermaid.dependency_bands(project)
-    if not bands:
-        return empty("No open work to order.")
-    out = ['<ol class="ordering-bands">']
-    for band, ids in bands.items():
-        out.append(f'<li data-step="{band + 1}"><h3>Step {band + 1}</h3><ul>')
-        for nid in ids:
-            task = project.task(nid)
-            out.append(f'<li data-node="{esc(nid)}"><a href="#task-record-{esc(nid)}">{esc(nid)}</a>'
-                       f'<span>{esc(i18n.verbatim(task.title))}</span><span class="drawing-status tone-{tone(task.status)}">'
-                       f'{esc(task.status)}</span></li>')
-        out.append('</ul></li>')
-    return frame("Dependency ordering · steps, not dates", ''.join(out) + '</ol>')
-
-
 def interval(entry: dict) -> tuple[datetime, datetime] | None:
     """Resolve only an authored end or a supported Mermaid duration."""
     try:
@@ -185,4 +169,4 @@ def calendar_gantt(project, report) -> str:
 def render_all(project, report) -> dict[str, str]:
     return {"critical-path.mmd": critical_path(project, report),
             "phases.mmd": phase_flow(project, report), "gates.mmd": gate_graph(project, report),
-            "timeline.mmd": dependency_timeline(project, report), "gantt.mmd": calendar_gantt(project, report)}
+            "gantt.mmd": calendar_gantt(project, report)}

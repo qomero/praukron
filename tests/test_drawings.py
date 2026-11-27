@@ -82,22 +82,6 @@ class TestNativeViews(FixtureCase):
                                  ["Gate A", "Gate B", "P1", "P2"],
                                  [("Gate A", "P1"), ("Gate B", "P1"), ("Gate B", "P2")])
 
-    def test_dependency_ordering_matches_mermaid_bands_and_order(self):
-        parsed = Markup(drawings.dependency_timeline(self.project, self.report))
-        source = mermaid.dependency_timeline(self.project, self.report)
-        bands, step = {}, None
-        for line in source.splitlines():
-            if line.strip().startswith("section Step "):
-                step = int(line.split()[-1])
-                bands[step] = []
-            elif " : " in line:
-                nid, value = line.strip().split(" : ")
-                bands[step].append(nid)
-                self.assertTrue(value.endswith(f'{step - 1}, {step}'))
-        self.assertEqual(parsed.steps, {1: ["T-TWO"], 2: ["T-THREE", "T-FOUR"]})
-        self.assertEqual(parsed.steps, bands)
-        self.assertNotIn("2026-", drawings.dependency_timeline(self.project, self.report))
-
     def test_calendar_matches_mermaid_phase_row_order_and_dates(self):
         drawing = drawings.calendar_gantt(self.project, self.report)
         parsed = Markup(drawing)
@@ -145,13 +129,10 @@ class TestNativeViews(FixtureCase):
         r = analytics.report(p)
         self.assertIn('drawing-empty', drawings.calendar_gantt(p, r))
         self.assertNotIn('<svg', drawings.calendar_gantt(p, r))
-        # Undated tasks still have an honest dependency order, not invented dates.
-        self.assertEqual(Markup(drawings.dependency_timeline(p, r)).nodes, ['T-TWO', 'T-THREE', 'T-FOUR'])
         for t in p.tasks:
             t.status = 'DONE'
         r = analytics.report(p)
         self.assertIn('drawing-empty', drawings.critical_path(p, r))
-        self.assertIn('drawing-empty', drawings.dependency_timeline(p, r))
         p.tasks, p.phases, p.gates = [], [], []
         for drawing in drawings.render_all(p, analytics.report(p)).values():
             self.assertIn('drawing-empty', drawing)
