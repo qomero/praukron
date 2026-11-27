@@ -648,6 +648,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron domains` | How each task's execution/operations domain was decided, and which need one. |
 | `praukron refs <task>` | The task's files and symbols, planned and observed, each with its record. |
 | `praukron refs <path>` · `<path>#<symbol>` | Every task that references the file or symbol, with its decisions, criteria and assumptions. |
+| `praukron why <path>` · `<path>#<symbol>` · `<directory>` | Why the code is as it is: the tasks that touched it, oldest first, how each reference was recorded, the decisions behind them (a superseded one with what replaced it), their criteria and inherited invariants, each with its record. From the chronicle alone; `--json`. |
 | `praukron retrieve "<question or id>"` | Only the chronicle records a question needs, routed by `INDEX.md`, each with its source, within a token budget (`--budget`). |
 | `praukron archive plan <phase>` | Owner only, read-only: which closed records of a COMPLETE phase (or `P-NONE`) would move to `archive/<phase>/` and which stay and why, with a digest. |
 | `praukron archive apply <phase> --plan <digest>` | Owner only: move exactly that plan. They stay authority; open work stays put; a stale plan is refused. |

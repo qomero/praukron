@@ -445,7 +445,8 @@ class TestExistingCommandsUnchanged(unittest.TestCase):
 
     def test_the_command_set_only_grows_by_engine(self) -> None:
         action = next(a for a in cli.build_parser()._actions if a.dest == "command")
-        self.assertEqual(set(action.choices) - COMMANDS_4_0_0, {"engine"})
+        # `why` (T-GRAPH-WHY-01) reads the chronicle alone and never the library.
+        self.assertEqual(set(action.choices) - COMMANDS_4_0_0, {"engine", "why"})
         self.assertEqual(COMMANDS_4_0_0 - set(action.choices), set())
 
     def test_output_and_exit_status_do_not_depend_on_a_library(self) -> None:
