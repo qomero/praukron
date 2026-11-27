@@ -3,8 +3,10 @@
 An optional native library that gives Praukron a code graph. It is a thin C
 ABI over [crowbett/codegraph](https://github.com/crowbett/codegraph), pinned by
 commit in `Cargo.toml`, which parses with tree-sitter and keeps its graph in a
-SQLite file. Nothing in Praukron loads it yet; Praukron works the same with or
-without it.
+SQLite file. `praukron engine status|index|export` (`src/praukron/engine.py`)
+loads it when it is present; Praukron works the same without it. Where it is
+looked for and where the index goes are in the guide, under "The embedded
+graph library".
 
 ## Building
 

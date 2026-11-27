@@ -488,6 +488,14 @@ def _confirm(question: str) -> bool:
         return False
 
 
+def cmd_engine(root: Path, args: argparse.Namespace) -> int:
+    """The optional embedded graph library (ADR-100). Imported only here, so
+    no other command loads it or reads its index."""
+    from . import engine
+
+    return engine.command(root, args)
+
+
 def cmd_codegraph(root: Path, args: argparse.Namespace) -> int:
     """Implementation intelligence is project operations: tooling around the
     work. Nothing here reads or changes project state (ADR-049)."""
@@ -756,6 +764,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     graph_tool.add_argument("--json", action="store_true")
     graph_tool.set_defaults(handler=cmd_codegraph)
+
+    embedded = subparsers.add_parser(
+        "engine",
+        help="optional embedded graph library: status, index, export (derived output, never authority)",
+    )
+    embedded_commands = embedded.add_subparsers(dest="action", required=True)
+    engine_status = embedded_commands.add_parser(
+        "status", help="whether a graph library is present, its engine commit and interface version"
+    )
+    engine_status.add_argument("--json", action="store_true")
+    engine_index = embedded_commands.add_parser(
+        "index", help="index this repository, or refresh the index after edits"
+    )
+    engine_index.add_argument("--full", action="store_true", help="re-read every file")
+    engine_index.add_argument("--json", action="store_true")
+    engine_export = embedded_commands.add_parser("export", help="the whole graph as one JSON document")
+    engine_export.add_argument(
+        "-o", "--output", default=None, metavar="FILE", help="write it here instead of standard output"
+    )
+    embedded.set_defaults(handler=cmd_engine)
 
     journal = subparsers.add_parser("journal", help="append governed journal entries")
     journal_commands = journal.add_subparsers(dest="journal_command", required=True)

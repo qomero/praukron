@@ -1,15 +1,18 @@
 name: Graph library
 
 # Builds the optional native graph library (native/graph/) on every supported
-# platform, tests it from Python with ctypes, and checks its third-party
-# notices and bill of materials. It runs only when the library changes, or on
-# demand, so it never slows the main CI workflow. Nothing in Praukron loads the
-# library yet.
+# platform, tests it from Python with ctypes, runs Praukron's own `engine`
+# commands against it (tests/test_engine_library.py), and checks its
+# third-party notices and bill of materials. It runs only when the library or
+# the code that loads it changes, or on demand, so it never slows the main CI
+# workflow, where the same commands are tested without a library.
 
 on:
   pull_request:
     paths:
       - "native/graph/**"
+      - "src/praukron/engine.py"
+      - "tests/test_engine_library.py"
       - ".github/workflows/graph-library.yml"
   workflow_dispatch:
 
@@ -115,6 +118,20 @@ jobs:
           python3 -c "import platform; print(platform.machine(), platform.python_version())"
           python3 -I native/graph/tests/test_library.py
           cat out/test-report.json
+
+      - name: Praukron loads it, indexes, refreshes and exports
+        shell: bash
+        env:
+          PRAUKRON_GRAPH_LIB: ${{ github.workspace }}/out/${{ matrix.file }}
+        run: |
+          # Fails when a test is skipped, so a library that is not found cannot pass.
+          python3 - <<'PY'
+          import sys, unittest
+          sys.path.insert(0, "tests")
+          suite = unittest.defaultTestLoader.loadTestsFromName("test_engine_library")
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          sys.exit(0 if result.wasSuccessful() and result.testsRun and not result.skipped else 1)
+          PY
 
       - uses: actions/upload-artifact@v4
         if: always()
