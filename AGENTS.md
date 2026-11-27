@@ -134,9 +134,10 @@ changed files and Python symbols; read the reply's `capture`, report a skip,
 then `ref add` symbols of its `symbolsUnresolved` files, and files read,
 verified or documented unchanged. `praukron refs` and packet `references` map
 tasks to code; `engine map <task>` adds the graph. Before changing existing
-code, ask `engine impact <task>`. `capture.warning` marks unresolved, unverified
-references (merged in, or another claim's): settle each by `ref set` or a
-capture with `--base` and `--head`, as after any squash, rebase or fast-forward.
+code, ask `engine impact <task>`. `capture.warning` marks unresolved
+references (merged, another claim's, or not made here per HEAD's reflog):
+settle them and others' patches you commit by `ref set` or a capture with
+`--base` and `--head`.
 
 ## Assumptions and the owner
 

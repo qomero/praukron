@@ -1053,10 +1053,29 @@ The file record's evidence then reads `git diff 5be9fe2df06e to 6fa5a5fbe6ab
   not on this range's first-parent line`. Git's own ancestry decides (the
   first-parent line of the range is the task's line of work); commit messages
   and authors are never read. Files changed on the first-parent line, or only
-  in the working tree, are recorded as before.
+  in the working tree, are recorded as before, unless the next rule applies.
+- **Commits this checkout did not make are not the task's either.** A squash
+  or rebase merge pulled by fast-forward, a `git pull --rebase`, a `git reset`
+  to a remote tip or a checkout puts other people's commits on the
+  first-parent line with no merge commit. The checkout's own HEAD reflog (a
+  linked worktree has its own) says which commits were made here: an entry
+  `commit`, `commit (amend)`, `commit (merge)`, `cherry-pick`, `revert`, `am`,
+  or a rebase step that writes a commit (`rebase (pick)`, `pull --rebase
+  (pick)`, `reword`, `edit`, `squash`, `fixup`, `continue`). Your own commits
+  replayed by a rebase here therefore count as yours, and the commits they
+  were replayed onto do not. Every file and symbol a commit not made here
+  changed is recorded unresolved and unverified, its evidence naming the
+  commit and how it arrived: `unresolved attribution: changed by commits this
+  checkout's HEAD reflog does not show as made here: 9f4e2c0b1a77 (arrived by
+  `pull -q --rebase (start)`)`. When the reflog cannot account for a commit
+  (no reflog, an expired or truncated one, reflogs turned off, a fresh clone),
+  the evidence says `the HEAD reflog could not show where it was made`; that
+  commit is never guessed to be yours, nor anyone else's.
 - **An unresolved reference is not the task's.** The reply's `capture` then
   carries `unresolved` (the count), `merges` (the merge commits found, short
-  ids) and one `warning` sentence saying the references are not attributed and
+  ids), `notMadeHere` (the commits not made here, short ids, with
+  `notMadeHereInvolved` saying how each that changed a recorded file arrived)
+  and one `warning` sentence saying the references are not attributed and
   how to settle them; the `DONE` write itself still succeeds. `praukron why`,
   `praukron engine map`, `praukron engine impact`, `praukron refs` and the
   task packet (`context`, `retrieve`) mark each one `UNRESOLVED ATTRIBUTION` in
@@ -1075,13 +1094,15 @@ The file record's evidence then reads `git diff 5be9fe2df06e to 6fa5a5fbe6ab
   history, or withdraw it. `ref set` never sets an unresolved reference
   `verified` in place. `praukron validate` warns, once per task, about
   references an older Praukron recorded unresolved and yet verified.
-- **What Git's shape cannot show.** Work of others that arrives without a
-  merge commit (a squash merge, a rebase merge, a fast-forward of a branch)
-  lies on the first-parent line and cannot be told apart from the task's own
-  commits. A task closed in a checkout that took other work that way must be
-  captured with a named range over its own commits; otherwise those files are
-  recorded as its work. Better still, work one task per worktree and close it
-  before pulling other work in.
+- **What the reflog cannot show.** A patch of others applied and committed
+  here by hand (`git merge --squash` then `git commit`, `git cherry-pick`,
+  `git am`, `git commit --amend` of a commit made elsewhere, a `git stash pop`
+  of others' changes) counts as made here, so it is recorded as the task's
+  work. A range the reflog cannot account for is recorded unresolved even when
+  it is all yours, and so are the commits of a task claimed in one checkout and
+  closed in another. In each case capture the task's own range with both
+  `--base` and `--head` named, or settle the records with `ref set`. Better
+  still, work one task per worktree and close it there.
 - **Capture needs Git.** Outside a repository, without `git` on the path, in a
   repository with no commit, for a task without `Claimed at`, or when a Git
   command fails or takes more than 20 seconds, the write still succeeds and the

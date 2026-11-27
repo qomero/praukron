@@ -372,7 +372,7 @@ again.
   `{"status":"kept","commit":…}` for a task claimed before, or
   `{"status":"skipped","reason":…}`; at a close `{"status":"captured",
   "references":<n written>,"base":…,"head":…,"workingTree":true,
-  "alreadyRecorded":<n>,"unresolved":<n>}`, with `merges` and one `warning`
+  "alreadyRecorded":<n>,"unresolved":<n>}`, with `merges`, `notMadeHere` and one `warning`
 sentence when a reference is unresolved (§2.9), `skippedPaths` for a path a
   record cannot hold, or `skipped` with its reason. Capture is skipped, and the
   write is otherwise exactly as without it, when `git` is not on the path, the
@@ -912,13 +912,45 @@ other task is claimed, and its `Evidence` ends `unresolved attribution:
 changed by commits merged in through <merge>, …, not on this range's
 first-parent line`, naming each merge by its first twelve hex characters. A
 path changed only by first-parent, non-merge commits, or only in the working
-tree, is recorded as above. Commit messages and authors are never read. A
-named capture is unchanged: merges or not, its records are verified.
+tree, is recorded as above, unless the rule below makes it unresolved.
+Commit messages and authors are never read. A named capture is unchanged:
+merges or not, its records are verified.
+
+**Commits this checkout did not make (T-SCOPE-REFLOG-01).** Work of others
+that arrives with no merge commit (a squash or rebase merge pulled by
+fast-forward, `git pull --rebase`, `git reset` to a remote tip, a checkout)
+lies on the first-parent line, and Git's shape cannot tell it apart. The
+checkout's own HEAD reflog can: the same two captures read it with Git (`git
+log --walk-reflogs` on `HEAD`; a linked worktree reads its own), never from
+files under `.git`. A non-merge commit of the first-parent line is made here
+when a reflog entry whose action creates a commit moved HEAD to it: `commit`,
+`commit (initial)`, `commit (amend)`, `commit (merge)`, `cherry-pick`,
+`revert`, `am`, and a rebase step that writes a commit (`pick`, `reword`,
+`edit`, `squash`, `fixup`, `continue`) of a `rebase` or of a `pull` that
+rebases (`pull --rebase (pick)`). So a task's own commits replayed by a rebase
+here count, and the commits they were replayed onto do not. Any other action,
+an unknown one included, creates nothing. Git writes these actions in English
+whatever the locale; a translated one would create nothing, so it can only
+make a record unresolved. Every file and symbol whose path a commit not made
+here changed is recorded `Lifecycle: unresolved` and `Verification:
+unverified`, and its `Evidence` ends `unresolved attribution: changed by
+commits this checkout's HEAD reflog does not show as made here: <commit>
+(<how>), …`, naming each commit by its first twelve hex characters and how it
+arrived: `arrived by` and, in backticks, the action of the reflog entry that
+brought it (its action only, never the entry's message), or `the HEAD reflog could not show
+where it was made: <why>` when the reflog cannot account for it: no reflog,
+an expired or truncated one, reflogs turned off, a fresh clone, or a commit
+already there at the reflog's first entry. Nothing is guessed in either
+direction, and a reflog that cannot be read accounts for nothing. A path
+changed only by commits made here, or only in the working tree, stays
+verified. A named capture does not read the reflog.
 
 When a capture writes an unresolved reference, its reply's `capture` member
 carries `unresolved` (the count), `merges` (every merge on the first-parent
 line, short ids) and `mergesInvolved` (those that brought in a recorded path),
-and one `warning` sentence: the references are not attributed to the task, and
+`notMadeHere` (every first-parent commit not made here, short ids) and
+`notMadeHereInvolved` (those that changed a recorded path, each `{"commit",
+"how"}`), and one `warning` sentence covering every cause: the references are not attributed to the task, and
 they are settled by a named capture over the task's own range or by `ref set`
 on each record. The write still succeeds; capture never blocks it. A listing
 never presents an unresolved observed reference as a plain reference of its
@@ -944,11 +976,14 @@ current `git_diff` or `static_analysis` references an earlier capture wrote
 with `Lifecycle: unresolved` and `Verification: verified`, with their count
 and the two ways to settle them.
 
-The limit that stays: work of others that arrives without a merge commit (a
-squash merge, a rebase merge, a fast-forward of a branch) lies on the
-first-parent line and cannot be told apart by Git's shape alone. A task
-closed in a checkout that took other work must therefore be captured with a
-named range over its own commits.
+The limits that stay, settled by a named capture over the task's own commits
+or by `ref set`: a foreign patch applied and committed here by hand (`git
+merge --squash` then `git commit`, `git cherry-pick`, `git am`, `git commit
+--amend` of a commit made elsewhere, a `git stash pop` of others' changes
+then committed or left in the working tree) counts as made here; and a range
+the reflog cannot account for is unresolved even when it is the task's own,
+as is a task claimed in one checkout and closed in another, whose commits the
+closing checkout's reflog does not show as made there.
 
 **Observed symbols, from the standard library's `ast` (ADR-092).** The same
 capture, in the same write, records the changed symbols of every changed
