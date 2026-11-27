@@ -816,7 +816,7 @@ The dashboard (`praukron dashboard`) reads the same compiled references. The
 task registry counts each task's current references in a Files column and a
 Symbols column, anchors included, and its search matches an exact or partial
 path or a symbol name of a current reference. Each task record carries a Code
-References section, shown also in the task dialog, grouped into planned files,
+References section, shown also in the task's side panel, grouped into planned files,
 planned symbols, observed files and observed symbols, with relation,
 authorization, verification, revision, provenance and the other tasks holding a
 current reference to the same artifact (three, then a link to the rest);

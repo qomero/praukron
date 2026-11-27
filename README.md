@@ -50,19 +50,42 @@ those documents into project state, and that state is then projected two ways.
 A person opens a page:
 
 <p align="center">
-  <img src="docs/assets/dashboard-state.png" alt="Home opens with a phase timeline, a current-phase card containing module progress, gate, root blocker and active work, and a next-action column whose Verify tick approves the owner task in one click, above separate project figures." width="900">
+  <img src="docs/assets/dashboard-state.png" alt="Work opens on the lanes of a synthetic invoicing project: phases P1 to P3 and P-NONE as columns, modules as bands, done tasks filled, owner tasks marked with a diamond, decisions and assumptions in bands below. Above, the Waiting for you strip lists three items to answer now and two upcoming, each with what it blocks, and names pending decisions, requests for delegation and escalations as not recorded." width="900">
 </p>
 
-<p align="center"><em><code>praukron dashboard --serve</code> on a synthetic test project. See the <a href="docs/dashboard-ux.md">workspace guide</a> for the interaction model.<br>
+<p align="center"><em><code>praukron dashboard</code> on a synthetic project, made by <code>scripts/screenshots.py</code>. See the <a href="docs/dashboard-ux.md">dashboard document</a> for the interaction model.<br>
 Every figure is computed from the Markdown files in <code>.praukron/chronicle/</code>. No model, no service, no network.</em></p>
 
-Home opens with a phase timeline showing state and exact completion counts.
-The current-phase card groups its outcome, module progress, gate, root blocker
-and active work. The next human action and compact project figures sit alongside
-it; on phones, the action follows the timeline. Detailed progress charts remain
-in Work. Execution, operations and validation stay separate. Review shows each decision's title,
-reason, affected work and action first; one disclosure opens its records and
-response options. Both views remain readable without JavaScript.
+The page is one shell around four workspaces, Home, Work, Review and Audit,
+with a search, a **Waiting for you** strip, a side panel and a bottom panel that
+share one selection and one set of filters. It opens on Work, where the
+**lanes** lay the project out: phases as columns, modules as bands, each task's
+dependencies from left to right, and decisions and assumptions under the tasks
+they bear on. `2` draws the same nodes and lines as a **force** view that
+clusters tasks by module, to see which modules lean on which; `3` opens a **3D**
+view, phases stacked as floors, that turns slowly on two axes for exploring the
+project (`p` pauses, `m` turns on one axis, `[` and `]` change the speed); `1`
+returns to the lanes. Selecting anything opens its record in the side panel.
+
+The strip lists what needs the owner, each item once: what can be answered now
+and what is upcoming, and what each one blocks. Kinds of waiting a project does
+not record, such as pending decisions, are named as not recorded, never counted
+as zero. `s`, `b`, `Shift+W` and `f` hide the side panel, the bottom panel, the
+strip, or all three. Home keeps the phase timeline and the next human action,
+Review the decisions and assumptions waiting for an answer, Audit the evidence.
+Execution, operations and validation stay separate, and the records stay
+readable without JavaScript. A view of the code or of its architecture layers
+is not built.
+
+<p align="center">
+  <img src="docs/assets/dashboard-force.png" alt="The force view of the same project: tasks clustered by module in named circles, M-PAY, M-CORE, M-BILL, M-ACCT, M-REP and M-OPS, with dependency arrows between clusters and the owner tasks marked with a diamond; the waiting strip is collapsed to one line." width="900">
+</p>
+
+<p align="center">
+  <img src="docs/assets/dashboard-3d.png" alt="The 3D view: phases P1 Foundations, P2 Billing, P3 Reports and P-NONE drawn as stacked floors with their modules clustered on them, waiting owner tasks and assumptions labelled, and controls for turning, two axes, whole view and speed, with the turn paused." width="900">
+</p>
+
+<p align="center"><em>The force view (<code>2</code>) for which modules lean on which, and the 3D view (<code>3</code>) for exploring; both draw the same nodes and lines as the lanes.</em></p>
 
 `praukron dashboard --serve` serves the same page on `127.0.0.1` so the owner
 can answer from it. Eligible Review items, and Home's next action, carry a
@@ -70,6 +93,10 @@ can answer from it. Eligible Review items, and Home's next action, carry a
 selected** records several at once, all or nothing. Every answer is written to
 `RESPONSES.md` through `praukron respond`, under your `gh` login. The page is in
 English or Vietnamese (`--lang vi`, or `Language:` in `THESIS.md`).
+
+<p align="center">
+  <img src="docs/assets/dashboard-review.png" alt="Review's human decision inbox on the static page: Approve selected is disabled with a note to run praukron dashboard --serve, one decision is actionable now, choosing the payment provider with three tasks downstream, and two owner approvals are upcoming because their dependencies are open." width="900">
+</p>
 
 An agent asks for a packet, and gets the same state as structured text:
 
@@ -148,14 +175,18 @@ Nothing here is a status report someone wrote by hand. It is computed from the
 authored documents, so it cannot drift away from them.
 
 <p align="center">
-  <img src="docs/assets/dashboard-next.png" alt="Work lays out a state board of Ready, In progress, Upcoming, Waiting for human, Waiting for dependencies and Blocked, with Completed folded below, then root blockers beside the next gate." width="900">
+  <img src="docs/assets/dashboard-next.png" alt="The owner task T-PAY-02, Choose the payment provider, selected from the waiting strip: on the lanes its chain through T-PAY-03, T-BILL-05 and T-BILL-06 stays bright while the rest fades, and the side panel shows its status, dependency, the task it blocks and its criterion not yet run." width="900">
 </p>
 
-<p align="center"><em>What is in flight, what is ready, what waits on a person, what failed, and what blocks the project.<br>
-Obstacles are grouped by kind, and an operations task that holds up the path is named as an external blocker rather than joining it.</em></p>
+<p align="center"><em>Select what waits for you and see what it holds up: the chain on the lanes, the record in the side panel.<br>
+What is in flight, ready, waiting on a person, failed or blocked is computed, never written by hand.</em></p>
 
 <p align="center">
-  <img src="docs/assets/dashboard-operations.png" alt="Audit opens evidence and governance: gates, validation strength and technical debt, then architecture decisions, acceptance criteria, task records, operational trace, responses and journal history." width="900">
+  <img src="docs/assets/dashboard-operations.png" alt="Audit's evidence and governance: Gate A green and Gate B red with its open verifier task, then the validation table counting execution tasks by strength, AI_REVIEWED, DELEGATE_VERIFIED, HUMAN_VERIFIED and UNTESTED, each with its share." width="900">
+</p>
+
+<p align="center">
+  <img src="docs/assets/dashboard-audit.png" alt="Audit's operational trace: a summary of two recorded events and two open operations tasks, the active operations tasks, then a failed test command and its failed retry from task T-BILL-03, both unresolved, and a dependency blocker between two operations tasks." width="900">
 </p>
 
 <p align="center"><em>Audit keeps the evidence, including the operational trace: the support work around the project, the tool calls and commands behind it, what failed, and what was retried.<br>
@@ -178,11 +209,11 @@ manual evidence. An agent the owner has granted `verify` may verify an owner
 task it did not build; that is `DELEGATE_VERIFIED`, shown and counted apart.
 
 <p align="center">
-  <img src="docs/assets/dashboard-contract.png" alt="A task detail dialog shows dependencies, three acceptance criteria (not run, pass, fail), the obstacle they cause, decisions, schedule, source, a path to the full record in Audit, and the code references the task planned, one of which another task also references." width="640">
+  <img src="docs/assets/dashboard-contract.png" alt="Task T-BILL-03, Issue credit notes, selected on the lanes with its decision ADR-003 linked below; the side panel shows it WIP and untested, its done dependency, the task it blocks, three acceptance criteria marked pass, fail and not run, its acceptance obstacle and its operational events." width="900">
 </p>
 
-<p align="center"><em>Click any task for its contract, its criteria, and the evidence behind each one.<br>
-One criterion passes, one fails, one has not run — so the task cannot close, and the dialog says why. Below them are the files and symbols the task plans to touch.</em></p>
+<p align="center"><em>Select any task and the side panel shows its contract, its criteria, and the evidence behind each one.<br>
+One criterion passes, one fails, one has not run — so the task cannot close, and the panel says why. Further down are the files and symbols the task plans to touch.</em></p>
 
 That last part matters more than it looks. When two people — or two agents —
 disagree about whether something is finished, the contract makes the
@@ -208,7 +239,7 @@ strongly each finished task is actually backed, which is a different question
 from whether it is done.
 
 <p align="center">
-  <img src="docs/assets/dashboard-views.png" alt="Work draws, under Views, the critical path natively with task status labels and an expandable Mermaid source." width="900">
+  <img src="docs/assets/dashboard-views.png" alt="Work's Views tab with Critical path, Phases, Gates and Calendar Gantt: the critical path drawn natively as four boxes, T-BILL-03 WIP then T-BILL-04, T-BILL-05 and T-BILL-06 to do, above a closed Mermaid source disclosure and a schedule note that no task carries schedule metadata." width="900">
 </p>
 
 <p align="center"><em>Beside the lanes, force and 3D views, four views draw offline: critical path, phases, gates and calendar Gantt.<br>
@@ -315,14 +346,15 @@ $ praukron context T-BILL-01
 }
 ```
 
-A person sees them in the dashboard: the task list counts each task's Files and
-Symbols, and every task carries a Code References section.
+A person sees them in the dashboard: the task registry counts each task's Files
+and Symbols, and every task's record, in the side panel and in Audit, carries a
+Code References section.
 
 <p align="center">
-  <img src="docs/assets/dashboard-code.png" alt="The Code References section of a closed task's dialog groups one planned symbol, three observed files and the observed Python symbols, each with relation, authorization, verification, revision and how it was recorded; one file notes that another task also references it." width="760">
+  <img src="docs/assets/dashboard-code.png" alt="The Code References section of task T-BILL-01 in the side panel: one planned symbol, three observed files and three observed symbols, each with relation, authorization, verification, revision and how it was recorded; one file notes that T-BILL-02 also references it." width="900">
 </p>
 
-<p align="center"><em>The task from the example above, in <code>praukron dashboard</code>, after the corrections shown in the guide: the planned reference verified, and the JavaScript function added by hand.<br>
+<p align="center"><em>A task like the one in the example above, in <code>praukron dashboard</code>, after the corrections shown in the guide: the planned reference verified, and the JavaScript function added by hand.<br>
 Each row says where the reference came from: <code>agent</code> for one written by hand, <code>git_diff</code> for a file and <code>static_analysis</code> for a symbol captured at the close.</em></p>
 
 What the capture does not do, stated where you will meet it:
@@ -348,9 +380,16 @@ What the capture does not do, stated where you will meet it:
   `.DS_Store` or `Thumbs.db` or ending in `.pyc` or `.pyo`. A tracked file is
   always recorded, and the reply counts what was left out in
   `untrackedLeftOut`.
-- **Changes pulled or merged in between count.** A file that arrives through a
-  pull or a merge between a task's claim and its close is attributed to that
-  task.
+- **Work that arrived from elsewhere is not claimed for the task.** A file
+  changed by a commit that entered the range through a merge's second parent,
+  or by a commit the checkout's own HEAD reflog does not show as made here (a
+  pull, a fast-forward, a rebase onto others' work), is recorded with
+  `Lifecycle: unresolved` and `Verification: unverified`, and the evidence
+  names the commits. A reference of unresolved attribution is never recorded
+  as verified; `refs`, `why`, `engine map`, `engine impact` and the packet mark
+  it `UNRESOLVED ATTRIBUTION`. Settle it with a named capture (`--base` and
+  `--head`) or `ref set`. A patch of others committed here by hand counts as
+  made here.
 - **Capture needs Git.** Without a repository, or for a task that has no
   recorded claim commit, the write still succeeds and its reply says capture
   was skipped and why. A task worked in another worktree or claimed
@@ -401,11 +440,11 @@ library writes is derived output like `.praukron/compiled/`: no record cites
 it, and `validate`, `compile`, `context` and `retrieve` never read it.
 
 <p align="center">
-  <img src="docs/assets/code-graph-layers.svg" alt="Five numbered layers from most certain to most general, each with its source and its state: 1, the resolved graph from the embedded engine, in main through praukron engine index and export; 2, recorded reasoning, an agent reading the code and recording what it found, in main, praukron engine map asks the agent to record it; 3, definitions from tree-sitter, planned, TypeScript and Rust first; 4, task-code references recorded when a task closes, in 4.0.0; 5, text search with the user's own tools. A Question arrow runs down the left and stops at the first layer that answers; the Answer names its layer. A note says the graph is optional: without it, the lower layers still answer." width="800">
+  <img src="docs/assets/code-graph-layers.svg" alt="Five numbered layers from most certain to most general, each with its source and its state: 1, the resolved graph from the embedded engine, in 4.1.0 through praukron engine index and export; 2, recorded reasoning, an agent reading the code and recording what it found, in 4.1.0, praukron engine map asks the agent to record it; 3, definitions from tree-sitter, planned, TypeScript and Rust first; 4, task-code references recorded when a task closes, in 4.0.0; 5, text search with the user's own tools. A Question arrow runs down the left and stops at the first layer that answers; the Answer names its layer. A note says the graph is optional: without it, the lower layers still answer." width="800">
 </p>
 
 <p align="center"><em>The layers of the design, in the order a question falls through them. Each answer names the layer it came from.<br>
-In <code>main</code> today: the resolved graph, recorded reasoning, and task–code references, joined by <code>praukron engine map</code>. Definitions are planned.</em></p>
+In 4.1.0: the resolved graph, recorded reasoning, and task–code references, joined by <code>praukron engine map</code>. Definitions are planned.</em></p>
 
 The design has five layers, from most certain to most general. A question
 falls through them in this order and stops at the first one that answers, and
@@ -694,7 +733,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
 | `praukron graph` | The six Mermaid views of the same state. |
-| `praukron dashboard` | Four workspaces: Home, Work, Review and Audit, with offline global search. |
+| `praukron dashboard` | One page, four workspaces: Home, Work, Review and Audit, with the waiting strip, the lanes, force and 3D views of Work, and offline global search. |
 | `praukron dashboard --serve` | Serve the dashboard on `127.0.0.1` behind a per-session token so the owner can answer from Review: response forms, one-click Verify/Confirm ticks and atomic "Approve selected". |
 | `praukron dashboard --lang vi` | Render the dashboard in Vietnamese; overrides the optional `Language:` field in `THESIS.md`. Also works with `--serve`. |
 | `praukron respond <target> <action>` | Owner only: append `CONFIRM`, `REVISE`, `REJECT`, `GUIDE` or `VERIFY` for an assumption or task to `RESPONSES.md`, signed with the active `gh` login; `--batch` writes several, all or nothing. |
@@ -783,9 +822,9 @@ into why the model is shaped this way.
 
 ## What is verified, and what is not
 
-**Implemented and tested.** The compiler and its twenty-two commands, acceptance
+**Implemented and tested.** The compiler and its twenty-five commands, acceptance
 contracts with evidence, phases, gates, computed obstacles, the critical path,
-the dashboard, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands, and the context packet, assumptions, owner responses and the served review page, and task–code references with their capture from Git at a task's close. 1241 unit tests plus an installer
+the dashboard with its lanes, force and 3D views, the execution/operations split, technical debt, the index and retrieval, optional CodeGraph, the optional embedded graph library's `engine` commands with `engine impact`, `why`, the context packet, assumptions, owner responses and the served review page, agent authority and delegated verification, and task–code references with their capture from Git at a task's close. 1329 unit tests plus an installer
 regression suite, and deleting the compiled directory reproduces every generated
 file byte for byte:
 
@@ -853,7 +892,7 @@ For OpenCode setup, see its [providers](https://opencode.ai/docs/providers),
 
 ## Releases
 
-The current release is v4.0.0. `VERSION` holds it and [`CHANGELOG.md`](CHANGELOG.md) summarises
+The current release is v4.1.0. `VERSION` holds it and [`CHANGELOG.md`](CHANGELOG.md) summarises
 what changed. Every release from v0.4.6 is archived and citable:
 [`10.5281/zenodo.22897871`](https://doi.org/10.5281/zenodo.22897871) always resolves to the latest one, and
 [`CITATION.cff`](CITATION.cff) is what GitHub's *Cite this repository* reads.

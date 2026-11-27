@@ -75,6 +75,11 @@ canvas, with no library and no network; the canvas is hidden from screen
 readers, and the text view and the relations list cover every node and line it
 shows.
 
+**Not built.** There is no view of the code and no view of architecture
+layers in the dashboard. The code graph is read with `praukron engine map` and
+`praukron engine impact`; a view of it in the page is planned, and `c` is kept
+for it.
+
 **The page opens on Work**, with the lanes, on a first visit. An address
 fragment (`#home`, `#review`) or the workspace stored from the last visit wins
 over that default; Home is one tab away, and the workspace tabs move with the
@@ -111,7 +116,7 @@ Relations, which states every line as a sentence. A skip link at the top of the
 page reaches the text view.
 
 **Keys**, outside text fields: `/` search, `1` the lanes, `2` the force view,
-`3` the 3D view (`c` is reserved for a later view and does nothing yet); in 3D,
+`3` the 3D view (`c` is reserved for a later code view and does nothing yet); in 3D,
 `p` pause, `m` two axes or one, `[` `]` speed, Shift with an arrow to pan;
 arrows move the
 selection on the graph (left to a dependency, right to what it unblocks, up and
@@ -166,11 +171,11 @@ search, task details and review feedback as well as static markup.
 | Workspace | First view | Further inspection |
 | --- | --- | --- |
 | Home | Phase timeline, current-phase card, next human action | Module progress, gate, root blocker, active work and separate execution/validation/operations figures |
-| Work | Current work and its prerequisites, separated by operational condition | All tasks, phase/module hierarchy, dependency graph, critical path, filters and progress breakdown |
+| Work | The lanes, with the force and 3D views beside them | State board, task registry, phases, critical path, Views (critical path, phases, gates, calendar Gantt), filters and progress breakdown |
 | Review | Counted groups; each item has a title, one-line why, affected task and primary action | One disclosure per item for records, reasoning, response controls, reconciliation and verification |
 | Audit | Evidence and governance | ADRs, criteria, task records, technical debt, operational events, failures and journal history |
 
-Work starts with a state board: Ready, In progress, Upcoming, Waiting for human,
+Below the lanes, Work keeps a state board: Ready, In progress, Upcoming, Waiting for human,
 Waiting for dependencies and Blocked by failure. Populated columns use the
 available width; empty columns keep a compact height and single-line label and
 count. Busy states preview three cards, with a native "+M more" disclosure for
@@ -186,9 +191,9 @@ The task registry adds Files and Symbols columns: counts of each task's current
 task–code references (SPEC §2.9), anchors included, zero when there are none.
 Its search box also matches an exact or partial path or a symbol name; without
 JavaScript every task stays listed. A task record in Audit has a Code References
-section, which the task dialog shows as well, and each referenced file or symbol
+section, which the side panel shows as well, and each referenced file or symbol
 has a record in Audit's Code artifacts group (current path, earlier paths,
-tasks, decisions) that a reference opens in the dialog. Relation, authorization,
+tasks, decisions) that a reference opens in a dialog. Relation, authorization,
 verification and provenance values stay as recorded, in code type.
 
 Root blockers and the next gate with milestones sit beside one another below
@@ -363,6 +368,13 @@ Generate with this checkout's `.praukron/praukron -C <temporary-project> dashboa
 For a real project, first copy its `.praukron` to a temporary directory outside
 both repositories, then run this checkout against that copy. Never edit the
 source project or include its record text in published evidence.
+
+The dashboard images in `docs/assets/` are made the same way, by
+`python3 scripts/screenshots.py`: it writes the synthetic chronicle of an
+invented project, kept in that script, to a temporary directory, renders this
+checkout's page and captures each view with headless Chrome, with no network
+access. Set `PRAUKRON_CHROME` if Chrome is not found, and look at every image
+before committing it.
 
 Evaluate a fresh static page at 1440 × 1000 and 390 × 844, in both themes, then
 repeat keyboard-only and with JavaScript disabled. Use a participant who has not

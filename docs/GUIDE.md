@@ -977,8 +977,8 @@ replaced, oldest first, exactly as they stand in `CODE.md`.
 
 **In the dashboard.** The task registry in Work has a **Files** and a
 **Symbols** column, counting each task's current references, and its filter
-search matches a path, part of one, or a symbol name. Every task record, and the dialog that opens
-when you click a task, has a **Code References** section: planned files,
+search matches a path, part of one, or a symbol name. Every task record, and the side panel that
+opens when you select a task, has a **Code References** section: planned files,
 planned symbols, observed files and observed symbols, each with its relation,
 authorization, verification, revision and how it was recorded, and the other
 tasks that reference the same file or symbol. Replaced, withdrawn, stale and
@@ -987,7 +987,7 @@ gives each file or symbol its earlier paths and the tasks and decisions behind
 it.
 
 <p align="center">
-  <img src="assets/dashboard-registry.png" alt="The Work task registry lists three tasks with Files and Symbols counts: T-BILL-01 with 3 files and 8 symbols, T-BILL-02 with 1 and 2, and the work-in-progress T-BILL-03 with 0 and 2." width="900">
+  <img src="assets/dashboard-registry.png" alt="The Work task registry filtered by the word invoice shows eight of thirty tasks with Files and Symbols counts: T-BILL-01 with 3 files and 4 symbols, T-BILL-02 with 1 and 1, the work-in-progress T-BILL-03 with 1 and 1, and five tasks with none." width="900">
 </p>
 
 **Work done somewhere else.** A task worked in another worktree, a task
@@ -1145,14 +1145,24 @@ load. `praukron dashboard --open` opens it in a browser.
 
 The page is one shell: a header with search, a **Waiting for you** strip, a side
 panel and a bottom panel around four workspaces. The strip lists what needs you,
-split into what you can answer now and what is upcoming; the side panel shows
+split into what you can answer now and what is upcoming, with what each item
+blocks; kinds a project does not record (pending decisions, requests for
+delegation, escalations) are named as not recorded, never counted as zero, and
+a task a `verify` grant lets a delegate settle is left out; the side panel shows
 whatever you select; `s`, `b`, `Shift+W` and `f` hide and show the panels. The
 page is a derived view and never authority. **Home** opens with the phase, root
 blocker and next human action. The page opens on Work unless the address or your
 last visit names another workspace. **Work** opens on the lanes, phases as
 columns and modules as bands; `2` switches to the force view, which clusters
-tasks by module to analyse relations, and `1` back. `3` opens the 3D view, an immersive view to explore the project in space, turning slowly on two axes (`p` pauses, `m` turns on one axis; still with reduced motion). Work keeps the full task registry, phases, dependency graph,
-critical path and filters. **Review** separates current owner decisions from
+tasks by module to analyse relations, and `1` back. `3` opens the 3D view, an
+immersive view to explore the project in space, turning slowly on two axes by
+default (`p` pauses, `m` turns on one axis, `[` and `]` change the speed; drawn
+still with reduced motion). The three views draw the dependency graph; below
+them Work keeps the state board, the full task registry, phases, the critical
+path, the Views tab (critical path, phases, gates and calendar Gantt, each with
+its Mermaid source) and filters. A view of the code or of architecture layers
+is not built; `praukron engine map` and `engine impact` answer as text.
+**Review** separates current owner decisions from
 future obligations, assumptions and answered items. **Audit** preserves acceptance
 evidence, governance, operations, ADRs and history. Search everything (Ctrl/Cmd+K
 or `/`) finds records across all four. See [Dashboard Mission Control](dashboard-ux.md)
@@ -1245,7 +1255,7 @@ the ones that need a `Domain:`.
 
 `TRACE.md` holds operational events — tool calls, commands, mini-actions,
 mutations, failures, retries — that an agent records when they could explain a
-problem later. They appear under Audit's operational trace and in the task dialog, and never
+problem later. They appear under Audit's operational trace and in the task's side panel, and never
 count as progress.
 
 ### Moving an older installation
