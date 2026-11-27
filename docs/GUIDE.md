@@ -655,6 +655,77 @@ is readable where no library is installed. With no index it answers from the
 references alone, says that no graph is present, and succeeds. It writes
 nothing: no engine node or edge reaches the chronicle.
 
+#### Getting the library
+
+The installer does not deliver the library yet, and no release carries it.
+Today you take it from the `Graph library` workflow in GitHub Actions, which
+builds it on pull requests that change the library or its loader, and on
+demand:
+
+1. Open a successful run of the workflow and download the
+   `praukron-graph-<platform>` artifact for your machine. It holds the library
+   file and a `build-info.json` with its size and SHA-256.
+2. Put the file at `.praukron/lib/<platform>/` in your repository, or anywhere
+   else and name it in `PRAUKRON_GRAPH_LIB`.
+3. Run `praukron engine status`. It says where the library was found and which
+   engine commit and interface version it reports.
+
+The `praukron-graph-notices` artifact of the same run holds the third-party
+notices and the bill of materials for every crate and grammar compiled in.
+Each library is about 15 to 17 MB. The Linux builds need glibc 2.39 or later.
+Windows is out of scope. To build it yourself instead, see
+[`native/graph/README.md`](../native/graph/README.md).
+
+#### What the figures mean
+
+`engine status` and `engine index` print files, symbols and *non-import
+edges*; `export` returns every node and edge and its `counts`. An edge is one
+relation the engine found in the source, of kind `call`, `ref`, `impl`,
+`inherit`, `import` or `value`. Its `source` is the enclosing symbol, or
+the file for a reference at file level.
+
+An edge is *resolved* when the engine could tell what it reaches: its `target`
+is that symbol, or for an import the file. An edge is *unresolved* when it
+could not: `target` is `null`, and `name` says what the source code referred
+to. An unresolved edge means the relation is unknown. It never means there is
+no relation. `resolved_non_import_edges` divided by `non_import_edges` is the
+share the engine resolved.
+
+For scale, measured on the Praukron repository itself on macOS ARM64: 105 files
+indexed in 0.40 s with a peak of 96 MB of memory, giving 3,240 nodes, 36,202
+edges and an index file of 5.5 MB.
+
+#### Limits
+
+- On the Praukron repository the engine resolved about 30 % of the edges that
+  are not imports. Python is a dynamic language: most of the rest are method
+  calls on a value whose type the engine does not know.
+- A relative import, `from . import x`, is attributed to the package file, not
+  to `x`.
+- Grammars are bundled for C, C++, Go, JavaScript, Python, Rust and
+  TypeScript. SQL is not indexed. Nothing has been measured on Rust yet.
+- Data flow and user flow are not produced. The graph does not replace reading
+  the code, a language server or a type checker, and it is not a code search:
+  text search already finds code.
+
+#### How it fits with task–code references
+
+The engine's graph and [task–code references](#which-code-each-task-touched)
+are kept apart. In `main` you read them separately: `praukron refs` for which
+task touched which code, `praukron engine export` for how that code relates to
+the rest. A relation the engine leaves unknown can be recorded by hand as a
+reference with `Source: agent`, its evidence and a `Confidence`; it stays
+unverified until someone checks it.
+
+The following are planned and not in `main`: asking a task for its code map
+and a symbol for its tasks, each item labelled by its source; symbols for
+TypeScript and Rust, then the other bundled languages, recorded at a task's
+close; a view of the map in the dashboard; the library delivered by the
+installer and the release; and a container fallback and a PostgreSQL store for
+large codebases. The README's
+[How the code relates to itself](../README.md#how-the-code-relates-to-itself)
+shows the layers in the order a question will fall through them.
+
 ### Which code each task touched
 
 A task that is claimed and closed through `task update` (or `batch apply`) in
