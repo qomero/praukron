@@ -20,6 +20,7 @@ from .model import (
     Criterion,
     Decision,
     Gate,
+    Grant,
     Milestone,
     Module,
     Phase,
@@ -640,6 +641,41 @@ def parse_responses(path: Path) -> list[Response]:
             via=_named(fields.get("Via")),
             text=_quoted(body),
             source=Source(name, match.group(1)),
+            delegate=_named(fields.get("Delegate")),
+            grant=_named(fields.get("Grant")),
+            on_authority_of=_named(fields.get("On authority of")),
+        ))
+    return found
+
+
+def parse_authority(path: Path) -> list[Grant]:
+    """AUTHORITY.md: what the owner granted agents. Optional: no file, nothing granted.
+
+    Values are kept as written; validate decides whether they are allowed, so a
+    wrong value is reported against its record instead of failing the load."""
+    if not path.is_file():
+        return []
+    name = path.name
+    found: list[Grant] = []
+    for heading, body in _sections(path.read_text(encoding="utf-8"), "##"):
+        match = re.match(r"(AG-[0-9]+): (\S.*)$", heading)
+        if not match:
+            raise ParseError(name, heading, "grant heading must read '## AG-<nn>: <title>'")
+        fields = _fields(body)
+        until = _named(fields.get("Until"))
+        found.append(Grant(
+            id=match.group(1), title=match.group(2).strip(),
+            capability=(_named(fields.get("Capability")) or "").lower() or None,
+            scope=_list(fields.get("Scope")),
+            delegate=_named(fields.get("Delegate")),
+            granted_by=_named(fields.get("Granted by")),
+            date=_named(fields.get("Date")),
+            until=until,
+            via=(_named(fields.get("Via")) or "").lower() or None,
+            source=Source(name, match.group(1)),
+            revoked=_named(fields.get("Revoked")),
+            revoked_by=_named(fields.get("Revoked by")),
+            revoked_via=(_named(fields.get("Revoked via")) or "").lower() or None,
         ))
     return found
 

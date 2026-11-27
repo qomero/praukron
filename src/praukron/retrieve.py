@@ -172,7 +172,7 @@ class Chronicle:
         return path.read_text(encoding="utf-8") if path.is_file() else None
 
 
-_ID = re.compile(r"\b(T-[A-Za-z0-9.\-]*[A-Za-z0-9]|ADR-\d+|TD-[A-Za-z0-9.\-]*[A-Za-z0-9]|EV-[A-Za-z0-9.\-]*[A-Za-z0-9]|(?:CV|BR)-[A-Za-z0-9.\-]*[A-Za-z0-9]|P\d+)\b")
+_ID = re.compile(r"\b(T-[A-Za-z0-9.\-]*[A-Za-z0-9]|ADR-\d+|TD-[A-Za-z0-9.\-]*[A-Za-z0-9]|EV-[A-Za-z0-9.\-]*[A-Za-z0-9]|(?:CV|BR)-[A-Za-z0-9.\-]*[A-Za-z0-9]|AG-\d+|P\d+)\b")
 _GATE = re.compile(r"\bgate ([A-Za-z0-9\-]+)\b", re.IGNORECASE)
 _WORDS = {
     "blocked": r"\b(block\w*|stuck|waiting|why)\b",
@@ -296,6 +296,24 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
             if found is not None and found.status == "ACTIVE":
                 convention(convention_id, f"{record.id} rests on it")
 
+    def authority_records(t) -> None:
+        """Who verified an owner task, and the grants in force for it (AUTHORITY.md)."""
+        from .authority import today
+
+        for r in project.responses_to(t.id):
+            if r.action != "VERIFY":
+                continue
+            reason = (f"verification of {t.id} by delegate {r.delegate} on the authority of "
+                      f"{r.on_authority_of} under {r.grant}: DELEGATE_VERIFIED, not the owner in person"
+                      if r.delegated else f"verification of {t.id} by {r.by} in person")
+            add("RESPONSE", r.id, f"{r.source.file}#{r.id}", reason, chronicle.section(r.source.file, r.id))
+        day = today()
+        for g in project.grants:
+            if g.covers(t) and g.state(day) == "in force":
+                add("GRANT", g.id, f"{g.source.file}#{g.id}",
+                    f"capability {g.capability} is on for {t.id}: delegate {g.delegate}, granted by {g.granted_by}",
+                    chronicle.section(g.source.file, g.id))
+
     def blocking_chain(t, depth: int) -> None:
         """Open dependencies, followed as far as `depth` levels: what a task
         waits on, and what that waits on in turn."""
@@ -318,6 +336,7 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
         if t is None:
             return
         task(task_id, reason)
+        authority_records(t)
         for adr in t.decisions:
             if adr.startswith("ADR-"):
                 decision(adr, f"governs {task_id}")
@@ -410,6 +429,12 @@ def retrieve(project: Project, report: Report, root: Path, query: str,
                 pack.routed.append((entity, "named"))
                 brief(record, "named in the question")
                 task(record.task, f"briefed by {entity}")
+        elif entity.startswith("AG-"):
+            record = project.grant(entity)
+            if record is not None:
+                pack.routed.append((entity, "named"))
+                add("GRANT", entity, f"{record.source.file}#{entity}", "named in the question",
+                    chronicle.section(record.source.file, entity))
         elif entity.startswith("EV-"):
             pack.routed.append((entity, "named"))
             event(entity, "named in the question")

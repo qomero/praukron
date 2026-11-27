@@ -192,13 +192,36 @@ def _replace(path: Path, data: bytes) -> None:
         raise
 
 
-def _entry(number: int, item: Item, by: str, date: str, via: str) -> str:
+def _entry(number: int, item: Item, by: str, date: str, via: str, delegated=None) -> str:
     quoted = "\n".join(f"> {line}" if line else ">" for line in item.text.split("\n"))
+    extra = ""
+    if delegated is not None:
+        # Who acted, on whose authority and under which grant: never the owner's own VERIFY.
+        delegate, grant = delegated
+        extra = (f"- Delegate: {delegate}\n- On authority of: {grant.granted_by}\n"
+                 f"- Grant: {grant.id}\n")
     return (f"\n## R-{number}: {item.target} {item.action}\n- By: {by}\n- Date: {date}\n"
-            f"- Via: {via}\n\n{quoted}\n")
+            f"- Via: {via}\n{extra}\n{quoted}\n")
 
 
-def _check(project, items: list[Item], verify: bool) -> None:
+def _check(project, items: list[Item], verify: bool, delegate: str | None = None,
+           date: str | None = None) -> dict:
+    """Refuse what may not be recorded; returns the grant each delegated VERIFY rests on."""
+    grants: dict = {}
+    if delegate is not None:
+        from .authority import AuthorityError, check_delegated_verify
+
+        for item in items:
+            if item.action != VERIFY:
+                raise RespondError("--delegate applies only to VERIFY")
+            task = project.task(item.target)
+            if task is None or not task.owner_held:
+                raise RespondError(f"VERIFY applies only to an Authority: owner task, not {item.target}")
+            try:
+                grants[item.target] = check_delegated_verify(project, task, delegate, date)
+            except AuthorityError as error:
+                raise RespondError(str(error)) from error
+        verify = True
     for item in items:
         if item.action not in RESPONSE_ACTIONS:
             raise RespondError(f"{item.action} is not one of {', '.join(RESPONSE_ACTIONS)}")
@@ -221,6 +244,7 @@ def _check(project, items: list[Item], verify: bool) -> None:
             raise RespondError(f"{item.target} is neither an assumption nor a task")
         if not item.text.strip():
             raise RespondError(f"the response to {item.target} has no text")
+    return grants
 
 
 def _errors(project) -> set[tuple[str, str, str]]:
@@ -237,11 +261,18 @@ def refresh(root: Path) -> None:
 
 
 def append(root: Path, items: list[Item], via: str = "cli", date: str | None = None,
-           recompile: bool = True, verify: bool = False, approve_only: bool = False) -> list[str]:
-    """Append every item as one batch, or none of them. Returns the new ids."""
+           recompile: bool = True, verify: bool = False, approve_only: bool = False,
+           delegate: str | None = None) -> list[str]:
+    """Append every item as one batch, or none of them. Returns the new ids.
+
+    With `delegate`, each item is a VERIFY an agent records on the owner's
+    authority: refused unless a grant of `verify` in AUTHORITY.md covers the
+    task and names that agent, and never when that agent built the task."""
     if not items:
         raise RespondError("nothing to record")
     items = [Item(i.target.strip(), i.action.strip().upper(), i.text.rstrip("\n")) for i in items]
+    if delegate is not None and date not in (None, _dt.date.today().isoformat()):
+        raise RespondError("a delegated VERIFY is dated today: --date is not accepted with --delegate")
     date = date or _dt.date.today().isoformat()
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
         raise RespondError(f"{date} is not a YYYY-MM-DD date")
@@ -259,7 +290,10 @@ def append(root: Path, items: list[Item], via: str = "cli", date: str | None = N
                 if eligible.get(item.target) != item.action or item.target in seen:
                     raise RespondError(f"{item.target}: no longer available for approval; reload Review. Nothing was recorded.")
                 seen.add(item.target)
-        _check(project, items, verify)
+        if delegate is not None:
+            delegate = delegate.strip()
+            via = f"delegate ({via})"
+        grants = _check(project, items, verify, delegate, date)
         by = identity()
         if approve_only and not project.is_owner(by):
             for item in items:
@@ -274,7 +308,9 @@ def append(root: Path, items: list[Item], via: str = "cli", date: str | None = N
             text += "\n"
         start = max([int(r.id.split("-")[1]) for r in project.responses] or [0]) + 1
         ids = [f"R-{start + n}" for n in range(len(items))]
-        text += "".join(_entry(start + n, item, by, date, via) for n, item in enumerate(items))
+        text += "".join(_entry(start + n, item, by, date, via,
+                               (delegate, grants[item.target]) if delegate is not None else None)
+                        for n, item in enumerate(items))
         try:
             _replace(path, text.encode())
         except OSError as failure:

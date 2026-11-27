@@ -197,7 +197,7 @@ _VI = {
     'Validation': 'Kiểm chứng', 'Strength': 'Mức độ', 'Share': 'Tỷ lệ',
     'execution': 'thực hiện', 'operations': 'vận hành', 'Project operations': 'Vận hành dự án',
     'DONE': 'Hoàn thành', 'WIP': 'Đang làm', 'BLOCKED': 'Bị chặn', 'TODO': 'Chưa làm',
-    'HUMAN_VERIFIED': 'Chủ dự án đã xác minh', 'AI_REVIEWED': 'AI đã duyệt', 'SYNTHETIC': 'Kiểm chứng tổng hợp', 'UNTESTED': 'Chưa duyệt',
+    'HUMAN_VERIFIED': 'Chủ dự án đã xác minh', 'DELEGATE_VERIFIED': 'Tác nhân được ủy quyền đã xác minh', 'AI_REVIEWED': 'AI đã duyệt', 'SYNTHETIC': 'Kiểm chứng tổng hợp', 'UNTESTED': 'Chưa duyệt',
     'PASS': 'Đạt', 'FAIL': 'Không đạt', 'NOT_RUN': 'Chưa chạy', 'MISSING': 'Thiếu',
     'COMPLETE': 'Hoàn thành', 'ACTIVE': 'Đang thực hiện', 'EXIT_PENDING': 'Chờ kết thúc',
     'GREEN': 'Đạt', 'RED': 'Chưa đạt', 'YELLOW': 'Cần chú ý', 'UNKNOWN': 'Chưa rõ',
@@ -369,7 +369,7 @@ _VI.update({
     'Access rules an agent assumed. Review these first.': 'Quy tắc truy cập tác nhân đã giả định. Hãy duyệt những mục này trước.',
     'HIGH first, then those resting on finished or critical-path work, then the current phase.': 'Ưu tiên mức Cao, rồi đến giả định của công việc đã xong hoặc trên đường găng, sau đó là giai đoạn hiện tại.',
     'open, in the': 'mục chưa xử lý, trong', 'panel beside every tab.': 'bên cạnh mỗi thẻ.',
-    'Only an owner named in': 'Chỉ chủ dự án có tên trong', 'can verify these. An agent never does.': 'mới được xác minh. Tác nhân không được làm thay.',
+    'Only an owner named in': 'Chỉ chủ dự án có tên trong', 'can verify these. An agent never does, except under a grant of verify: DELEGATE_VERIFIED, shown apart.': 'mới được xác minh. Tác nhân không được làm thay, trừ khi được cấp quyền verify: khi đó là DELEGATE_VERIFIED, hiển thị riêng.',
     'No assumptions recorded. Agents record a provisional choice in': 'Chưa ghi giả định. Tác nhân ghi lựa chọn tạm thời vào',
     'before relying on it.': 'trước khi dựa vào lựa chọn đó.',
     'Work ahead of phase closure': 'Công việc đi trước việc kết thúc giai đoạn',
@@ -420,6 +420,24 @@ _VI.update({
         'Mỗi tệp và ký hiệu được công việc tham chiếu, kèm đường dẫn trước đây, các công việc tham chiếu đến nó và quyết định của chúng.',
     'and {count} more': 'và {count} công việc khác',
     'Current path': 'Đường dẫn hiện tại', 'Was': 'Đường dẫn trước đây', 'No longer current': 'Không còn hiệu lực',
+    # Agent authority (AUTHORITY.md): the list, its grants and the owner's two writes.
+    'Agent authority': 'Quyền hạn của tác nhân',
+    'What agents may do on your authority, each capability with its state, who set it and when. Only an owner switches one on or off, in person. A verification under a grant is DELEGATE_VERIFIED, never HUMAN_VERIFIED.':
+        'Những gì tác nhân được làm nhân danh bạn: từng quyền, trạng thái, người đặt và thời điểm. Chỉ chủ dự án bật hoặc tắt một quyền, trực tiếp. Một lần xác minh theo quyền được cấp là DELEGATE_VERIFIED, không bao giờ là HUMAN_VERIFIED.',
+    'Capability': 'Quyền', 'Details': 'Chi tiết', 'Set by': 'Người đặt', 'When': 'Thời điểm',
+    'Policy': 'Chính sách', 'On': 'Bật', 'Off': 'Tắt', 'Default policy': 'Chính sách mặc định',
+    'Reserved for the owner:': 'Dành cho chủ dự án:', 'Notify:': 'Thông báo:',
+    'No grant recorded.': 'Chưa ghi quyền nào được cấp.',
+    'In force': 'Đang hiệu lực', 'Not yet in force': 'Chưa có hiệu lực', 'Ended': 'Đã hết hạn', 'Revoked': 'Đã thu hồi',
+    'Delegate': 'Tác nhân được ủy quyền', 'Whole project': 'Toàn bộ dự án',
+    'No end: until revoked': 'Không có hạn: đến khi thu hồi', 'Until': 'Đến ngày', 'Revoked by': 'Thu hồi bởi',
+    'Revoke': 'Thu hồi', 'Grant': 'Cấp quyền', 'Grant a capability': 'Cấp một quyền',
+    'project, or T-…, M-…, P…': 'project, hoặc T-…, M-…, P…', 'the agent it is for': 'tác nhân được cấp',
+    'Recorded under your GitHub login. Leave Until empty for a grant with no end; write project for the whole project.':
+        'Ghi dưới tài khoản GitHub của bạn. Để trống Đến ngày nếu quyền không có hạn; ghi project cho toàn bộ dự án.',
+    'To grant or revoke, run': 'Để cấp hoặc thu hồi, chạy', 'yourself at a terminal, or open': 'tại terminal, hoặc mở',
+    'Verified by delegate': 'Đã xác minh bởi tác nhân được ủy quyền', 'on the authority of': 'nhân danh',
+    'DELEGATE_VERIFIED, not verified by you in person.': 'DELEGATE_VERIFIED, không phải bạn trực tiếp xác minh.',
     'login': 'đăng nhập', 'Failed to fetch': 'Không kết nối được. Hãy mở lại liên kết từ máy chủ đang chạy.',
 })
 CATALOGUES = {

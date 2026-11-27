@@ -277,6 +277,12 @@ if (reviewBars.length) {
 """
 
 
+# The owner's grant and revoke on the served page's agent authority section.
+from .authority import SERVE_SCRIPT as _AUTHORITY_SCRIPT  # noqa: E402
+
+SERVE_SCRIPT += _AUTHORITY_SCRIPT
+
+
 def script(interactive: bool) -> str:
     return SCRIPT + (SERVE_SCRIPT if interactive else "")
 
@@ -339,7 +345,16 @@ def verification(compiled: dict, ref, interactive: bool = False) -> tuple[str, i
                     f'({esc(response["id"])}); waiting for the agent to record HUMAN_VERIFIED.</p>')
         else:
             waiting += 1
-            body = (f'<div class="aform" data-target="{esc(task_id)}" data-verify="1">'
+            delegated = [response for response in compiled["responses"]
+                         if response["target"] == task_id and response["action"] == "VERIFY"
+                         and response.get("delegate")]
+            # A delegate's verification is shown as such and never closes the owner's card.
+            body = ''.join(
+                f'<p class="note delegate-verified">Verified by delegate {esc(response["delegate"])} on the '
+                f'authority of {esc(response["onAuthorityOf"])}, {esc(response["date"])} '
+                f'({esc(response["id"])}, {esc(response["grant"])}): DELEGATE_VERIFIED, not verified by you in person.</p>'
+                for response in delegated[-1:])
+            body += (f'<div class="aform" data-target="{esc(task_id)}" data-verify="1">'
                     f'<label><input type="checkbox" class="verify"> I verified {esc(task_id)}</label>'
                     f'<textarea aria-label="What you verified on {esc(task_id)}" placeholder="What you '
                     'checked, recorded verbatim"></textarea></div>' if interactive else
@@ -347,7 +362,7 @@ def verification(compiled: dict, ref, interactive: bool = False) -> tuple[str, i
                     f'<code>praukron respond {esc(task_id)} VERIFY</code> at a terminal.</span>')
         items.append(f'<li>{_pill(tasks[task_id]["status"])} {ref(task_id)}<br>{body}</li>')
     return ('<p class="note">Only an owner named in <code>Owners:</code> can verify these. '
-            'An agent never does.</p>'
+            'An agent never does, except under a grant of verify: DELEGATE_VERIFIED, shown apart.</p>'
             f'<ul class="plain owner-list">{"".join(items)}</ul>'), waiting
 
 
@@ -521,7 +536,10 @@ def panel_body(compiled: dict, ref, interactive: bool = False, mission: bool = F
             body += f'<p class="note">Owner authority · {len(item["affected"])} downstream tasks</p>'
             body += f'<p>Evidence: {esc(task["evidence"] or "none recorded")}</p>'
             body += '<p>Review acceptance and decisions: ' + ref(tid) + '</p>'
-            body += ''.join(f'<p class="resp">{esc(r["text"])} · {esc(r["id"])}</p>'
+            body += ''.join(f'<p class="resp">{esc(r["text"])} · {esc(r["id"])}'
+                            + (f' · Verified by delegate {esc(r["delegate"])} on the authority of '
+                               f'{esc(r["onAuthorityOf"])} ({esc(r["grant"])}): DELEGATE_VERIFIED, not verified by you in person.'
+                               if r.get("delegate") else '') + '</p>'
                             for r in compiled["responses"] if r["target"] == tid)
             why = item.get("note") or {
                 "now": ("The contract is met; owner verification is required." if verifying else

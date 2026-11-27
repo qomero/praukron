@@ -12,7 +12,7 @@ printf '# Keep agent rules\n' > "$fixture/AGENTS.md"
 printf '# Keep Claude rules\n' > "$fixture/CLAUDE.md"
 "$root/install.sh" existing "$fixture" --no-link > "$fixture/output"
 
-for file in README THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE TECH_DEBT ASSUMPTIONS RESPONSES COORDINATION CODE; do
+for file in README THESIS PHASES MODULES TASKS ACCEPTANCE INTENT HANDOFF JOURNAL TRACE TECH_DEBT ASSUMPTIONS RESPONSES COORDINATION CODE AUTHORITY; do
   test -f "$fixture/.praukron/chronicle/$file.md"
 done
 # Every installed surface describes the same hierarchy (ADR-035).
@@ -335,6 +335,14 @@ cp "$upgrade/code" "$upgrade/.praukron/chronicle/CODE.md"
 "$root/install.sh" "$upgrade" --no-link > "$upgrade/output"
 cmp "$upgrade/coordination" "$upgrade/.praukron/chronicle/COORDINATION.md"
 cmp "$upgrade/code" "$upgrade/.praukron/chronicle/CODE.md"
+# AUTHORITY.md: installed when absent, never replaced; the owner's grants stay.
+rm "$upgrade/.praukron/chronicle/AUTHORITY.md"
+"$root/install.sh" "$upgrade" --no-link >/dev/null
+cmp "$root/templates/chronicle/AUTHORITY.md" "$upgrade/.praukron/chronicle/AUTHORITY.md"
+printf '# Agent authority\n\nKept.\n' > "$upgrade/authority"
+cp "$upgrade/authority" "$upgrade/.praukron/chronicle/AUTHORITY.md"
+"$root/install.sh" "$upgrade" --no-link > "$upgrade/output"
+cmp "$upgrade/authority" "$upgrade/.praukron/chronicle/AUTHORITY.md"
 grep -Fq 'Generated views were refreshed' "$upgrade/output"
 grep -Fvq 'STALE' "$upgrade/.praukron/compiled/dashboard.html"
 grep -Fvq 'STALE' "$upgrade/.praukron/compiled/STATE.md"

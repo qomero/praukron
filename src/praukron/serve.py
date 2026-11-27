@@ -2,9 +2,10 @@
 
 A foreground, single-threaded standard-library server bound to 127.0.0.1
 (ADR-055). It serves the same page as the static dashboard with the review
-forms enabled, and it has one write route, which calls `praukron respond`.
-There is no database and no second state store: an answer lands in
-RESPONSES.md or nowhere. Every request must carry the per-run token, and a
+forms enabled, and it has two write routes: `/respond`, which calls `praukron
+respond`, and `/authority`, where the owner grants or revokes agent authority
+in person (AUTHORITY.md). There is no database and no second state store: an
+answer lands in RESPONSES.md, a grant in AUTHORITY.md, or nowhere. Every request must carry the per-run token, and a
 write from another origin is refused.
 """
 
@@ -17,7 +18,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import analytics, compile as compiler, dashboard, respond, i18n
+from . import analytics, authority, compile as compiler, dashboard, respond, i18n
 
 HOST = "127.0.0.1"
 _MAX_BODY = 1_000_000
@@ -75,7 +76,8 @@ def make_server(root: Path, port: int = 0, lang: str | None = None) -> tuple[HTT
             origin = self.headers.get("Origin")
             own = f"http://{HOST}:{self.server.server_address[1]}"
             length = int(self.headers.get("Content-Length") or 0)
-            if (urlparse(self.path).path != "/respond" or not self._token_ok()
+            route = urlparse(self.path).path
+            if (route not in ("/respond", "/authority") or not self._token_ok()
                     or (origin is not None and origin != own)
                     or not (self.headers.get("Content-Type") or "").startswith("application/json")):
                 # Read the unread body first: closing a socket with unread data sends a
@@ -86,6 +88,9 @@ def make_server(root: Path, port: int = 0, lang: str | None = None) -> tuple[HTT
                 return
             if length > _MAX_BODY:
                 self._send(413, json.dumps({"ok": False, "error": "too large"}))
+                return
+            if route == "/authority":
+                self._authority(length)
                 return
             try:
                 body = json.loads(self.rfile.read(length) or b"{}")
@@ -99,6 +104,25 @@ def make_server(root: Path, port: int = 0, lang: str | None = None) -> tuple[HTT
                 self._send(400, json.dumps({"ok": False, "error": str(error)}))
                 return
             self._send(200, json.dumps({"ok": True, "ids": ids}))
+
+        def _authority(self, length: int) -> None:
+            """The owner's grant or revocation, in person from the served page (AUTHORITY.md)."""
+            try:
+                body = json.loads(self.rfile.read(length) or b"{}")
+                if body["op"] == "grant":
+                    made = authority.grant(root, body["capability"], body["scope"], body["delegate"],
+                                           body.get("until") or None, via="dashboard")
+                elif body["op"] == "revoke":
+                    made = authority.revoke(root, body["grant"], via="dashboard")
+                else:
+                    raise ValueError(f"unknown op {body['op']!r}")
+            except (ValueError, KeyError, TypeError, AttributeError) as error:
+                self._send(400, json.dumps({"ok": False, "error": f"malformed request: {error}"}))
+                return
+            except authority.AuthorityError as error:
+                self._send(400, json.dumps({"ok": False, "error": str(error)}))
+                return
+            self._send(200, json.dumps({"ok": True, "ids": [made]}))
 
     server = HTTPServer((HOST, port), Handler)
     url = f"http://{HOST}:{server.server_address[1]}/?token={token}"

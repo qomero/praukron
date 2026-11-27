@@ -12,6 +12,14 @@ from typing import Literal
 
 STATUSES = ("TODO", "WIP", "DONE", "BLOCKED")
 VALIDATIONS = ("UNTESTED", "SYNTHETIC", "AI_REVIEWED", "HUMAN_VERIFIED")
+# Verified by an agent on the owner's authority, under a grant in AUTHORITY.md.
+# A state of its own: it serves where owner verification is required, is never
+# counted or shown as HUMAN_VERIFIED, and gives way to HUMAN_VERIFIED when the
+# owner verifies in person. Like HUMAN_VERIFIED, no command sets it.
+DELEGATE_VERIFIED = "DELEGATE_VERIFIED"
+VALIDATION_STATES = ("UNTESTED", "SYNTHETIC", "AI_REVIEWED", DELEGATE_VERIFIED, "HUMAN_VERIFIED")
+# What owner verification is required for accepts either.
+VERIFIED_STATES = (DELEGATE_VERIFIED, "HUMAN_VERIFIED")
 EVIDENCE_CLASSES = ("TEST", "MUTATION", "INSPECTION", "RUNTIME", "MANUAL")
 # Evidence produced by running or exercising the work, not by reading it.
 EXERCISED_CLASSES = ("TEST", "MUTATION", "RUNTIME", "MANUAL")
@@ -327,11 +335,91 @@ class Response:
     via: str | None
     text: str
     source: Source
+    # Set only on a VERIFY an agent recorded under a grant (AUTHORITY.md).
+    delegate: str | None = None
+    grant: str | None = None
+    on_authority_of: str | None = None
+
+    @property
+    def delegated(self) -> bool:
+        """A response an agent recorded on the owner's authority, never the owner's own."""
+        return bool(self.delegate or self.grant)
 
     def as_json(self) -> dict[str, object]:
-        return {"id": self.id, "target": self.target, "action": self.action, "by": self.by,
-                "date": self.date, "via": self.via, "text": self.text,
-                "source": self.source.as_json()}
+        data: dict[str, object] = {
+            "id": self.id, "target": self.target, "action": self.action, "by": self.by,
+            "date": self.date, "via": self.via, "text": self.text,
+            "source": self.source.as_json()}
+        if self.delegated:
+            data.update({"delegate": self.delegate, "grant": self.grant,
+                         "onAuthorityOf": self.on_authority_of})
+        return data
+
+
+@dataclass
+class Grant:
+    """One capability the owner granted an agent, from AUTHORITY.md.
+
+    Fields hold what was authored; validate decides whether they are allowed.
+    `scope` is `["project"]` for the whole project, else task, module and
+    phase ids; empty means none was stated. `until` None means no end.
+    """
+
+    id: str
+    title: str
+    capability: str | None
+    scope: list[str]
+    delegate: str | None
+    granted_by: str | None
+    date: str | None
+    until: str | None
+    via: str | None
+    source: Source
+    revoked: str | None = None
+    revoked_by: str | None = None
+    revoked_via: str | None = None
+
+    @property
+    def whole_project(self) -> bool:
+        return [s.lower() for s in self.scope] == ["project"]
+
+    def covers(self, task: "Task") -> bool:
+        if self.whole_project:
+            return True
+        return any(s in self.scope for s in (task.id, task.module, task.phase) if s)
+
+    def in_force_on(self, day: str) -> bool:
+        """In force on that day: begun, not ended, not revoked before it.
+
+        Days are compared as YYYY-MM-DD text. On the day of a revocation the
+        grant still counts, because a day cannot order the two acts; the write
+        itself is refused once the revocation is recorded."""
+        if not self.date or day < self.date:
+            return False
+        if self.until and day > self.until:
+            return False
+        return not (self.revoked and day > self.revoked)
+
+    def state(self, today: str) -> str:
+        if self.revoked:
+            return "revoked"
+        if self.until and today > self.until:
+            return "ended"
+        if self.date and today < self.date:
+            return "pending"
+        return "in force"
+
+    def as_json(self, today: str | None = None) -> dict[str, object]:
+        data: dict[str, object] = {
+            "id": self.id, "capability": self.capability, "scope": self.scope,
+            "wholeProject": self.whole_project, "delegate": self.delegate,
+            "grantedBy": self.granted_by, "date": self.date, "until": self.until,
+            "noEnd": self.until is None, "via": self.via, "revoked": self.revoked,
+            "revokedBy": self.revoked_by, "revokedVia": self.revoked_via,
+            "authority": f"{self.source.file}#{self.id}"}
+        if today is not None:
+            data["state"] = self.state(today)
+        return data
 
 
 @dataclass
@@ -643,6 +731,8 @@ class Project:
     change_requests: list[ChangeRequest] = field(default_factory=list)
     # Authored records from CODE.md only; anchors are added when compiled.
     references: list[Reference] = field(default_factory=list)
+    # What the owner granted agents (AUTHORITY.md); never archived.
+    grants: list[Grant] = field(default_factory=list)
     # Exact bytes parsed for writable records; never serialized into compiled views.
     record_bytes: dict[str, bytes] = field(default_factory=dict, repr=False, compare=False)
     journal_validation: list[Finding] | None = field(default=None, repr=False, compare=False)
@@ -673,8 +763,17 @@ class Project:
         return bool(login) and login.lower() in {owner.lower() for owner in self.owners}
 
     def verified_by_owner(self, task_id: str) -> list[Response]:
+        """The owner's own VERIFYs of a task; a delegate's never counts here."""
         return [response for response in self.responses_to(task_id)
-                if response.action == VERIFY and self.is_owner(response.by)]
+                if response.action == VERIFY and not response.delegated and self.is_owner(response.by)]
+
+    def verified_by_delegate(self, task_id: str) -> list[Response]:
+        """VERIFYs an agent recorded on the owner's authority; validate checks their grants."""
+        return [response for response in self.responses_to(task_id)
+                if response.action == VERIFY and response.delegated]
+
+    def grant(self, grant_id: str) -> Grant | None:
+        return next((g for g in self.grants if g.id == grant_id), None)
 
     def assumption(self, assumption_id: str) -> Assumption | None:
         for assumption in self.assumptions:
