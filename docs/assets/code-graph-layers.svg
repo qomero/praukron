@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="560" viewBox="0 0 800 560" role="img" aria-labelledby="title desc">
+  <title id="title">The code graph layers</title>
+  <desc id="desc">A question falls through five layers, from most certain to most general: resolved graph, recorded reasoning, definitions, task-code references, and text search. It stops at the first layer that answers, and the answer names its layer. The graph is optional; without it the lower layers still answer. The resolved graph is in main; the reasoning record type exists since 4.0.0 but its guidance is planned; definitions are planned; task-code references are in 4.0.0; text search uses the user's own tools.</desc>
+  <style>
+    :root { color-scheme: light dark; --bg:#ffffff; --ink:#1d2933; --muted:#52616c; --line:#71818b; --rule:#c5ced4; --panel:#f6f8fa; --accent:#286752; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#101d27; --ink:#f3f6f7; --muted:#bdcbd3; --line:#9aafb9; --rule:#536975; --panel:#192b38; --accent:#8be0bd; }
+    }
+    text { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,Helvetica,sans-serif; fill:var(--ink); font-size:14px; }
+    .heading { font-size:24px; font-weight:650; }
+    .name { font-size:16px; font-weight:650; }
+    .note { fill:var(--muted); font-size:13px; }
+    .state { fill:var(--accent); font-size:13px; }
+    .box { fill:var(--panel); stroke:var(--rule); stroke-width:1; }
+    .flow { fill:none; stroke:var(--line); stroke-width:1.3; }
+    .arrow { fill:none; stroke:var(--line); stroke-width:1.3; stroke-linejoin:round; }
+  </style>
+  <rect width="800" height="560" fill="var(--bg)"/>
+  <text class="heading" x="24" y="35">The layers</text>
+  <text class="note" x="24" y="59">From most certain to most general</text>
+  <text x="24" y="91">Question</text>
+  <text class="note" x="190" y="91">Stops at the first layer that answers</text>
+
+  <!-- The question continues down the left; an answer leaves to the right. -->
+  <path class="flow" d="M44 100V522"/>
+  <path class="arrow" d="m40 109 4 5 4-5 m-8 70 4 5 4-5 m-8 100 4 5 4-5 m-8 66 4 5 4-5 m-8 80 4 5 4-5"/>
+  <path class="flow" d="M44 150H70 M44 234H70 M44 322H70 M44 404H70 M44 486H70"/>
+
+  <rect class="box" x="70" y="114" width="494" height="72" rx="4"/>
+  <text class="name" x="86" y="137">1. Resolved graph</text>
+  <text class="note" x="86" y="157">The embedded engine</text>
+  <text class="state" x="86" y="176">In main: praukron engine index, export</text>
+
+  <rect class="box" x="70" y="198" width="494" height="78" rx="4"/>
+  <text class="name" x="86" y="221">2. Recorded reasoning</text>
+  <text class="note" x="86" y="241">An agent reads the code and records what it found</text>
+  <text class="state" x="86" y="263">Record type: since 4.0.0; guidance planned</text>
+
+  <rect class="box" x="70" y="288" width="494" height="72" rx="4" stroke-dasharray="5 4"/>
+  <text class="name" x="86" y="311">3. Definitions</text>
+  <text class="note" x="86" y="331">tree-sitter · functions, methods, types, their lines</text>
+  <text class="state" x="86" y="350">Planned (TypeScript and Rust first)</text>
+
+  <rect class="box" x="70" y="372" width="494" height="72" rx="4"/>
+  <text class="name" x="86" y="395">4. Task-code references</text>
+  <text class="note" x="86" y="415">Recorded by Praukron when a task closes</text>
+  <text class="state" x="86" y="434">In 4.0.0 (Python symbols; files for every language)</text>
+
+  <rect class="box" x="70" y="456" width="494" height="64" rx="4"/>
+  <text class="name" x="86" y="479">5. Text search</text>
+  <text class="note" x="86" y="499">Anything by name · the user's own tools</text>
+  <text class="note" x="70" y="544">Every answer names its source.</text>
+
+  <!-- Any layer can answer, but the first answer stops the fall-through. -->
+  <path class="flow" d="M564 150H586V486H564 M564 234H586 M564 322H610 M564 404H586"/>
+  <path class="arrow" d="m604 318 6 4-6 4"/>
+  <text class="name" x="622" y="316">Answer</text>
+  <text class="note" x="622" y="337">Names its layer</text>
+
+  <path class="flow" d="M614 393H776"/>
+  <text class="name" x="614" y="419">Optional</text>
+  <text class="note" x="614" y="445">Without the graph,</text>
+  <text class="note" x="614" y="465">the lower layers</text>
+  <text class="note" x="614" y="485">still answer.</text>
+</svg>
