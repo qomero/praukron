@@ -1148,8 +1148,10 @@ panel and a bottom panel around four workspaces. The strip lists what needs you,
 split into what you can answer now and what is upcoming; the side panel shows
 whatever you select; `s`, `b`, `Shift+W` and `f` hide and show the panels. The
 page is a derived view and never authority. **Home** opens with the phase, root
-blocker and next human action. **Work** opens on the lanes, phases as columns
-and modules as bands, and keeps the full task registry, phases, dependency graph,
+blocker and next human action. The page opens on Work unless the address or your
+last visit names another workspace. **Work** opens on the lanes, phases as
+columns and modules as bands; `2` switches to the force view, which clusters
+tasks by module to analyse relations, and `1` back. Work keeps the full task registry, phases, dependency graph,
 critical path and filters. **Review** separates current owner decisions from
 future obligations, assumptions and answered items. **Audit** preserves acceptance
 evidence, governance, operations, ADRs and history. Search everything (Ctrl/Cmd+K
