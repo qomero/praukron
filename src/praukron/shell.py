@@ -588,6 +588,7 @@ LEGEND = (
     ('<path d="M11,2L17,13L5,13Z" class="lg-assumption"/>', "Assumption: triangle"),
     ('<path d="M1,8L18,8" class="lg-edge"/>', "Arrow from A to B: B depends on A"),
     ('<path d="M1,8L21,8" class="lg-gov"/>', "Dashed: governs; dotted: relied on"),
+    ('<circle cx="11" cy="8" r="6.5" class="lg-cluster"/>', "Force: a named ring holds one module's tasks"),
 )
 
 
@@ -609,7 +610,12 @@ def lanes_section(compiled: dict) -> str:
     return (
         '<section class="lanes" id="lanes" aria-labelledby="lanes-title">'
         '<div class="lanes-toolbar" role="toolbar" aria-label="Lanes">'
-        '<h2 id="lanes-title" class="lanes-title">Lanes</h2>'
+        '<h2 id="lanes-title" class="sr">Work graph</h2>'
+        '<div class="viewswitch" role="group" aria-label="View">'
+        '<button type="button" class="edge-btn" data-view="lanes" aria-pressed="true"'
+        ' title="Lanes: phases, modules and dependency order, to work (1)">Lanes</button>'
+        '<button type="button" class="edge-btn" data-view="force" aria-pressed="false"'
+        ' title="Force: tasks clustered by module, to analyse relations (2)">Force</button></div>'
         + select("lanes-phase", "Phase", [(p["id"], esc(p["id"])) for p in phases_])
         + select("lanes-module", "Module", [(m, "No module" if m == NO_MODULE else esc(m)) for m in modules])
         + select("lanes-status", "Status", [(s, esc(s)) for s in STATUSES])
@@ -619,22 +625,25 @@ def lanes_section(compiled: dict) -> str:
           '<button type="button" class="edge-btn" id="lanes-chain" aria-pressed="true">Whole chain</button>'
           '<button type="button" class="edge-btn" id="lanes-fit" title="Fit the whole graph (0)">Fit all</button>'
           '<button type="button" class="edge-btn" id="lanes-current">Current phase</button>'
+          '<span id="force-status" class="note" hidden>Laying out the graph…</span>'
           '</div>'
           '<div id="stage" class="stage" tabindex="0" role="application" aria-roledescription="graph"'
-          ' aria-label="Lanes graph" aria-describedby="stage-desc">'
+          ' aria-label="Lanes graph" aria-describedby="stage-desc" data-view="lanes">'
           '<p id="stage-desc" class="sr">Arrow keys move the selection: left to a dependency, right to what it unblocks, '
           'up and down within its module. Enter opens the record. Escape clears it. The text view in the bottom panel '
           'lists the same content.</p>'
           '<svg id="lanes-svg" aria-hidden="true" focusable="false"><defs><marker id="lanes-arrow" viewBox="0 0 10 10" refX="9" refY="5"'
           ' markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="arrowhead"/>'
-          '</marker></defs><g id="lanes-world"></g></svg>'
+          '</marker></defs><g id="lanes-world"><g id="lanes-decor"></g><g id="force-decor" display="none"></g>'
+          '<g id="graph-lines"></g><g id="graph-shapes"></g></g></svg>'
           f'<details class="legend"><summary>Legend</summary><div class="legend-grid">{legend}'
           '<span></span><span>H or D beside a task: HUMAN_VERIFIED or DELEGATE_VERIFIED</span></div></details>'
           '<div id="lanes-tip" class="tip" hidden></div></div></section>')
 
 
 KEYS = (
-    ("/", "Search"), ("1", "Work: the lanes view"), ("← →", "To a dependency, or to what the task unblocks"),
+    ("/", "Search"), ("1", "Work: the lanes view"), ("2", "Work: the force view, tasks clustered by module"),
+    ("← →", "To a dependency, or to what the task unblocks"),
     ("↑ ↓", "Previous or next in the same module"), ("Enter", "Open the record in the side panel"),
     ("Escape", "Clear the selection"), ("s", "Hide or show the side panel"), ("b", "Hide or show the bottom panel"),
     ("Shift+W", "Hide or show the waiting strip; its count stays on the handle"),
@@ -646,8 +655,8 @@ KEYS = (
 def help_dialog() -> str:
     rows = "".join(f"<dt><code>{esc(k)}</code></dt><dd>{text}</dd>" for k, text in KEYS)
     return ('<dialog id="shell-help" aria-labelledby="shell-help-title"><h2 id="shell-help-title">Keys</h2>'
-            f'<dl class="keys">{rows}</dl><p class="note">Keys work outside text fields. Panel visibility, sizes and '
-            'the workspace are remembered in this browser; without storage the page starts with its defaults.</p>'
+            f'<dl class="keys">{rows}</dl><p class="note">Keys work outside text fields. Panel visibility, sizes, '
+            'the workspace and the view are remembered in this browser; without storage the page starts with its defaults.</p>'
             '<button type="button" id="shell-help-close">Close</button></dialog>')
 
 
@@ -803,6 +812,15 @@ html.resizing { user-select: none; }
 .l-col-sub { font-size: 11px; fill: var(--muted); }
 .l-dim { opacity: .12; }
 .l-gone { display: none; }
+/* Force: the second view on the same surface and the same nodes */
+.viewswitch { display: inline-flex; gap: 0; }
+.viewswitch .edge-btn { border-radius: 0; }
+.viewswitch .edge-btn:first-child { border-radius: 6px 0 0 6px; }
+.viewswitch .edge-btn:last-child { border-radius: 0 6px 6px 0; border-left-width: 0; }
+.lg-cluster { fill: none; stroke: var(--line-strong); stroke-dasharray: 2 2; }
+.f-cluster { fill: var(--sunken); opacity: .55; stroke: var(--line); }
+.f-label { font-size: 12px; font-weight: 650; fill: var(--muted); paint-order: stroke; stroke: var(--bg);
+           stroke-width: 3px; stroke-linejoin: round; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
 .keys dd { margin: 0; }
 #shell-help { max-width: min(560px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 12px;
@@ -861,6 +879,10 @@ const shPanels = (() => {
   return base;
 })();
 function shRemember(key, value) { shPanels[key] = value; shStore(); }
+// The view Work shows: lanes, or force. Both draw the same nodes and lines.
+const SH_VIEWS = ['lanes', 'force'];
+shState.view = SH_VIEWS.includes(shPanels.view) ? shPanels.view : 'lanes';
+shState.tfs = {};
 function shClamp() {
   shPanels.sideW = Math.round(Math.max(260, Math.min(Number(shPanels.sideW) || 380, Math.max(260, innerWidth - 420))));
   shPanels.bottomH = Math.round(Math.max(120, Math.min(Number(shPanels.bottomH) || 260, Math.max(120, innerHeight - 300))));
@@ -1020,7 +1042,7 @@ function shRenderSide() {
       + shRecordLink('assumption-' + id);
   }
   if (!kind) { body.innerHTML = shSideEmpty; return; }
-  body.innerHTML = markup + '<p><button type="button" class="edge-btn" data-lanes-show="' + esc(id) + '">Show in lanes</button></p>';
+  body.innerHTML = markup + '<p><button type="button" class="edge-btn" data-lanes-show="' + esc(id) + '">Show in the graph</button></p>';
   if (kind === 'task') fillTaskCode(body.querySelector('.detail-code'), id);
 }
 function shSelect(id, options = {}) {
@@ -1061,7 +1083,11 @@ const L = { nodes: new Map(), edges: [], outE: new Map(), inE: new Map(), keys: 
 DATA.tasks.forEach(t => lAdd(t.id, 'task', t));
 DATA.decisions.forEach(d => lAdd(d.id, 'decision', d));
 DATA.assumptions.forEach(a => lAdd(a.id, 'assumption', a));
-function lAdd(id, kind, rec) { const pos = SHELL.lanes.positions[id]; if (pos) L.nodes.set(id, { id, kind, rec, pos }); }
+// Each node keeps one position per view; `pos` is the one the open view draws.
+function lAdd(id, kind, rec) {
+  const pos = SHELL.lanes.positions[id];
+  if (pos) L.nodes.set(id, { id, kind, rec, pos, at: { lanes: pos, force: null } });
+}
 function lEdge(s, t, k) {
   const key = s + '>' + t + '>' + k;
   if (!L.nodes.has(s) || !L.nodes.has(t) || L.keys.has(key)) return;
@@ -1150,8 +1176,9 @@ function lEdgePath(a, b) {
   return 'M' + a[0] + ',' + a[1] + 'C' + (a[0] + dx) + ',' + a[1] + ' ' + (b[0] - dx) + ',' + b[1] + ' ' + b[0] + ',' + b[1];
 }
 function lBuild() {
-  lWorld.textContent = '';
-  const decor = lEl('g', {}, lWorld);
+  const decor = document.getElementById('lanes-decor'), lines = document.getElementById('graph-lines');
+  const shapes = document.getElementById('graph-shapes');
+  [decor, lines, shapes].forEach(g => { g.textContent = ''; });
   SHELL.lanes.bands.forEach(b => {
     lEl('rect', { x: b.x, y: b.y, width: b.w, height: b.h, rx: 6, class: 'l-band' }, decor);
     lText(decor, b.x + 8, b.y + 15, 'l-band-label', b.id === '~none' ? 'No module' : b.id + (b.name ? ' · ' + protectedText(b.name) : ''));
@@ -1165,7 +1192,6 @@ function lBuild() {
     lEl('rect', { x: r.x, y: r.y, width: r.w, height: r.h, rx: 6, class: 'l-band' }, decor);
     lText(decor, r.x + 8, r.y + 15, 'l-row-label', labels[r.id]);
   });
-  const lines = lEl('g', {}, lWorld), shapes = lEl('g', {}, lWorld);
   L.edges.forEach(e => {
     e.el = lEl('path', { d: lEdgePath(L.nodes.get(e.s).pos, L.nodes.get(e.t).pos), class: 'l-edge ' + e.k }, lines);
     if (e.k === 'dep') e.el.setAttribute('marker-end', 'url(#lanes-arrow)');
@@ -1178,6 +1204,17 @@ function lBuild() {
   });
   shState.built = true;
   lRefresh();
+}
+// Lines follow the open view: curves left to right in the lanes, straight in
+// force, each ending short of its node so the arrowhead stays visible.
+function fEdgePath(a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], d = Math.sqrt(dx * dx + dy * dy) || 1, cut = Math.min(9, d / 2);
+  return 'M' + a[0] + ',' + a[1] + 'L' + Math.round((b[0] - dx / d * cut) * 10) / 10 + ',' + Math.round((b[1] - dy / d * cut) * 10) / 10;
+}
+function lPlace() {
+  const path = shState.view === 'force' ? fEdgePath : lEdgePath;
+  L.nodes.forEach(n => n.el.setAttribute('transform', 'translate(' + n.pos[0] + ',' + n.pos[1] + ')'));
+  L.edges.forEach(e => e.el.setAttribute('d', path(L.nodes.get(e.s).pos, L.nodes.get(e.t).pos)));
 }
 function lRefresh() {
   if (!shState.built) return;
@@ -1193,6 +1230,7 @@ function lRefresh() {
     n.el.classList.toggle('hl', Boolean(focus && focus.F.has(n.id) && n.id !== shState.sel));
     n.el.classList.toggle('sel', n.id === shState.sel);
   });
+  if (shState.view === 'force') fRefreshClusters();
   L.edges.forEach(e => {
     const a = L.nodes.get(e.s), b = L.nodes.get(e.t), inFocus = Boolean(focus && focus.E.has(e));
     const shown = e.k === 'dep' || governs || inFocus;
@@ -1229,6 +1267,11 @@ function lFrame(box, mode, maxZoom, pad) {
 function lFit() { lFrame(lBox(n => !n.gone && lPassed.get(n.id) !== false), 'all', 2, 60); }
 // The current phase: its column, from its label down to its last band.
 function lFitPhase(phase) {
+  if (shState.view === 'force') {
+    shState.fitPhase = phase;
+    const shown = n => !n.gone && lPassed.get(n.id) !== false;
+    return lFrame(lBox(n => shown(n) && n.kind === 'task' && n.rec.phase === phase), 'phase', 1.3, 80) || lFit();
+  }
   const column = SHELL.lanes.columns.find(c => c.id === phase);
   if (!column) return lFit();
   const bands = SHELL.lanes.bands.filter(b => b.phase === phase);
@@ -1264,12 +1307,14 @@ function lZoom(factor, cx, cy) {
 }
 function lEnsure() {
   if (!lVisible()) return false;
-  if (!shState.built) { lBuild(); lFitPhase(SHELL.lanes.current); if (shState.sel) lFrameFocus(); }
+  if (!shState.built) { lBuild(); shDrawView(); }
+  else if (shState.pending) { shState.pending = false; shDrawView(); }
   return true;
 }
-function shOpenLanes(id) {
+function shOpenLanes(id, view) {
   selectTab('work');
   shLayout();
+  if (view) shView(view);
   if (lEnsure() && id && shKind(id)) { shSelect(id); lFrameFocus() || lCenter(id); }
   lStage.focus();
 }
@@ -1310,10 +1355,12 @@ lStage.addEventListener('wheel', event => {
   const r = lStage.getBoundingClientRect();
   lZoom(Math.pow(1.0015, -event.deltaY), event.clientX - r.left, event.clientY - r.top);
 }, { passive: false });
+// Up and down keep the lanes order in either view, so the keys mean the same.
 function lSiblings(n) {
-  if (n.kind !== 'task') return [...L.nodes.values()].filter(x => x.kind === n.kind && !x.gone).sort((a, b) => a.pos[0] - b.pos[0] || a.pos[1] - b.pos[1]).map(x => x.id);
+  const order = (a, b) => a.at.lanes[0] - b.at.lanes[0] || a.at.lanes[1] - b.at.lanes[1];
+  if (n.kind !== 'task') return [...L.nodes.values()].filter(x => x.kind === n.kind && !x.gone).sort(order).map(x => x.id);
   return [...L.nodes.values()].filter(x => x.kind === 'task' && x.rec.module === n.rec.module && x.rec.phase === n.rec.phase)
-    .sort((a, b) => a.pos[0] - b.pos[0] || a.pos[1] - b.pos[1]).map(x => x.id);
+    .sort(order).map(x => x.id);
 }
 lStage.addEventListener('keydown', event => {
   if (event.target !== lStage || event.metaKey || event.ctrlKey || event.altKey) return;
@@ -1343,6 +1390,260 @@ document.getElementById('lanes-current').addEventListener('click', () => lFitPha
     event.currentTarget.setAttribute('aria-pressed', String(!lCheck(id)));
     lRefresh(); shRenderLists();
   }));
+
+// --- The force layout: pure and seeded --------------------------------
+// Two levels. Each module is a disc: its tasks are laid out inside it once,
+// and the discs then settle by force, pulled together by the lines between
+// their tasks and kept from overlapping. A decision or an assumption has no
+// module: it settles among the tasks it bears on, so one shared across
+// modules sits between them. Items and links are sorted first and the
+// generator is seeded: the same input gives the same positions; nothing
+// unseeded is drawn.
+function fRng(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), a | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const F_ITER = 240, F_INNER = 120, F_GAP = 46;
+function fSim(items, links) {
+  const byText = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const list = [...items].sort((a, b) => byText(a.id, b.id));
+  const N = list.length, idx = new Map(list.map((n, i) => [n.id, i]));
+  const P = new Float64Array(N * 2), rand = fRng(9);
+  const names = [...new Set(list.map(n => n.cluster).filter(c => c != null))].sort(byText);
+  const C = names.length, cIndex = new Map(names.map((c, i) => [c, i]));
+  const cl = new Int32Array(N).fill(-1), members = names.map(() => []);
+  list.forEach((n, i) => { if (n.cluster != null) { cl[i] = cIndex.get(n.cluster); members[cl[i]].push(i); } });
+  const E = links.filter(l => idx.has(l.s) && idx.has(l.t) && l.s !== l.t)
+    .map(l => ({ a: idx.get(l.s), b: idx.get(l.t), k: l.k }))
+    .sort((x, y) => x.a - y.a || x.b - y.b || byText(x.k, y.k));
+  const near = list.map(() => []);
+  E.forEach(l => { near[l.a].push(l.b); near[l.b].push(l.a); });
+  // Inside each disc: a sunflower start, then repulsion and the module's own
+  // dependency lines, held within the disc. Offsets are kept per task.
+  const OX = new Float64Array(N), OY = new Float64Array(N), R = new Float64Array(C);
+  members.forEach((m, c) => {
+    const k = m.length, r = 14 + Math.sqrt(k) * 17;
+    R[c] = r + 12;
+    m.forEach((i, j) => { const rr = r * Math.sqrt((j + 0.5) / k) * 0.9, a = j * 2.399963; OX[i] = Math.cos(a) * rr; OY[i] = Math.sin(a) * rr; });
+    const own = E.filter(l => l.k === 'dep' && cl[l.a] === c && cl[l.b] === c);
+    for (let it = 0; it < F_INNER; it++) {
+      const alpha = 1 - it / F_INNER;
+      for (let x = 0; x < k; x++) for (let y = x + 1; y < k; y++) {
+        const i = m[x], j = m[y];
+        let dx = OX[i] - OX[j], dy = OY[i] - OY[j], d2 = dx * dx + dy * dy;
+        if (d2 < 0.01) { dx = rand() - 0.5; dy = rand() - 0.5; d2 = 0.5; }
+        if (d2 > 2500) continue;
+        const f = 120 * alpha / d2;
+        OX[i] += dx * f; OY[i] += dy * f; OX[j] -= dx * f; OY[j] -= dy * f;
+      }
+      own.forEach(l => {
+        const dx = OX[l.b] - OX[l.a], dy = OY[l.b] - OY[l.a], d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const f = (d - 30) / d * 0.08 * alpha;
+        OX[l.a] += dx * f; OY[l.a] += dy * f; OX[l.b] -= dx * f; OY[l.b] -= dy * f;
+      });
+      m.forEach(i => { const d = Math.hypot(OX[i], OY[i]); if (d > r) { OX[i] *= r / d; OY[i] *= r / d; } });
+    }
+  });
+  // Between discs: how many lines join two modules, directly or through one
+  // decision or assumption they share.
+  const W = new Map(), wkey = (c, d) => c < d ? c * C + d : d * C + c;
+  const join = (c, d, w) => { if (c >= 0 && d >= 0 && c !== d) W.set(wkey(c, d), (W.get(wkey(c, d)) || 0) + w); };
+  E.forEach(l => join(cl[l.a], cl[l.b], 1));
+  for (let i = 0; i < N; i++) {
+    if (cl[i] >= 0) continue;
+    const cs = [...new Set(near[i].map(j => cl[j]).filter(c => c >= 0))].sort((x, y) => x - y);
+    for (let x = 0; x < cs.length; x++) for (let y = x + 1; y < cs.length; y++) join(cs[x], cs[y], 0.3);
+  }
+  const pairs = [...W.entries()].sort((x, y) => x[0] - y[0]).map(([key, w]) => [Math.floor(key / C), key % C, w]);
+  const X = new Float64Array(C), Y = new Float64Array(C), VX = new Float64Array(C), VY = new Float64Array(C);
+  const meanR = C ? R.reduce((s, r) => s + r, 0) / C : 1;
+  for (let c = 0; c < C; c++) { const r = meanR * 2.2 * Math.sqrt(c + 0.5), a = c * 2.399963; X[c] = Math.cos(a) * r; Y[c] = Math.sin(a) * r; }
+  const free = [];
+  for (let i = 0; i < N; i++) if (cl[i] < 0) free.push(i);
+  const jitter = free.map(() => [rand() * Math.PI * 2, 10 + rand() * 18]);
+  let it = 0;
+  function place() {
+    for (let i = 0; i < N; i++) if (cl[i] >= 0) { P[i * 2] = X[cl[i]] + OX[i]; P[i * 2 + 1] = Y[cl[i]] + OY[i]; }
+    let x1 = 0, y1 = 0;
+    for (let c = 0; c < C; c++) { x1 = Math.max(x1, Math.abs(X[c]) + R[c]); y1 = Math.max(y1, Math.abs(Y[c]) + R[c]); }
+    free.forEach((i, f) => {
+      const at = near[i].filter(j => cl[j] >= 0);
+      const [a, r] = jitter[f];
+      if (at.length) {
+        P[i * 2] = at.reduce((s, j) => s + P[j * 2], 0) / at.length + Math.cos(a) * r;
+        P[i * 2 + 1] = at.reduce((s, j) => s + P[j * 2 + 1], 0) / at.length + Math.sin(a) * r;
+      } else { P[i * 2] = Math.cos(a) * (x1 + 60); P[i * 2 + 1] = Math.sin(a) * (y1 + 60); }
+    });
+  }
+  function tick() {
+    if (it >= F_ITER) return true;
+    const alpha = 1 - it / F_ITER;
+    for (let c = 0; c < C; c++) for (let d = c + 1; d < C; d++) {
+      let dx = X[d] - X[c], dy = Y[d] - Y[c], dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 0.01) { dx = rand() - 0.5; dy = rand() - 0.5; dist = 0.5; }
+      const gap = R[c] + R[d] + F_GAP;
+      let f = -meanR * meanR * 0.4 * alpha / (dist * dist);
+      if (dist < gap) f -= (gap - dist) * 0.25;
+      VX[c] += dx / dist * f; VY[c] += dy / dist * f; VX[d] -= dx / dist * f; VY[d] -= dy / dist * f;
+    }
+    pairs.forEach(([c, d, w]) => {
+      const dx = X[d] - X[c], dy = Y[d] - Y[c], dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const f = Math.max(0, dist - (R[c] + R[d] + F_GAP)) / dist * Math.min(1, w / 4) * 0.05 * alpha;
+      VX[c] += dx * f; VY[c] += dy * f; VX[d] -= dx * f; VY[d] -= dy * f;
+    });
+    for (let c = 0; c < C; c++) {
+      VX[c] -= X[c] * 0.006 * alpha; VY[c] -= Y[c] * 0.006 * alpha;
+      X[c] += VX[c] * 0.5; Y[c] += VY[c] * 0.5; VX[c] *= 0.6; VY[c] *= 0.6;
+    }
+    // Near rest, discs that still overlap are moved apart directly.
+    if (alpha < 0.25) for (let c = 0; c < C; c++) for (let d = c + 1; d < C; d++) {
+      const dx = X[d] - X[c], dy = Y[d] - Y[c], dist = Math.sqrt(dx * dx + dy * dy) || 1, gap = R[c] + R[d] + F_GAP / 2;
+      if (dist >= gap) continue;
+      const m = (gap - dist) / dist / 2;
+      X[c] -= dx * m; Y[c] -= dy * m; X[d] += dx * m; Y[d] += dy * m;
+    }
+    it += 1;
+    return it >= F_ITER;
+  }
+  const out = target => {
+    place();
+    list.forEach((n, i) => {
+      const p = target.get(n.id);
+      if (p) { p[0] = Math.round(P[i * 2] * 10) / 10; p[1] = Math.round(P[i * 2 + 1] * 10) / 10; }
+    });
+  };
+  return { tick, place: out, get done() { return it >= F_ITER; }, get ticks() { return it; } };
+}
+
+// --- The force view: a second renderer over the lanes' nodes and lines --
+// Nothing is laid out before the view first opens. Then the layout runs a
+// slice per frame, so the page stays usable, and ends by itself; a reader who
+// prefers reduced motion gets it computed to rest and drawn once.
+const FV = { sim: null, at: null, ms: null, compute: 0, frames: 0, clusters: [] };
+const fDecor = document.getElementById('force-decor'), fStatus = document.getElementById('force-status');
+const shReduced = () => Boolean(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+const fModuleName = Object.fromEntries(SHELL.lanes.bands.map(b => [b.id, b.name]));
+function fStart() {
+  if (FV.sim) return;
+  const t0 = performance.now();
+  FV.at = new Map();
+  L.nodes.forEach(n => { n.at.force = [0, 0]; FV.at.set(n.id, n.at.force); n.pos = n.at.force; });
+  FV.sim = fSim([...L.nodes.values()].map(n => ({ id: n.id, cluster: n.kind === 'task' ? (n.rec.module || '~none') : null })), L.edges);
+  // A slice runs for at most `budget` milliseconds and `most` steps, so even a
+  // small graph moves over a few frames before it rests.
+  const slice = (budget, most) => {
+    const s = performance.now();
+    let done = FV.sim.done, steps = 0;
+    while (!done) { done = FV.sim.tick(); steps += 1; if (steps >= most || performance.now() - s > budget) break; }
+    FV.compute += performance.now() - s;
+    FV.sim.place(FV.at);
+    return done;
+  };
+  const finish = () => {
+    FV.ms = Math.round(performance.now() - t0);
+    lStage.dataset.settledMs = String(FV.ms);
+    lStage.dataset.computeMs = String(Math.round(FV.compute));
+    fStatus.hidden = true;
+    fDraw();
+  };
+  if (shReduced()) { slice(Infinity, Infinity); finish(); return; }
+  fStatus.hidden = false;
+  FV.sim.place(FV.at);
+  fDraw();
+  // When the browser takes long between frames (a large graph to paint),
+  // animating would hold the page: the layout then finishes at once and is
+  // drawn once more, at rest.
+  // The first frame also paints the switch of view, so it is not counted.
+  let before = performance.now(), seen = 0;
+  const frame = () => {
+    const now = performance.now(), heavy = seen++ > 0 && now - before > 60;
+    const done = heavy ? slice(Infinity, Infinity) : slice(12, 16);
+    before = performance.now();
+    if (done) finish(); else { fDraw(); requestAnimationFrame(frame); }
+  };
+  requestAnimationFrame(frame);
+}
+function fDraw() {
+  FV.frames += 1;
+  if (shState.view !== 'force') return;
+  lPlace();
+  fClusters();
+  fRefreshClusters();
+  if (shState.fit === 'all') lFit();
+  else if (shState.fit === 'focus') lFrameFocus();
+  else if (shState.fit === 'phase') lFitPhase(shState.fitPhase);
+}
+// One named circle per module, around its tasks.
+function fClusters() {
+  const groups = new Map();
+  L.nodes.forEach(n => {
+    if (n.kind !== 'task') return;
+    const key = n.rec.module || '~none';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(n);
+  });
+  if (FV.clusters.length !== groups.size) {
+    fDecor.textContent = '';
+    FV.clusters = [...groups.keys()].sort().map(id => ({
+      id, members: groups.get(id), ring: lEl('circle', { class: 'f-cluster' }, fDecor),
+      label: lText(fDecor, 0, 0, 'f-label', id === '~none' ? 'No module' : id + (fModuleName[id] ? ' · ' + protectedText(fModuleName[id]) : '')),
+    }));
+    FV.clusters.forEach(c => c.label.setAttribute('text-anchor', 'middle'));
+  }
+  FV.clusters.forEach(c => {
+    const xs = c.members.map(n => n.pos[0]), ys = c.members.map(n => n.pos[1]);
+    const x = xs.reduce((a, b) => a + b, 0) / xs.length, y = ys.reduce((a, b) => a + b, 0) / ys.length;
+    const r = Math.max(...c.members.map(n => Math.hypot(n.pos[0] - x, n.pos[1] - y))) + 16;
+    c.x = Math.round(x); c.y = Math.round(y); c.r = Math.round(r);
+    c.ring.setAttribute('cx', c.x); c.ring.setAttribute('cy', c.y); c.ring.setAttribute('r', c.r);
+    c.label.setAttribute('x', c.x); c.label.setAttribute('y', c.y - c.r - 5);
+  });
+}
+// A module's circle fades with its tasks, as the lanes fade a band's nodes.
+function fRefreshClusters() {
+  FV.clusters.forEach(c => {
+    const dim = c.members.every(n => n.dim || n.gone);
+    c.ring.classList.toggle('l-dim', dim); c.label.classList.toggle('l-dim', dim);
+  });
+}
+// Draw the open view on the built graph: positions, lines, decor, framing.
+function shDrawView() {
+  const view = shState.view, force = view === 'force';
+  if (force) fStart();
+  L.nodes.forEach(n => { n.pos = n.at[view]; });
+  document.getElementById('lanes-decor').setAttribute('display', force ? 'none' : 'inline');
+  fDecor.setAttribute('display', force ? 'inline' : 'none');
+  lPlace();
+  if (force) fClusters();
+  lRefresh();
+  const saved = shState.tfs[view];
+  if (shState.sel && lFrameFocus()) return;
+  if (saved) { shState.tf = { ...saved.tf }; shState.fitPhase = saved.fitPhase; lApply(saved.fit); if (saved.fit === 'all') lFit(); return; }
+  if (force) lFit(); else lFitPhase(SHELL.lanes.current);
+}
+function shView(name) {
+  if (!SH_VIEWS.includes(name)) return;
+  const was = shState.view;
+  if (shState.built) shState.tfs[was] = { tf: { ...shState.tf }, fit: shState.fit, fitPhase: shState.fitPhase };
+  shState.view = name;
+  shRemember('view', name);
+  shViewControls();
+  if (!shState.built || !lVisible()) { if (shState.built) shState.pending = true; return; }
+  shState.pending = false;
+  if (was !== name) { shDrawView(); shSay(name === 'force' ? 'Force view: tasks clustered by module.' : 'Lanes view.'); }
+  shRenderLists();
+}
+function shViewControls() {
+  document.querySelectorAll('[data-view]').forEach(b => { if (b !== lStage) b.setAttribute('aria-pressed', String(b.dataset.view === shState.view)); });
+  lStage.dataset.view = shState.view;
+  lStage.setAttribute('aria-label', shState.view === 'force' ? 'Force graph' : 'Lanes graph');
+}
+document.querySelectorAll('.viewswitch [data-view]').forEach(b => b.addEventListener('click', () => shView(b.dataset.view)));
 
 // The workspace scrolls in the middle; the lanes take its height, so the
 // graph takes the space a hidden panel frees. A resize repeats the framing.
@@ -1433,7 +1734,8 @@ document.addEventListener('keydown', event => {
   if (document.querySelector('dialog[open]')) return;
   const keys = {
     s: () => shToggle('side'), b: () => shToggle('bottom'), W: () => shToggle('waiting'), f: shFocusMode,
-    '1': () => shOpenLanes(shState.sel), w: shNextWaiting, '?': () => shHelp.showModal(),
+    '1': () => shOpenLanes(shState.sel, 'lanes'), '2': () => shOpenLanes(shState.sel, 'force'),
+    w: shNextWaiting, '?': () => shHelp.showModal(),
     Escape: () => { if (!shState.sel) return false; shSelect(null); },
   };
   const run = keys[event.key];
@@ -1443,6 +1745,7 @@ document.addEventListener('keydown', event => {
 
 // --- Start ---------------------------------------------------------------
 shApply();
+shViewControls();
 window.shReady = true;
 lEnsure();
 """

@@ -22,6 +22,28 @@ Python; the same chronicle gives the same positions. The view opens framed on
 the current phase. Status, waiting and kind are told by shape and word, not by
 colour alone (see the Legend).
 
+**Force** is the second view of Work, to analyse relations rather than to
+work through them: which modules lean on which, and which decisions and
+assumptions are shared across modules. Tasks are clustered by module, each
+cluster a named circle; a decision or an assumption has no module and settles
+among the tasks it bears on, so one shared by several modules sits between
+them. It draws the same nodes and lines as the lanes, on the same surface: the
+same selection, filters, search, side panel and fading of what lies outside
+the selected chain, the same shapes and words for status, waiting and kind,
+the same direction marks and line styles. Lanes stay the default; the Lanes
+and Force buttons above the graph, or `1` and `2`, switch between them, and
+the chosen view is kept in this browser. The force layout is computed only
+when the view first opens, in the page, seeded so the same input gives the
+same positions. It settles over a few frames and stops by itself, and the page
+stays usable meanwhile; with reduced motion preferred it is computed to rest
+and drawn once. The text view and the relations list cover it as they cover
+the lanes.
+
+**The page opens on Work**, with the lanes, on a first visit. An address
+fragment (`#home`, `#review`) or the workspace stored from the last visit wins
+over that default; Home is one tab away, and the workspace tabs move with the
+arrow keys, `Home` and `End`.
+
 **Waiting for you** lists every recorded item that needs the owner, each once:
 open tasks with `Authority: owner` the owner has not verified, DONE owner tasks
 whose owner verification is missing, and open assumptions the owner has not
@@ -41,8 +63,8 @@ and show from a button on their edge; a hidden panel leaves a handle, and the
 strip's handle keeps its count. Focus hides all three at once and brings back
 what was shown. The side panel's left edge and the bottom panel's top edge
 resize by drag or by arrow keys. A first visit shows the strip and the side
-panel, with the bottom panel collapsed, in the system theme. Visibility, sizes
-and the last workspace are kept in this browser (`praukron-panels`); with
+panel, with the bottom panel collapsed, in the system theme. Visibility, sizes,
+the last workspace and the view are kept in this browser (`praukron-panels`); with
 storage blocked the page starts from those defaults and still works.
 
 The bottom panel holds the Review queue, the Journal, Validation, Agent grants
@@ -52,7 +74,8 @@ delegate), a Text view that lists every node under the same filters, and
 Relations, which states every line as a sentence. A skip link at the top of the
 page reaches the text view.
 
-**Keys**, outside text fields: `/` search, `1` the lanes, arrows move the
+**Keys**, outside text fields: `/` search, `1` the lanes, `2` the force view
+(`3` and `c` are reserved for later views and do nothing yet), arrows move the
 selection on the graph (left to a dependency, right to what it unblocks, up and
 down in its module), `Enter` opens the record in the side panel, `Escape`
 clears the selection, `s` the side panel, `b` the bottom panel, `Shift+W` the

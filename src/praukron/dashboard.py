@@ -2078,7 +2078,8 @@ _BOOT = """(function () {
   if (panels.waiting === false) root.className += ' hide-waiting';
   if (panels.side === false) root.className += ' hide-side';
   if (panels.bottom !== true) root.className += ' hide-bottom';
-  var tab = location.hash.slice(1).replace(/^panel-/, '').split('?')[0] || panels.tab || '';
+  // A fragment wins, then the stored workspace; a first visit opens on Work.
+  var tab = location.hash.slice(1).replace(/^panel-/, '').split('?')[0] || panels.tab || 'work';
   tab = ({overview:'home', execution:'work', graph:'work', tasks:'work', assumptions:'review',
           operations:'audit', governance:'audit', decisions:'audit'})[tab] || tab;
   var known = ['home', 'work', 'review', 'audit'];
