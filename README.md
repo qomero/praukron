@@ -543,6 +543,7 @@ T-PILOT-01 — Run the continuity pilot
 | `praukron engine status` | Optional: whether the embedded graph library is present, where it was found, and the engine commit and interface version it reports. Without one it says so and succeeds; see the guide for where it is looked for. |
 | `praukron engine index` | Index this repository with the graph library into `.praukron/engine/graph.db` (derived, ignored by Git, never authority), or refresh it after edits; `--full` re-reads every file. |
 | `praukron engine export` | The whole graph, every node and edge with kinds, paths and lines and the library's own counts, as one JSON document on standard output or to `--output <file>`. |
+| `praukron engine map <task\|path\|path#symbol>` | A task's files and symbols with the engine nodes they match, the resolved edges among them and to their direct neighbours, and the edges the engine left unresolved; or the tasks and neighbours of a file or symbol. Every item names its source (`engine`, `engine-unresolved`, `reference:<Source>`). Reads the index with `sqlite3` alone, needs no library, and without an index answers from the references alone; `--json` |
 | `praukron validate` | Broken dependencies, dangling references, authority conflicts. |
 | `praukron compile` | Rebuilds `.praukron/compiled/` from the authored documents. |
 | `praukron graph` | The six Mermaid views of the same state. |

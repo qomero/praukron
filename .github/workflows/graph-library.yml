@@ -12,6 +12,7 @@ on:
     paths:
       - "native/graph/**"
       - "src/praukron/engine.py"
+      - "src/praukron/codemap.py"
       - "tests/test_engine_library.py"
       - ".github/workflows/graph-library.yml"
   workflow_dispatch:

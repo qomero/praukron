@@ -47,8 +47,11 @@ as observed references: the symbols you changed in each file it lists in
 `symbolsUnresolved` (files that are not Python), and any file the task reads,
 verifies or documents without changing it. To find a task's code, or the tasks
 of a file or symbol, run `.praukron/praukron refs <task|path|path#symbol>` or
-read `references` in `context <task>` and `retrieve <task>`. Never edit
-`CODE.md` by hand; `ref set` changes or withdraws a reference.
+read `references` in `context <task>` and `retrieve <task>`;
+`.praukron/praukron engine map <task>` adds the graph where an index exists.
+An edge it leaves unresolved on your task's symbol is unknown, not absent: read
+the code and `ref add` what you find with `"source":"agent"` and `evidence`.
+Never edit `CODE.md` by hand; `ref set` changes or withdraws a reference.
 
 When a choice has no answer in authority, follow the assumption procedure in
 `AGENTS.md` and `docs/SPEC.md` §2.4: read the packet's `policy`; resolve it

@@ -4,8 +4,7 @@
 
 Everything Praukron owns is inside `.praukron/`. `.praukron/chronicle/` is this
 repository's project chronicle, its canonical memory. `.praukron/compiled/` is
-compiled output: read it for convenience, never edit it, and never treat it as
-authority.
+compiled output: read it, never edit it, and never treat it as authority.
 
 ## Project context: read the index first
 
@@ -43,8 +42,8 @@ report the inconsistency rather than reconciling it silently. A packet's
 `problems` lists references that do not resolve.
 `.praukron/chronicle/README.md` explains how the records work.
 
-The repository ships a deterministic tool. Use it rather than re-deriving state
-by reading files:
+Use the repository's deterministic tool rather than re-deriving state by
+reading files:
 
 ```sh
 .praukron/praukron status          # phase, progress, ready, blocked, gates, next
@@ -59,8 +58,8 @@ by reading files:
 
 After a direct edit of a chronicle file, run `validate`, then `compile &&
 graph`, which refresh everything an agent reads. Only `praukron dashboard`
-renders the page (ADR-086); `compile` and every write mark an existing page as
-out of date, so run `dashboard` only when a person needs the static page. The tool writes only: the generated `INDEX.md`;
+renders the page (ADR-086); `compile` and every write mark an existing page
+out of date; run `dashboard` only when a person needs the page. The tool writes only: the generated `INDEX.md`;
 `respond` (the owner's responses); `archive plan|apply|restore <phase>` (owner
 only: moves a COMPLETE phase's, or P-NONE's, eligible closed records, verbatim,
 into `chronicle/archive/<phase>/`, where they stay authority and the write
@@ -136,7 +135,7 @@ touch (`Scope: planned`). In Git, setting a claimed task `DONE` records its
 changed files and Python symbols; read the reply's `capture`, report a skip,
 then `ref add` symbols of its `symbolsUnresolved` files, and files read,
 verified or documented unchanged. `praukron refs` and packet `references` map
-tasks to code.
+tasks to code; `engine map <task>` adds the graph.
 
 ## Assumptions and the owner
 
